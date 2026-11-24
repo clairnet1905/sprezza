@@ -56,7 +56,10 @@ export async function cutout(blob, onProgress = () => {}) {
   const bmp = await createImageBitmap(png);
   const src = document.createElement('canvas'); src.width = bmp.width; src.height = bmp.height;
   const sctx = src.getContext('2d'); sctx.drawImage(bmp, 0, 0);
-  const box = alphaBounds(sctx.getImageData(0, 0, src.width, src.height).data, src.width, src.height);
+  const img = sctx.getImageData(0, 0, src.width, src.height);
+  for (let i = 3; i < img.data.length; i += 4) if (img.data[i] < 40) img.data[i] = 0; // supprime le halo presque transparent
+  sctx.putImageData(img, 0, 0);
+  const box = alphaBounds(img.data, src.width, src.height);
   if (!box || box.w * box.h < src.width * src.height * 0.02) throw new Error('Aucun vêtement net détecté : essayez une photo mieux éclairée, sur un fond uni');
   const render = (maxH) => {
     const H = maxH; const W = Math.round(H * 3 / 4);
