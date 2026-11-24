@@ -18,6 +18,7 @@ import { escapeHTML, html, safeUrl } from '../src/lib/html.js';
 import { resetForBase } from '../src/features/colors.js';
 import { mannequinSVG } from '../src/components/mannequin.js';
 import { evaluateManual } from '../src/features/analysis.js';
+import { SyncService, shouldSync, remoteWins } from '../src/services/sync.js';
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -222,6 +223,61 @@ test('Export/import : validation, conflits et doublons', () => {
   eq([p.conflicts, p.dupes, p.newRows], [1, 1, 1]);
   throws(() => validateExport({ app: 'autre', schemaVersion: 1, stores: {} }));
   throws(() => validateExport({ app: 'style-studio', schemaVersion: 99, stores: {} }));
+});
+
+// ---------------- Synchronisation (faux serveur Supabase, deux appareils réels IndexedDB)
+test('Synchro : règles de sélection (profil enfant, réglages locaux, jetons)', () => {
+  ok(shouldSync('garments', { id: 'g' })); ok(!shouldSync('kv', { key: 'sync:session' })); ok(!shouldSync('kv', { key: 'weather:p:0' })); ok(shouldSync('kv', { key: 'capsule:p' }));
+  ok(!shouldSync('photos', { id: 'x', profileId: 'kid' }, { childProfileIds: ['kid'] }), 'photo enfant envoyée');
+  ok(!shouldSync('photos', { id: 'x' }, { photos: false })); ok(remoteWins({ updatedAt: '2026-01-01' }, { updatedAt: '2026-02-01' })); ok(!remoteWins({ updatedAt: '2026-03-01' }, { updatedAt: '2026-02-01' }));
+});
+test('Synchro : ajout, photo, modification et suppression propagés entre iPhone et ordinateur', async () => {
+  const rows = new Map(); const files = new Map(); let tick = 0;
+  const realFetch = window.fetch;
+  const J = (d, status = 200) => new Response(JSON.stringify(d), { status, headers: { 'Content-Type': 'application/json' } });
+  window.fetch = async (input, init = {}) => {
+    const url = new URL(typeof input === 'string' ? input : input.url);
+    if (url.hostname !== 'test.supabase.co') return realFetch(input, init);
+    const m = init.method || 'GET'; const p = url.pathname;
+    ok(init.headers?.apikey === 'anon-key-0123456789abcdefghij', 'apikey manquante');
+    if (p === '/auth/v1/token') return J({ access_token: 'tok', refresh_token: 'ref', expires_in: 3600, user: { id: 'u1', email: 'moi@test.fr' } });
+    if (p !== '/auth/v1/token') ok(init.headers?.Authorization === 'Bearer tok', 'jeton manquant');
+    if (p === '/rest/v1/sprezza_records' && m === 'POST') {
+      for (const r of JSON.parse(init.body)) { ok(r.user_id === 'u1'); ok(!JSON.stringify(r.data).includes('"blob"'), 'blob envoyé dans la table'); rows.set(`${r.store}|${r.key}`, { ...r, synced_at: new Date(Date.UTC(2026, 0, 1) + ++tick * 1000).toISOString() }); }
+      return new Response(null, { status: 201 });
+    }
+    if (p === '/rest/v1/sprezza_records') {
+      const since = url.searchParams.get('synced_at').replace('gt.', ''); const off = +url.searchParams.get('offset');
+      return J([...rows.values()].filter((r) => r.synced_at > since).sort((a, b) => a.synced_at.localeCompare(b.synced_at)).slice(off, off + 500));
+    }
+    if (p.startsWith('/storage/v1/object/authenticated/sprezza-photos/')) { const b = files.get(p.split('sprezza-photos/')[1]); return b ? new Response(b) : new Response('', { status: 404 }); }
+    if (p.startsWith('/storage/v1/object/sprezza-photos/') && m === 'POST') { files.set(p.split('sprezza-photos/')[1], init.body); return J({ Key: p }); }
+    if (p === '/storage/v1/object/sprezza-photos' && m === 'DELETE') { JSON.parse(init.body).prefixes.forEach((k) => files.delete(k)); return J([]); }
+    return J({ message: 'route inconnue ' + p }, 404);
+  };
+  const names = ['sync-a-' + Date.now(), 'sync-b-' + Date.now()];
+  try {
+    const [ra, rb] = [await Repository.create(names[0]), await Repository.create(names[1])];
+    const [A, B] = [new SyncService(ra), new SyncService(rb)];
+    for (const S of [A, B]) { await S.saveConfig({ url: 'https://test.supabase.co', anonKey: 'anon-key-0123456789abcdefghij' }); await S.signIn('moi@test.fr', 'motdepasse'); }
+    await ra.put('garments', { id: 'g1', profileId: 'p', name: 'Pantalon écru', category: 'bas', photoIds: ['ph1'] });
+    await ra.put('photos', { id: 'ph1', ownerId: 'g1', profileId: 'p', blob: new Blob(['IMG'], { type: 'image/jpeg' }), thumb: new Blob(['T'], { type: 'image/jpeg' }) });
+    await ra.kvSet('capsule:p', { level: 2, items: { 1: { owned: true } } });
+    await A.sync();
+    await B.sync();
+    eq((await rb.get('garments', 'g1'))?.name, 'Pantalon écru', 'fiche non reçue sur B');
+    eq(await (await rb.get('photos', 'ph1')).blob.text(), 'IMG', 'photo non reçue');
+    eq((await rb.kvGet('capsule:p')).level, 2, 'capsule non reçue');
+    await new Promise((r) => setTimeout(r, 5));
+    const g = await rb.get('garments', 'g1'); await rb.put('garments', { ...g, name: 'Pantalon écru retouché' });
+    await B.sync(); await A.sync();
+    eq((await ra.get('garments', 'g1')).name, 'Pantalon écru retouché', 'modification non propagée');
+    await ra.remove('garments', 'g1'); await ra.remove('photos', 'ph1');
+    await A.sync(); await B.sync();
+    eq(await rb.get('garments', 'g1'), undefined, 'suppression non propagée'); eq(await rb.get('photos', 'ph1'), undefined);
+    ok(!files.has('u1/ph1.jpg'), 'photo non supprimée en ligne');
+    ra.close(); rb.close();
+  } finally { window.fetch = realFetch; names.forEach((n) => indexedDB.deleteDatabase(n)); }
 });
 
 // ---------------- Exécution

@@ -14,7 +14,7 @@ import { navigate } from '../app.js';
 export async function render(main) {
   const ai = await aiStatus({ force: true });
   const counts = {};
-  for (const s of Object.keys(STORES)) counts[s] = (await store.repo.all(s)).length;
+  for (const s of Object.keys(STORES)) if (s !== 'tombstones') counts[s] = (await store.repo.all(s)).length;
   const est = navigator.storage?.estimate ? await navigator.storage.estimate().catch(() => null) : null;
   const persisted = navigator.storage?.persisted ? await navigator.storage.persisted().catch(() => false) : false;
   const c = store.profile.consents || {};
@@ -36,6 +36,7 @@ export async function render(main) {
         <li>IA : uniquement si un serveur SPREZZA avec clé est configuré ; la clé n'est jamais dans le navigateur.</li>
         <li>Aucune télémétrie, aucune publicité, aucun partage public. Liens externes ouverts sans référent.</li>
         <li>Cette application ne prétend pas à une conformité RGPD totale sans audit ; documenter traitements et fournisseurs avant toute mise en ligne publique.</li></ul></details></section>
+    <section class="card" style="margin-top:14px" id="sync"><h2 style="margin-top:0">Synchronisation iPhone ↔ ordinateur</h2><div id="syncbox"><span class="loader"></span></div></section>
     <section class="card" style="margin-top:14px"><h2 style="margin-top:0">Sauvegarde</h2>
       <label class="check"><input type="checkbox" id="withphotos"> Exporter aussi les photos (archive séparée, privée)</label>
       <div class="btn-row" style="margin-top:8px"><button class="btn btn-primary" id="export">${icon('download')} Exporter mes données (.json)</button><label class="btn" for="import">${icon('upload')} Importer une sauvegarde</label><input id="import" type="file" accept="application/json,.json" multiple class="sr-only"></div>
@@ -52,6 +53,7 @@ export async function render(main) {
       <button class="btn btn-danger" id="wipe">${icon('trash')} Tout supprimer</button></section>`);
   const $ = (s) => main.querySelector(s);
   $('#theme').onchange = (e) => saveSettings({ theme: e.target.value });
+  renderSync(main.querySelector('#syncbox'));
   main.querySelectorAll('[data-consent]').forEach((cb) => cb.onchange = async () => { await saveProfile({ ...store.profile, consents: { ...store.profile.consents, [cb.dataset.consent]: cb.checked } }); toast(cb.checked ? 'Consentement enregistré' : 'Consentement retiré'); });
   $('#export').onclick = () => exportData($('#withphotos').checked);
   $('#import').onchange = (e) => importData([...e.target.files], main);
@@ -77,7 +79,8 @@ async function exportData(withPhotos) {
     if (s === 'photos') continue;
     stores[s] = await store.repo.all(s);
   }
-  stores.kv = stores.kv.filter((r) => !r.key.startsWith('weather:'));
+  stores.kv = stores.kv.filter((r) => !r.key.startsWith('weather:') && !r.key.startsWith('sync:')); // jamais de jeton de session dans un export
+  delete stores.tombstones;
   const stamp = new Date().toISOString().slice(0, 10);
   downloadFile(`sprezza-sauvegarde-${stamp}.json`, JSON.stringify({ app: 'sprezza', schemaVersion: SCHEMA_VERSION, seedVersion: SEED_VERSION, exportedAt: new Date().toISOString(), photosIncluded: false, stores }, null, 2));
   if (withPhotos) {
@@ -140,3 +143,70 @@ export async function loadDemo() {
   }
   await store.repo.kvSet(`capsule:${pid()}`, cap);
 }
+
+// ------------------------------------------------------------ Synchronisation (Supabase)
+async function renderSync(box) {
+  const sync = store.sync;
+  const cfg = await sync.config();
+  const session = await sync.session();
+  const prefs = await sync.prefs();
+  const last = await store.repo.kvGet('sync:lastSync', null);
+  if (!cfg.configured) {
+    setHTML(box, html`<p class="small">Pour retrouver le même dressing sur l'iPhone et l'ordinateur, SPREZZA utilise <strong>Supabase</strong> (offre gratuite). Une seule mise en place : créer le projet, exécuter le script <span class="mono">supabase/setup.sql</span>, puis coller ici l'adresse du projet et sa clé publique « anon ».</p>
+      <form id="cfgf" class="form-grid"><div class="field span-2"><label for="surl">Adresse du projet (Project URL)</label><input id="surl" type="url" placeholder="https://xxxx.supabase.co" value="${cfg.url}"></div>
+      <div class="field span-2"><label for="skey">Clé publique « anon » (jamais la clé service_role)</label><input id="skey" type="text" autocomplete="off" value="${cfg.anonKey}"></div>
+      <button class="btn btn-primary" type="submit">Enregistrer la configuration</button></form><p class="small" id="cfgerr" role="alert"></p>`);
+    box.querySelector('#cfgf').onsubmit = async (e) => {
+      e.preventDefault();
+      const url = box.querySelector('#surl').value.trim(); const anonKey = box.querySelector('#skey').value.trim();
+      if (!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/.test(url)) { box.querySelector('#cfgerr').textContent = 'Adresse attendue : https://xxxx.supabase.co'; return; }
+      if (/service_role/.test(atobSafe(anonKey))) { box.querySelector('#cfgerr').textContent = 'Ceci est la clé service_role : elle ne doit jamais être utilisée dans l\'app. Prenez la clé « anon public ».'; return; }
+      await sync.saveConfig({ url, anonKey }); renderSync(box);
+    };
+    return;
+  }
+  if (!session) {
+    setHTML(box, html`<p class="small">Créez votre compte SPREZZA une fois (sur n'importe quel appareil), puis connectez-vous avec le même e-mail sur l'iPhone et l'ordinateur. Vos données sont protégées par des règles d'accès : personne d'autre ne peut les lire.</p>
+      <form id="authf" class="form-grid"><div class="field"><label for="semail">E-mail</label><input id="semail" type="email" autocomplete="username" required></div>
+      <div class="field"><label for="spass">Mot de passe (8 caractères minimum)</label><input id="spass" type="password" autocomplete="current-password" minlength="8" required></div>
+      <label class="check span-2"><input type="checkbox" id="sphotos" checked> Synchroniser aussi les photos des vêtements (stockage privé ; jamais celles d'un profil enfant)</label>
+      <div class="btn-row span-2"><button class="btn btn-primary" type="submit" data-mode="in">Se connecter</button><button class="btn" type="submit" data-mode="up">Créer mon compte</button></div></form>
+      <p class="small" id="autherr" role="alert" aria-live="polite"></p>
+      <details class="disclosure"><summary>Configuration</summary><p class="small muted">Projet : ${cfg.url}</p><button class="btn btn-sm btn-ghost" id="resetcfg">Modifier la configuration</button></details>`);
+    let mode = 'in';
+    box.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => { mode = b.dataset.mode; }));
+    box.querySelector('#resetcfg').onclick = async () => { await store.repo.remove('kv', 'sync:config', { tombstone: false }); renderSync(box); };
+    box.querySelector('#authf').onsubmit = async (e) => {
+      e.preventDefault();
+      const email = box.querySelector('#semail').value.trim(); const pass = box.querySelector('#spass').value;
+      const out = box.querySelector('#autherr'); out.textContent = 'Un instant…';
+      try {
+        await sync.savePrefs({ ...prefs, photos: box.querySelector('#sphotos').checked });
+        if (mode === 'up') {
+          const r = await sync.signUp(email, pass);
+          if (!r.confirmed) { out.textContent = 'Compte créé. Ouvrez l\'e-mail de confirmation (sur n\'importe quel appareil), puis revenez ici et cliquez « Se connecter ».'; return; }
+        } else await sync.signIn(email, pass);
+        out.textContent = 'Connecté. Première synchronisation…';
+        await sync.sync({ reason: 'connexion' });
+        renderSync(box);
+      } catch (err) { out.textContent = err.message; }
+    };
+    return;
+  }
+  setHTML(box, html`<p>Connecté : <strong>${session.user.email}</strong></p>
+    <p class="small muted" id="syncmsg">${sync.state.message || (last ? `Dernière synchronisation : ${new Date(last).toLocaleString('fr-FR')}` : 'Pas encore synchronisé')}</p>
+    <label class="check"><input type="checkbox" id="sauto" ${prefs.auto ? raw('checked') : ''}> Synchronisation automatique (ouverture de l'app, retour sur l'app, après chaque modification)</label>
+    <label class="check"><input type="checkbox" id="sphotos2" ${prefs.photos ? raw('checked') : ''}> Synchroniser les photos (stockage privé)</label>
+    <div class="btn-row" style="margin-top:10px"><button class="btn btn-primary" id="snow">${icon('rotate')} Synchroniser maintenant</button><button class="btn" id="sout">Se déconnecter</button></div>
+    <details class="disclosure" style="margin-top:10px"><summary>Données en ligne</summary><p class="small">Supprime toutes vos données et photos stockées en ligne. Les données de cet appareil restent intactes.</p><button class="btn btn-sm btn-danger" id="sdel">${icon('trash')} Supprimer mes données en ligne</button></details>`);
+  const unsub = sync.onState((st) => { const m = box.querySelector('#syncmsg'); if (m) m.textContent = st.message || m.textContent; else unsub(); });
+  box.querySelector('#sauto').onchange = async (e) => { await sync.savePrefs({ ...(await sync.prefs()), auto: e.target.checked }); };
+  box.querySelector('#sphotos2').onchange = async (e) => { await sync.savePrefs({ ...(await sync.prefs()), photos: e.target.checked }); toast(e.target.checked ? 'Les photos seront synchronisées' : 'Les photos restent sur chaque appareil'); };
+  box.querySelector('#snow').onclick = async () => { try { await sync.sync(); toast(sync.state.message); } catch (err) { toast(err.message); } renderSync(box); };
+  box.querySelector('#sout').onclick = async () => { await sync.signOut(); renderSync(box); };
+  box.querySelector('#sdel').onclick = async () => {
+    if (!(await confirmDialog({ title: 'Supprimer mes données en ligne ?', message: 'Toutes les fiches et photos stockées sur Supabase seront définitivement supprimées. Vos appareils gardent leurs données locales ; une prochaine synchronisation les renverra en ligne.', confirmLabel: 'Supprimer en ligne', danger: true }))) return;
+    try { await sync.deleteRemote(); toast('Données en ligne supprimées'); await sync.signOut(); renderSync(box); } catch (err) { toast(err.message); }
+  };
+}
+function atobSafe(jwt) { try { return atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')); } catch { return ''; } }

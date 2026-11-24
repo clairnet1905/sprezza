@@ -3,7 +3,7 @@
 // adaptateur cloud facultatif (PostgreSQL/Supabase + RLS) sans toucher aux écrans.
 
 export const SCHEMA_VERSION = 1;
-export const DB_VERSION = 1;
+export const DB_VERSION = 2; // v2 : ajout de « tombstones » (suppressions à synchroniser)
 export const STORES = {
   kv: { keyPath: 'key' },
   profiles: { keyPath: 'id' },
@@ -15,6 +15,7 @@ export const STORES = {
   wishlist: { keyPath: 'id', indexes: ['profileId'] },
   palettes: { keyPath: 'id', indexes: ['profileId'] },
   analyses: { keyPath: 'id', indexes: ['profileId'] },
+  tombstones: { keyPath: 'id' },
 };
 
 function promisify(req) {
@@ -70,10 +71,11 @@ export class Repository {
     else rows = await promisify(this.db.transaction(store).objectStore(store).getAll());
     return filter ? rows.filter(filter) : rows;
   }
-  async put(store, value, { silent = false } = {}) {
+  /** raw : enregistrement tel quel (données reçues de la synchronisation, sans modifier dates ni révision). */
+  async put(store, value, { silent = false, raw = false } = {}) {
     const now = new Date().toISOString();
     const rec = { ...value };
-    if (store !== 'kv') {
+    if (store !== 'kv' && store !== 'tombstones' && !raw) {
       rec.createdAt = rec.createdAt || now;
       rec.updatedAt = now;
       rec.rev = (rec.rev || 0) + 1;
@@ -92,14 +94,16 @@ export class Repository {
     for (const v of values) await this.put(store, v, { silent: true });
     this.emit(store, 'bulk', null);
   }
-  async remove(store, key) {
+  /** Supprime et garde une trace datée (tombstone) pour propager la suppression aux autres appareils. */
+  async remove(store, key, { tombstone = true, silent = false } = {}) {
+    if (tombstone && store !== 'tombstones') await this.put('tombstones', { id: `${store}:${key}`, store, key, deletedAt: new Date().toISOString() }, { silent: true });
     if (this.isMemory) this.db.data[store].delete(key);
     else {
       const tx = this.db.transaction(store, 'readwrite');
       tx.objectStore(store).delete(key);
       await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
     }
-    this.emit(store, 'remove', key);
+    if (!silent) this.emit(store, 'remove', key);
   }
   async clear(store) {
     if (this.isMemory) this.db.data[store].clear();

@@ -86,8 +86,29 @@ async function boot() {
   window.addEventListener('hashchange', route);
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => import('./state.js').then((m) => m.applyTheme()));
   route();
+  setupSync();
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch((e) => console.warn('Service worker non enregistré', e));
   }
+}
+
+/** Indicateur discret dans l'en-tête et rafraîchissement de l'écran après réception de données. */
+function setupSync() {
+  const sync = store.sync;
+  const box = document.getElementById('topbar-actions');
+  sync.onState((st) => {
+    if (!st.status || st.status === 'idle') { box.innerHTML = ''; return; }
+    const label = { syncing: 'Synchronisation…', ok: 'Synchronisé', error: 'Synchro en échec', offline: 'Hors ligne' }[st.status] || '';
+    setHTML(box, html`<a href="#/settings" class="tag ${st.status === 'ok' ? 'tag-ok' : st.status === 'error' ? 'tag-danger' : ''}" title="${st.message}">${st.status === 'syncing' ? raw('<span class="loader" style="width:12px;height:12px"></span>') : icon('rotate')} ${label}</a>`);
+  });
+  store.repo.onChange(async ({ store: s, op }) => {
+    if (s !== 'sync' || op !== 'pull') return;
+    store.profiles = await store.repo.all('profiles');
+    store.profile = store.profiles.find((p) => p.id === store.profile?.id) || store.profile;
+    const editing = /\/(new|edit|import)/.test(location.hash) || document.querySelector('.modal-backdrop');
+    if (editing) toast('Nouvelles données reçues : elles apparaîtront à la fermeture du formulaire');
+    else { route(); toast('Données mises à jour depuis vos autres appareils'); }
+  });
+  sync.startAuto();
 }
 boot();

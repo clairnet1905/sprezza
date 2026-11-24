@@ -1,6 +1,7 @@
 // État applicatif partagé : dépôt, profil actif, paramètres, URLs de photos.
 import { Repository, uid } from './repositories/db.js';
 import { IDENTITY_MIX } from './data/styles.js';
+import { SyncService } from './services/sync.js';
 
 export const store = {
   repo: null,
@@ -29,6 +30,7 @@ export function defaultProfile(kind = 'main') {
 export async function initStore() {
   // Nom de base conservé depuis « Style Studio » pour ne perdre aucune donnée existante.
   store.repo = await Repository.create('style-studio');
+  store.sync = new SyncService(store.repo);
   store.settings = await store.repo.kvGet('settings', { theme: 'system', activeProfileId: 'profile_main', onboarded: false });
   store.profiles = await store.repo.all('profiles');
   if (!store.profiles.length) {

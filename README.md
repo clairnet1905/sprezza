@@ -27,7 +27,8 @@ src/
   repositories/ IndexedDB (+ repli mémoire)
   services/     image (EXIF supprimé, compression, recadrage), weather (Open-Meteo), ai (client → /api)
 server/         server.py (statique + /api/health, /api/analyze, /api/recognize), requirements.txt
-tests/          index.html + run.js (45 tests)
+tests/          index.html + run.js (48 tests)
+supabase/       setup.sql (table + stockage photo + règles RLS)
 ```
 
 ## Lancer en local
@@ -36,7 +37,7 @@ tests/          index.html + run.js (45 tests)
 python3 server/server.py
 ```
 
-Puis ouvrir http://localhost:8000. Tests : http://localhost:8000/tests/ (résultat attendu : 45/45).
+Puis ouvrir http://localhost:8000. Tests : http://localhost:8000/tests/ (résultat attendu : 48/48).
 
 ### Activer l'IA (facultatif)
 
@@ -60,6 +61,15 @@ Une PWA doit être servie en **HTTPS** pour être installée. Deux options :
 2. **Serveur avec IA** : déployer `server/server.py` derrière un proxy HTTPS (Caddy, Nginx) ou un service type Render/Fly.io, avec `ANTHROPIC_API_KEY` en variable d'environnement. Ajouter une authentification avant toute exposition publique.
 
 Les données restent dans le navigateur de chaque appareil : utilisez **Paramètres › Exporter / Importer** pour passer de l'ordinateur à l'iPhone.
+
+## Synchronisation iPhone ↔ ordinateur (Supabase, gratuit)
+
+1. Créer un compte et un projet sur https://supabase.com (offre Free).
+2. Dans le projet : **SQL Editor › New query**, coller le contenu de `supabase/setup.sql`, puis **Run**. Le script crée la table et le stockage photo, protégés par des règles RLS : chaque compte n'accède qu'à ses propres données.
+3. **Project Settings › API** : copier la *Project URL* et la clé publique *anon*. Ne jamais utiliser la clé *service_role*.
+4. Dans SPREZZA › Paramètres › Synchronisation : coller l'adresse et la clé (ou les placer dans `src/config.js` pour ne pas les retaper sur chaque appareil), puis créer le compte (e-mail + mot de passe) et se connecter avec le même compte sur l'iPhone.
+
+Fonctionnement : récupération des changements distants puis envoi des changements locaux ; la version la plus récente l'emporte ; les suppressions sont propagées ; les photos vont dans un stockage privé (désactivable) ; les photos d'un profil enfant ne sont jamais envoyées. Synchro automatique au démarrage, au retour sur l'app et quelques secondes après chaque modification. Hors ligne, tout continue de fonctionner et la synchro reprend au retour du réseau. Les jetons de session ne figurent jamais dans les exports.
 
 ## Tests d'acceptation (A11) — état
 
@@ -94,7 +104,7 @@ Les données restent dans le navigateur de chaque appareil : utilisez **Paramèt
 | Photos réelles de l'Académie | **Partiel** : 9 photos C1 référencées en mode lien (droits non vérifiés). 8/15 styles ont une référence ; les autres sont des briefs `needs_review`. Ajout d'images dont vous détenez les droits possible. |
 | Rubriques éditoriales absentes du guide initial | Signalées « À compléter et sourcer », jamais inventées. |
 | Recherche interne des boutiques / API catalogue | **Restant** : formes d'URL non vérifiées → site officiel + copie de requête + recherche web restreinte au domaine. |
-| Synchronisation multi-appareils (cloud) | **Restant** (export/import en attendant). |
+| Synchronisation multi-appareils (Supabase) | Implémenté et testé avec un faux serveur à deux appareils. Reste à valider sur votre projet Supabase réel. |
 | Polices auto-hébergées | **Restant** : Google Fonts chargé en ligne (mis en cache hors ligne par le service worker). Télécharger les fichiers WOFF2 (licence OFL) dans `assets/fonts/` pour supprimer cet appel externe. |
 
 ## Confidentialité
