@@ -185,7 +185,7 @@ export class SyncService {
         if (store === 'photos') {
           if (rec.blob) await this.upload(`${userId}/${key}.jpg`, rec.blob);
           if (rec.thumb) await this.upload(`${userId}/${key}_t.jpg`, rec.thumb);
-          data = { ...rec, blob: undefined, thumb: undefined, hasBlob: !!rec.blob, hasThumb: !!rec.thumb };
+          data = { ...rec, blob: undefined, thumb: undefined, originalBlob: undefined, originalThumb: undefined, hasBlob: !!rec.blob, hasThumb: !!rec.thumb };
         }
         batch.push({ user_id: userId, store, key, data: JSON.parse(JSON.stringify(data)), deleted: false });
       }

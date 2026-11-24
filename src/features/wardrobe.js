@@ -13,6 +13,7 @@ import { versatility, reviewGarment, keyThresholdOf, VERDICTS } from '../domain/
 import { prefs as loadPrefs } from '../state.js';
 import { checkImageFile, loadBitmap, processImage, renderToCanvas } from '../services/image.js';
 import { aiStatus } from '../services/ai.js';
+import { cutout, CUTOUT_DOWNLOAD_MB } from '../services/cutout.js';
 import { garmentCard, AVAIL_LABEL, deleteGarment, proposalCard, saveOutfit, wearOutfit } from './shared.js';
 import { navigate } from '../app.js';
 
@@ -104,6 +105,7 @@ async function renderList(main) {
 async function renderDetail(main, g) {
   const sub = SUB_INFO[g.sub];
   const vers = versatility(await loadGarments())[g.id] ?? null;
+  const ph0 = g.photoIds?.[0] ? await store.repo.get('photos', g.photoIds[0]) : null;
   const cpw = costPerWear(g);
   setHTML(main, html`
     <a href="#/wardrobe" class="small">← Dressing</a>
@@ -113,6 +115,8 @@ async function renderDetail(main, g) {
     <div class="grid-2" style="align-items:start">
       <div class="stack">
         ${g.photoIds?.length ? html`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr))">${g.photoIds.map((ph) => html`<div class="g-thumb" style="border-radius:12px"><img data-photo="${ph}" data-full alt="${g.name}"></div>`)}</div>` : html`<div class="card-flat small muted">Aucune photo. Ajoutez-en une depuis « Modifier ».</div>`}
+        ${ph0 ? html`<div class="card-flat"><div class="btn-row"><button class="btn btn-sm" id="cutbtn">${ph0.cutout ? 'Refaire le détourage' : 'Détourer la photo (fond ivoire)'}</button>${ph0.originalBlob ? html`<button class="btn btn-sm btn-ghost" id="uncut">Revenir à la photo originale</button>` : ''}</div>
+          <p class="small muted" id="cutmsg" aria-live="polite">Traitement sur votre appareil, aucune photo envoyée. ${ph0.cutout ? '' : `Premier usage : téléchargement unique d'environ ${CUTOUT_DOWNLOAD_MB} Mo.`}</p></div>` : ''}
         <div class="card"><h3>Disponibilité</h3><div class="chips">${AVAILABILITY.map(([id, label]) => html`<button class="chip" data-avail="${id}" aria-pressed="${(g.availability || 'clean') === id}">${label}</button>`)}</div>
           <p class="small muted" style="margin-top:8px">Une pièce « à laver », « indisponible » ou « en retouche » n'est jamais proposée comme immédiatement portable.</p></div>
       </div>
@@ -137,6 +141,18 @@ async function renderDetail(main, g) {
     <div class="grid-2" id="pairings"><p class="muted"><span class="loader"></span> Calcul…</p></div>`);
   function row(label, value) { return value === null || value === undefined || value === '' ? '' : html`<dt class="muted">${label}</dt><dd style="margin:0">${value}</dd>`; }
   hydratePhotos(main);
+  main.querySelector('#cutbtn')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget; const msg = main.querySelector('#cutmsg'); btn.disabled = true;
+    try {
+      const out = await cutout(ph0.originalBlob || ph0.blob, ({ step, pct }) => { msg.textContent = `${step}${pct !== null ? ` — ${pct} %` : '…'}`; });
+      await store.repo.put('photos', { ...ph0, originalBlob: ph0.originalBlob || ph0.blob, originalThumb: ph0.originalThumb || ph0.thumb, blob: out.blob, thumb: out.thumb, width: out.width, height: out.height, cutout: true });
+      forgetPhotoURL(ph0.id); toast('Photo détourée'); navigate(`#/wardrobe/${g.id}`);
+    } catch (err) { msg.textContent = err.message; btn.disabled = false; }
+  });
+  main.querySelector('#uncut')?.addEventListener('click', async () => {
+    await store.repo.put('photos', { ...ph0, blob: ph0.originalBlob, thumb: ph0.originalThumb, originalBlob: null, originalThumb: null, cutout: false });
+    forgetPhotoURL(ph0.id); toast('Photo originale rétablie'); navigate(`#/wardrobe/${g.id}`);
+  });
   main.querySelector('#fav').onclick = async () => { await store.repo.put('garments', { ...g, favorite: !g.favorite }); navigate(`#/wardrobe/${g.id}`); };
   main.querySelectorAll('[data-avail]').forEach((b) => b.onclick = async () => { await store.repo.put('garments', { ...g, availability: b.dataset.avail }); toast(`Disponibilité : ${AVAIL_LABEL[b.dataset.avail]}`); navigate(`#/wardrobe/${g.id}`); });
   main.querySelector('#del').onclick = async () => {
@@ -497,12 +513,15 @@ async function renderReview(main) {
 // ---------------------------------------------------------------- Ajout rapide (photo + type + couleur, le reste plus tard)
 async function renderQuick(main) {
   let added = 0;
+  let autoCut = await store.repo.kvGet('pref:cutout', false);
   const draw = () => {
     setHTML(main, html`<a href="#/wardrobe" class="small">← Dressing</a>
       <div class="page-head" style="margin-top:8px"><div class="eyebrow">Ajout rapide</div><h1>Une pièce en 10 secondes</h1>
       <p class="lede">Photo, type, couleur : c'est tout. La pièce est marquée « à compléter » ; affinez la fiche plus tard. ${added ? html`<strong>${added} pièce${added > 1 ? 's' : ''} ajoutée${added > 1 ? 's' : ''} pendant cette session.</strong>` : ''}</p></div>
       <div class="card stack">
         <div class="btn-row"><label class="btn btn-primary" for="qcam">${icon('camera')} Prendre la photo</label><input id="qcam" type="file" accept="image/*" capture="environment" class="sr-only"><label class="btn" for="qfile">${icon('upload')} Choisir une photo</label><input id="qfile" type="file" accept="image/*" class="sr-only"><button class="btn btn-ghost" id="qnophoto">Sans photo</button></div>
+        <label class="check"><input type="checkbox" id="qcut" ${autoCut ? raw('checked') : ''}> Détourer automatiquement (fond ivoire, sur l'appareil ; premier usage : ~${CUTOUT_DOWNLOAD_MB} Mo)</label>
+        <p class="small muted" id="qcutmsg" aria-live="polite"></p>
         <div id="qform" class="hidden">
           <div class="row" style="align-items:flex-start;flex-wrap:nowrap"><div class="mini-thumb" style="width:96px" id="qprev"></div>
           <div style="flex:1;min-width:0">
@@ -522,6 +541,11 @@ async function renderQuick(main) {
     const load = async (f) => {
       try {
         await checkImageFile(f); st.out = await processImage(await loadBitmap(f));
+        if ($('#qcut').checked) {
+          const m = $('#qcutmsg');
+          try { const c = await cutout(st.out.blob, ({ step, pct }) => { m.textContent = `${step}${pct !== null ? ` — ${pct} %` : '…'}`; }); st.out = { ...st.out, original: st.out.blob, blob: c.blob, thumbBlob: c.thumb, width: c.width, height: c.height, cut: true }; m.textContent = 'Détourage terminé.'; }
+          catch (err) { m.textContent = `Détourage impossible (${err.message}) : la photo d'origine est conservée.`; }
+        }
         setHTML($('#qprev'), html`<img src="${URL.createObjectURL(st.out.thumbBlob)}" alt="Aperçu">`);
         const d = st.out.dominant[0];
         if (d) { st.color = d.nearestId; $('#qhint').textContent = `(estimée : ${d.nearestName}, proximité ${d.confidence} — à corriger si besoin)`; main.querySelectorAll('[data-col]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.col === st.color)); }
@@ -531,13 +555,14 @@ async function renderQuick(main) {
     $('#qcam').onchange = (e) => e.target.files[0] && load(e.target.files[0]);
     $('#qfile').onchange = (e) => e.target.files[0] && load(e.target.files[0]);
     $('#qnophoto').onclick = () => { st.out = null; show(); };
+    $('#qcut').onchange = async (e) => { autoCut = e.target.checked; await store.repo.kvSet('pref:cutout', autoCut); };
     main.querySelectorAll('[data-cat]').forEach((b) => b.onclick = () => { st.cat = b.dataset.cat; main.querySelectorAll('[data-cat]').forEach((x) => x.setAttribute('aria-pressed', x === b)); setHTML($('#qsub'), options(CATEGORY_BY_ID[st.cat].subs.map(([id, n]) => [id, n]), '')); st.sub = $('#qsub').value; });
     $('#qsub').onchange = (e) => { st.sub = e.target.value; };
     main.querySelectorAll('[data-col]').forEach((b) => b.onclick = () => { st.color = b.dataset.col; main.querySelectorAll('[data-col]').forEach((x) => x.setAttribute('aria-pressed', x === b)); ready(); });
     const save = async (again) => {
       const id = uid('g'); const info = SUB_INFO[st.sub]; const c = COLOR_BY_ID[st.color];
       const photoIds = [];
-      if (st.out) { const phId = uid('ph'); await store.repo.put('photos', { id: phId, ownerId: id, profileId: pid(), blob: st.out.blob, thumb: st.out.thumbBlob, mime: 'image/jpeg', width: st.out.width, height: st.out.height, kind: 'single', private: true, rights: 'user_owned' }, { silent: true }); photoIds.push(phId); }
+      if (st.out) { const phId = uid('ph'); await store.repo.put('photos', { id: phId, ownerId: id, profileId: pid(), blob: st.out.blob, thumb: st.out.thumbBlob, mime: 'image/jpeg', width: st.out.width, height: st.out.height, kind: 'single', private: true, rights: 'user_owned', cutout: !!st.out.cut, originalBlob: st.out.original || null }, { silent: true }); photoIds.push(phId); }
       await store.repo.put('garments', { id, profileId: pid(), name: `${info?.name || 'Pièce'} ${c.name.toLowerCase()}`, category: st.cat, sub: st.sub, color: { id: c.id, name: c.name, hex: c.hex }, color2: null, pattern: 'Uni', seasons: [], styles: [], tags: ['à compléter'], measures: {}, formality: info?.formality || 3, warmth: Math.max(1, info?.warmth || 2), comfort: 3, rainResistance: 0, windResistance: 0, availability: 'clean', photoIds, photoKind: 'single' });
       added++; toast(`${info?.name || 'Pièce'} ${c.name.toLowerCase()} ajoutée`);
       if (again) draw(); else navigate('#/wardrobe');

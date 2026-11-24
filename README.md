@@ -27,7 +27,7 @@ src/
   repositories/ IndexedDB (+ repli mémoire)
   services/     image (EXIF supprimé, compression, recadrage), weather (Open-Meteo), ai (client → /api)
 server/         server.py (statique + /api/health, /api/analyze, /api/recognize), requirements.txt
-tests/          index.html + run.js (55 tests)
+tests/          index.html + run.js (56 tests)
 supabase/       setup.sql (table + stockage photo + règles RLS)
 ```
 
@@ -37,7 +37,7 @@ supabase/       setup.sql (table + stockage photo + règles RLS)
 python3 server/server.py
 ```
 
-Puis ouvrir http://localhost:8000. Tests : http://localhost:8000/tests/ (résultat attendu : 55/55).
+Puis ouvrir http://localhost:8000. Tests : http://localhost:8000/tests/ (résultat attendu : 56/56).
 
 ### Activer l'IA (facultatif)
 
@@ -106,6 +106,14 @@ Fonctionnement : récupération des changements distants puis envoi des changeme
 | Recherche interne des boutiques / API catalogue | **Restant** : formes d'URL non vérifiées → site officiel + copie de requête + recherche web restreinte au domaine. |
 | Synchronisation multi-appareils (Supabase) | Implémenté et testé avec un faux serveur à deux appareils. Reste à valider sur votre projet Supabase réel. |
 | Polices auto-hébergées | **Restant** : Google Fonts chargé en ligne (mis en cache hors ligne par le service worker). Télécharger les fichiers WOFF2 (licence OFL) dans `assets/fonts/` pour supprimer cet appel externe. |
+
+## Licence
+
+SPREZZA est un logiciel libre distribué sous **GNU Affero General Public License v3.0** (fichier `LICENSE`).
+Ce choix permet d'utiliser la bibliothèque de détourage d'IMG.LY (`@imgly/background-removal`, AGPL-3.0).
+Code source : https://github.com/clairnet1905/sprezza — vos données personnelles (dressing, photos) ne sont pas concernées et restent privées.
+
+Composants tiers chargés à l'usage : `@imgly/background-removal` 1.7.0 (AGPL-3.0, via jsDelivr) et ses modèles (staticimgly.com) ; photos Pexels/Unsplash sous leurs licences respectives.
 
 ## Confidentialité
 

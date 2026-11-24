@@ -24,6 +24,7 @@ import { defaultOccasion, preferredMode } from '../src/features/daily.js';
 import { chooseAccessories } from '../src/domain/recommend.js';
 import { shortQuery } from '../src/features/shopping.js';
 import { inspirationQuery, colorsQuery, searchPhotos } from '../src/services/pexels.js';
+import { alphaBounds } from '../src/services/cutout.js';
 import { OCCASION_BY_ID } from '../src/data/occasions.js';
 
 const tests = [];
@@ -297,6 +298,11 @@ test('Unsplash : réponse normalisée, crédit UTM, images non Unsplash rejetée
     const r = await searchPhotos('men navy blazer', { key: 'test-key', provider: 'unsplash' });
     eq(r.length, 1); eq(r[0].provider, 'unsplash'); ok(r[0].page.includes('utm_source=sprezza'), 'UTM manquant'); eq(r[0].photographer, 'Ana');
   } finally { window.fetch = realFetch; }
+});
+test('Détourage : cadrage sur les pixels visibles', () => {
+  const w = 10, h = 8, d = new Uint8ClampedArray(w * h * 4);
+  for (let y = 2; y <= 5; y++) for (let x = 3; x <= 6; x++) d[(y * w + x) * 4 + 3] = 255;
+  eq(alphaBounds(d, w, h), { x: 3, y: 2, w: 4, h: 4 }); eq(alphaBounds(new Uint8ClampedArray(w * h * 4), w, h), null);
 });
 test('Requête courte boutique sans doublons', () => eq(shortQuery({ category: 'pantalon écru', color: 'ecru', material: 'coton' }), 'pantalon écru coton'));
 
