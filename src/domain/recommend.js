@@ -123,8 +123,8 @@ export function chooseAccessories(p, pool = [], occasion, mode) {
         if (form >= 3.5) s2 += metal ? 3 : leather ? 2.5 : sport ? -2 : 0;
         else if (form >= 2.5) s2 += leather ? 3 : metal ? 1.5 : sport ? 0 : 0.5;
         else s2 += sport ? 2 : leather ? 1 : 0.5;
-        if (leather && sf && ((fam(b) === 'black') === (sf === 'black'))) s2 += 1.5; // cuir assorti aux chaussures
-        if (leather && sf && ((fam(b) === 'black') !== (sf === 'black'))) s2 -= 1;
+        if (form >= 2.5 && leather && sf && ((fam(b) === 'black') === (sf === 'black'))) s2 += 1.5; // cuir assorti aux chaussures (tenues habillées)
+        if (form >= 2.5 && leather && sf && ((fam(b) === 'black') !== (sf === 'black'))) s2 -= 1;
         return s2;
       };
       out.push([...bands].sort((a, b) => score(b) - score(a) || byId(a, b))[0]);
