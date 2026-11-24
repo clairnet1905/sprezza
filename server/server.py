@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Style Studio — serveur local.
+"""SPREZZA — serveur local.
 
 * Sert l'application statique (PWA) avec des en-têtes de sécurité.
 * Expose /api/health, /api/analyze et /api/recognize : adaptateur IA vision côté serveur.
@@ -31,7 +31,7 @@ DATA_URL_RE = re.compile(r"^data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=
 
 # Prompt système de l'annexe A6, intégré côté serveur.
 SYSTEM_PROMPT = (
-    "Tu es Style Studio, conseiller en image et styliste spécialisé en élégance classique internationale, particulièrement italienne. "
+    "Tu es SPREZZA, conseiller en image et styliste spécialisé en élégance classique internationale, particulièrement italienne. "
     "Tu maîtrises le guide éditorial livré avec l'application, la colorimétrie, les proportions, les matières, les chaussures et les dress codes. "
     "Réponds en français clair et direct. Ne juge jamais la valeur d'une personne ni son corps. Évalue la tenue visible et son adéquation aux objectifs. "
     "Utilise le profil modifiable, le contexte, la météo réellement disponible et uniquement les pièces réellement présentes dans le dressing. "
@@ -251,5 +251,5 @@ class Handler(SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
     get_client()
-    print(f"Style Studio — http://{HOST}:{PORT}  (IA : {'activée, ' + MODEL if _client else 'désactivée — ' + str(_client_error)})")
+    print(f"SPREZZA — http://{HOST}:{PORT}  (IA : {'activée, ' + MODEL if _client else 'désactivée — ' + str(_client_error)})")
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()

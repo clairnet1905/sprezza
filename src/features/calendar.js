@@ -36,7 +36,7 @@ export async function render(main) {
   main.querySelector('#ics').onclick = () => {
     const upcoming = cal.filter((c) => c.status === 'planned');
     if (!upcoming.length) { toast('Aucune tenue planifiée à exporter'); return; }
-    downloadFile('style-studio-tenues.ics', buildICS(upcoming.map((c) => ({ ...c, description: piecesList(idsToPieces(outBy[c.outfitId]?.garmentIds, all)).map(([, g]) => g.name).join(', ') }))), 'text/calendar;charset=utf-8');
+    downloadFile('sprezza-tenues.ics', buildICS(upcoming.map((c) => ({ ...c, description: piecesList(idsToPieces(outBy[c.outfitId]?.garmentIds, all)).map(([, g]) => g.name).join(', ') }))), 'text/calendar;charset=utf-8');
     toast('Fichier .ics généré — importez-le dans votre agenda');
   };
   main.querySelector('#multi').onclick = () => multiDay(main, all);

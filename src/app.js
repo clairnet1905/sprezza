@@ -1,4 +1,4 @@
-// Style Studio — point d'entrée : routeur hash, navigation, enregistrement PWA.
+// SPREZZA — point d'entrée : routeur hash, navigation, enregistrement PWA.
 import { html, setHTML, raw } from './lib/html.js';
 import { icon, toast } from './components/ui.js';
 import { initStore, store, switchProfile } from './state.js';
@@ -67,7 +67,7 @@ async function route() {
     main.innerHTML = '';
     cleanup = await mod.render(main, params, query);
     const title = main.querySelector('h1')?.textContent;
-    document.title = title ? `${title} — Style Studio` : 'Style Studio — Mon styliste personnel';
+    document.title = title ? `${title} — SPREZZA` : 'SPREZZA — Mon styliste personnel';
     if (!location.hash.includes('keep')) window.scrollTo(0, 0);
     main.focus({ preventScroll: true });
   } catch (e) {

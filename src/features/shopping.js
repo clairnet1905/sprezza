@@ -202,7 +202,7 @@ function editCandidate(w, c, box) {
 }
 
 function purchase(w, box) {
-  openModal({ title: 'Achat effectué', body: html`<p class="small muted">Enregistrement manuel : Style Studio n'effectue aucun achat.</p><div class="form-grid"><div class="field"><label for="pp">Prix payé (€)</label><input id="pp" type="number" min="0" step="0.01" value="${(w.candidates || [])[0] ? totalCost(w.candidates[0]) ?? '' : ''}"></div><div class="field"><label for="pd">Date</label><input id="pd" type="date" value="${new Date().toISOString().slice(0, 10)}"></div></div>
+  openModal({ title: 'Achat effectué', body: html`<p class="small muted">Enregistrement manuel : SPREZZA n'effectue aucun achat.</p><div class="form-grid"><div class="field"><label for="pp">Prix payé (€)</label><input id="pp" type="number" min="0" step="0.01" value="${(w.candidates || [])[0] ? totalCost(w.candidates[0]) ?? '' : ''}"></div><div class="field"><label for="pd">Date</label><input id="pd" type="date" value="${new Date().toISOString().slice(0, 10)}"></div></div>
     <label class="check"><input type="checkbox" id="padd" checked> Créer la fiche dans mon dressing</label><button class="btn btn-primary" data-ok style="margin-top:10px">Enregistrer</button>`,
   onMount(body, close) { body.querySelector('[data-ok]').onclick = async () => {
     const price = Number(body.querySelector('#pp').value) || null;

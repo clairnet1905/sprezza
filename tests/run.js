@@ -12,7 +12,7 @@ import { ERRORS, SEASONS, GRID } from '../src/data/guide.js';
 import { CHAPTERS } from '../src/data/chapters.js';
 import { CAPSULE, TEMPLATES } from '../src/data/capsule.js';
 import { RETAILERS } from '../src/data/retailers.js';
-import { PHOTOS } from '../src/data/photos.js';
+import { ALL_PHOTOS, PHOTO_BY_ID, STYLE_PHOTO_BRIEFS } from '../src/data/photos.js';
 import { Repository } from '../src/repositories/db.js';
 import { escapeHTML, html, safeUrl } from '../src/lib/html.js';
 import { resetForBase } from '../src/features/colors.js';
@@ -162,7 +162,12 @@ test('15 styles, 5 écoles notées, 8 traditions, 20 occasions × 3, 20 erreurs,
 });
 test('Notes historiques des écoles = somme des critères', () => SCHOOLS.forEach((s) => eq(Object.values(s.scores).reduce((a, b) => a + b, 0), s.total, s.name)));
 test('Styles proches référencent des styles existants', () => CLOSE_STYLES.forEach((c) => ok(STYLES.find((s) => s.id === c.a) && STYLES.find((s) => s.id === c.b))));
-test('Photos : droits inconnus jamais transformés en autorisation', () => PHOTOS.forEach((p) => { eq(p.rights, 'unknown'); eq(p.displayMode, 'link_only'); ok(p.sourcePageUrl.startsWith('https://')); }));
+test('Photos : droits inconnus jamais transformés en autorisation ; licence et crédit pour les photos affichées', () => ALL_PHOTOS.forEach((p) => {
+  ok(p.sourcePageUrl.startsWith('https://'), p.id); eq(p.verification, 'visually_checked', p.id);
+  if (p.rights === 'unknown') eq(p.displayMode, 'link_only', p.id);
+  if (p.displayMode === 'image') { eq(p.rights, 'licensed', p.id); ok(p.license && p.licenseUrl && p.photographer && p.imageUrl.startsWith('https://images.pexels.com/'), p.id); }
+}));
+test('Les 15 styles ont au moins une référence photo existante', () => STYLES.forEach((s) => { const b = STYLE_PHOTO_BRIEFS[s.id]; ok(b?.photos?.length, s.id); b.photos.forEach((id) => ok(PHOTO_BY_ID[id], id)); }));
 test('32 boutiques avec URL https', () => { eq(RETAILERS.length, 32); RETAILERS.forEach((r) => ok(r.url.startsWith('https://'))); });
 
 // ---------------- Capsule
@@ -212,7 +217,7 @@ test('Persistance : ajout, relecture après réouverture, modification, suppress
   repo.close(); indexedDB.deleteDatabase(name);
 });
 test('Export/import : validation, conflits et doublons', () => {
-  const data = { app: 'style-studio', schemaVersion: 1, stores: { garments: [{ id: 'a' }, { id: 'b' }, { id: 'b' }] } };
+  const data = { app: 'sprezza', schemaVersion: 1, stores: { garments: [{ id: 'a' }, { id: 'b' }, { id: 'b' }] } };
   const p = validateExport(data, { garments: [{ id: 'a' }] }).find((x) => x.store === 'garments');
   eq([p.conflicts, p.dupes, p.newRows], [1, 1, 1]);
   throws(() => validateExport({ app: 'autre', schemaVersion: 1, stores: {} }));

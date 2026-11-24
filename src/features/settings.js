@@ -33,7 +33,7 @@ export async function render(main) {
         <li>Stockage : IndexedDB local à ce navigateur (photos privées, miniatures, métadonnées EXIF supprimées par ré-encodage).</li>
         <li>Météo : Open-Meteo (open-meteo.com), uniquement après consentement.</li>
         <li>Polices : Google Fonts (Cormorant Garamond, Inter) — le navigateur contacte fonts.googleapis.com ; voir README pour l'auto-hébergement.</li>
-        <li>IA : uniquement si un serveur Style Studio avec clé est configuré ; la clé n'est jamais dans le navigateur.</li>
+        <li>IA : uniquement si un serveur SPREZZA avec clé est configuré ; la clé n'est jamais dans le navigateur.</li>
         <li>Aucune télémétrie, aucune publicité, aucun partage public. Liens externes ouverts sans référent.</li>
         <li>Cette application ne prétend pas à une conformité RGPD totale sans audit ; documenter traitements et fournisseurs avant toute mise en ligne publique.</li></ul></details></section>
     <section class="card" style="margin-top:14px"><h2 style="margin-top:0">Sauvegarde</h2>
@@ -79,11 +79,11 @@ async function exportData(withPhotos) {
   }
   stores.kv = stores.kv.filter((r) => !r.key.startsWith('weather:'));
   const stamp = new Date().toISOString().slice(0, 10);
-  downloadFile(`style-studio-sauvegarde-${stamp}.json`, JSON.stringify({ app: 'style-studio', schemaVersion: SCHEMA_VERSION, seedVersion: SEED_VERSION, exportedAt: new Date().toISOString(), photosIncluded: false, stores }, null, 2));
+  downloadFile(`sprezza-sauvegarde-${stamp}.json`, JSON.stringify({ app: 'sprezza', schemaVersion: SCHEMA_VERSION, seedVersion: SEED_VERSION, exportedAt: new Date().toISOString(), photosIncluded: false, stores }, null, 2));
   if (withPhotos) {
     const photos = [];
     for (const p of await store.repo.all('photos')) photos.push({ ...p, blob: p.blob ? await blobToDataURL(p.blob) : null, thumb: p.thumb ? await blobToDataURL(p.thumb) : null });
-    downloadFile(`style-studio-photos-${stamp}.json`, JSON.stringify({ app: 'style-studio', schemaVersion: SCHEMA_VERSION, kind: 'photos', exportedAt: new Date().toISOString(), stores: { photos } }));
+    downloadFile(`sprezza-photos-${stamp}.json`, JSON.stringify({ app: 'sprezza', schemaVersion: SCHEMA_VERSION, kind: 'photos', exportedAt: new Date().toISOString(), stores: { photos } }));
   }
   toast(withPhotos ? 'Deux fichiers exportés (données + photos privées)' : 'Sauvegarde exportée (sans photos)');
 }

@@ -131,9 +131,9 @@ async function renderGenerator(box) {
     $('#shoe').onchange = (e) => { gen.shoe = e.target.value; draw(); };
     $('#belt').onchange = (e) => { gen.belt = e.target.value; draw(); };
     box.querySelectorAll('[data-tex]').forEach((el) => el.onchange = () => { gen.textures[el.dataset.tex] = el.value; draw(); });
-    const text = () => sel.pieces.map(([l, id]) => `${l} : ${colorName(id)} ${colorHex(id)}`).join('\n') + '\n— Style Studio';
+    const text = () => sel.pieces.map(([l, id]) => `${l} : ${colorName(id)} ${colorHex(id)}`).join('\n') + '\n— SPREZZA';
     $('#copyp').onclick = () => copyText(text());
-    $('#sharep').onclick = async () => { if (navigator.share) { try { await navigator.share({ title: 'Palette Style Studio', text: text() }); } catch { /* annulé */ } } else copyText(text()); };
+    $('#sharep').onclick = async () => { if (navigator.share) { try { await navigator.share({ title: 'Palette SPREZZA', text: text() }); } catch { /* annulé */ } } else copyText(text()); };
     $('#savep').onclick = async () => {
       await store.repo.put('palettes', { id: uid('pal'), profileId: pid(), name: sel.pieces.map(([, id]) => colorName(id)).join(' · '), roles: Object.fromEntries(sel.pieces.map(([l, id]) => [l, id])), textures: { ...gen.textures }, note: paletteNote({ bottom: sel.bottomId, top: sel.topId, jacket: sel.jacket, shoe: gen.shoe, belt: sel.belt }).note });
       toast('Palette sauvegardée dans « Mes palettes »');

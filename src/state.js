@@ -27,6 +27,7 @@ export function defaultProfile(kind = 'main') {
 }
 
 export async function initStore() {
+  // Nom de base conservé depuis « Style Studio » pour ne perdre aucune donnée existante.
   store.repo = await Repository.create('style-studio');
   store.settings = await store.repo.kvGet('settings', { theme: 'system', activeProfileId: 'profile_main', onboarded: false });
   store.profiles = await store.repo.all('profiles');

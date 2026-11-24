@@ -1,5 +1,5 @@
-// Service worker Style Studio : coque applicative hors ligne, polices en cache, API jamais mise en cache.
-const VERSION = 'style-studio-v1';
+// Service worker SPREZZA : coque applicative hors ligne, polices en cache, API jamais mise en cache.
+const VERSION = 'sprezza-v2';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'src/styles.css', 'src/app.js', 'src/state.js',
   'src/lib/html.js', 'src/components/ui.js', 'src/components/mannequin.js', 'src/repositories/db.js',

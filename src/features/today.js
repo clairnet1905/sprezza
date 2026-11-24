@@ -81,7 +81,7 @@ export async function render(main) {
     $('#wxon')?.addEventListener('click', askConsent);
     $('#wxback')?.addEventListener('click', () => { st.forceManual = false; renderWx(); });
   };
-  const askConsent = () => openModal({ title: 'Activer la météo', body: html`<p>Style Studio interroge <strong>Open-Meteo</strong> (service gratuit, sans compte) avec les coordonnées de la ville choisie (arrondies). Aucune donnée personnelle ni photo n'est envoyée. Vous pouvez désactiver ce choix dans Paramètres.</p>
+  const askConsent = () => openModal({ title: 'Activer la météo', body: html`<p>SPREZZA interroge <strong>Open-Meteo</strong> (service gratuit, sans compte) avec les coordonnées de la ville choisie (arrondies). Aucune donnée personnelle ni photo n'est envoyée. Vous pouvez désactiver ce choix dans Paramètres.</p>
       <div class="btn-row"><button class="btn btn-primary" data-ok>Activer</button><button class="btn" data-close>Plus tard</button></div>`,
     onMount(body, close) { body.querySelector('[data-ok]').onclick = async () => { await saveProfile({ ...store.profile, consents: { ...store.profile.consents, weather: true } }); close(); toast('Météo activée'); renderWx(); loadWeather(); }; } });
   const chooseCity = () => openModal({ title: 'Ville', body: html`<div class="field"><label for="cq">Rechercher une ville</label><input id="cq" type="search" value="${store.profile.city?.name || ''}"></div><div class="btn-row"><button class="btn btn-sm" id="cgo">${icon('search')} Rechercher</button>${store.profile.consents?.geoloc ? html`<button class="btn btn-sm" id="cgeo">Utiliser ma position</button>` : html`<button class="btn btn-sm" id="cgeo">Utiliser ma position (consentement)</button>`}</div><div id="cres" style="margin-top:10px"></div>`,

@@ -34,7 +34,7 @@ export const allTemplateStatuses = (state, garments) => TEMPLATES.map((t) => tem
 export function exportMissingText(level, state) {
   const { missing } = capsuleProgress(level, state);
   const lines = missing.map((i) => `- [ ] ${i.id}. ${i.name} — ${i.material} — ${i.season} — ${i.budget[0]}–${i.budget[1]} € — ${i.priority}`);
-  return `Style Studio — Pièces capsule manquantes (niveau ${level})\nPrix indicatifs en France, pas des offres marchandes.\n\n${lines.join('\n') || 'Aucune pièce manquante.'}\n`;
+  return `SPREZZA — Pièces capsule manquantes (niveau ${level})\nPrix indicatifs en France, pas des offres marchandes.\n\n${lines.join('\n') || 'Aucune pièce manquante.'}\n`;
 }
 export function exportMissingCSV(level, state) {
   const { missing } = capsuleProgress(level, state);
@@ -102,13 +102,13 @@ export function wardrobeStats(garments, wearlog = [], now = Date.now()) {
 function icsEscape(s) { return String(s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n'); }
 export function buildICS(entries) {
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
-  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Style Studio//FR', 'CALSCALE:GREGORIAN'];
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//SPREZZA//FR', 'CALSCALE:GREGORIAN'];
   for (const e of entries) {
     const d = e.date.replace(/-/g, '');
     const next = new Date(e.date + 'T12:00:00'); next.setDate(next.getDate() + 1);
     const d2 = `${next.getFullYear()}${String(next.getMonth() + 1).padStart(2, '0')}${String(next.getDate()).padStart(2, '0')}`;
-    lines.push('BEGIN:VEVENT', `UID:${e.id}@style-studio.local`, `DTSTAMP:${stamp}`, `DTSTART;VALUE=DATE:${d}`, `DTEND;VALUE=DATE:${d2}`,
-      `SUMMARY:${icsEscape(`Tenue — ${e.title || e.occasionName || 'Style Studio'}`)}`, `DESCRIPTION:${icsEscape(e.description || '')}`, 'END:VEVENT');
+    lines.push('BEGIN:VEVENT', `UID:${e.id}@sprezza.local`, `DTSTAMP:${stamp}`, `DTSTART;VALUE=DATE:${d}`, `DTEND;VALUE=DATE:${d2}`,
+      `SUMMARY:${icsEscape(`Tenue — ${e.title || e.occasionName || 'SPREZZA'}`)}`, `DESCRIPTION:${icsEscape(e.description || '')}`, 'END:VEVENT');
   }
   lines.push('END:VCALENDAR');
   return lines.join('\r\n') + '\r\n';

@@ -1,4 +1,4 @@
-# Style Studio — Mon styliste personnel
+# SPREZZA — Mon styliste personnel
 
 *L'élégance devient naturelle.*
 

@@ -75,6 +75,77 @@ export const PHOTOS = [
     accessibleAlternative: 'Surchemise olive unie, pantalon marine ou anthracite droit et chaussures marron ; conserver une touche de couleur et réduire les volumes si nécessaire.' },
 ];
 
+// Ajouts du 24/11/2026 — chaque image a été ouverte et examinée avant d'être référencée.
+// Photos Pexels : licence Pexels (https://www.pexels.com/license/) — usage gratuit dans une app, crédit facultatif mais indiqué.
+const pexelsImg = (id) => `https://images.pexels.com/photos/${id}/pexels-photo-${id}.jpeg?auto=compress&cs=tinysrgb&w=640`;
+const pexels = { isRealPhoto: true, verification: 'visually_checked', verifiedAt: '2026-11-24', rights: 'licensed', license: 'Licence Pexels', licenseUrl: 'https://www.pexels.com/license/', displayMode: 'image' };
+const P = (id, slug, photographer, extra) => ({ ...pexels, id: `PX-${id}`, sourcePageUrl: `https://www.pexels.com/photo/${slug}-${id}/`, sourceLabel: `Pexels, photo ${id}`, imageUrl: pexelsImg(id), credit: `Photo : ${photographer} / Pexels`, photographer, ...extra });
+
+export const EXTRA_PHOTOS = [
+  { isRealPhoto: true, verification: 'visually_checked', verifiedAt: '2026-11-24', rights: 'unknown', displayMode: 'link_only', photographer: null,
+    id: 'C1-10', title: 'French Chic : blazer noir, chemise blanche, jean droit', sourcePageUrl: 'https://www.queen.gr/moda/symvoules-modas/story/284771/5-chic-synola-me-flats-pou-forane-tora-oi-gallides-apo-balarines-mexri-loafers',
+    sourceLabel: 'Queen.gr, article du 20 février 2024 (photo d\'ouverture)', imageUrl: null, credit: 'Crédit photo non indiqué sur la partie consultée de la page', styleIds: ['french'], seasons: ['spring', 'autumn'], colors: ['black', 'white', 'mid-blue'],
+    alt: 'Blazer noir ample, chemise blanche ouverte, jean bleu droit taille haute, ceinture noire, balcon parisien',
+    visible: 'Blazer noir, chemise blanche col ouvert, jean bleu droit taille haute, ceinture noire à boucle dorée, sac rouge. Photo coupée aux genoux : chaussures invisibles.',
+    analysis: 'Contraste noir/blanc tempéré par le denim ; la taille haute ceinturée structure la silhouette et le blazer ample apporte de l\'aisance. Une seule touche de couleur (le sac rouge).',
+    accessibleAlternative: 'Blazer noir ou marine, chemise blanche en coton, jean brut droit, ceinture en cuir ; ballerines ou mocassins. Version masculine : même logique avec blazer marine et derbies.' },
+  P(40385866, 'stylish-man-in-blue-blazer-walking-with-smartphone', 'Жанна Алимкулова', { title: 'Business Casual : blazer marine, chemise blanche, pantalon beige', styleIds: ['business-casual', 'japanese', 'ivy'], seasons: ['spring', 'autumn'], colors: ['navy', 'white', 'beige'],
+    alt: 'Homme en blazer croisé marine à boutons dorés, chemise blanche col ouvert et pantalon beige',
+    visible: 'Blazer croisé marine à boutons dorés, chemise blanche sans cravate, pantalon beige clair. Cadrage à mi-cuisse : chaussures et longueur du pantalon invisibles.',
+    analysis: 'Le trio marine / blanc / beige du Business Casual : contraste net mais calme, structure de la veste sans la rigueur d\'un costume. Les boutons dorés évoquent aussi le vestiaire Ivy et japonais.',
+    accessibleAlternative: 'Blazer marine (droit, deux boutons, plus polyvalent), chemise Oxford blanche, chino beige, derbies ou mocassins marron.' }),
+  P(28426812, 'confident-young-man-in-formal-attire-studio-shot', 'Santiago Eyama', { title: 'Business Casual en pied : blazer marine, chemise blanche, pantalon sombre', styleIds: ['business-casual'], seasons: ['spring', 'autumn', 'winter'], colors: ['navy', 'white', 'black'],
+    alt: 'Homme debout en studio, blazer marine, chemise blanche, pantalon noir, chaussures noires',
+    visible: 'Blazer marine, chemise blanche, pantalon sombre, chaussures en cuir noir, silhouette entière sur fond gris.',
+    analysis: 'Silhouette complète utile pour juger les proportions : veste couvrant le fessier, pantalon droit. Le pantalon noir est plus strict qu\'un chino ; pour un rendez-vous client, un pantalon gris adoucit l\'ensemble.',
+    accessibleAlternative: 'Blazer marine, chemise blanche, pantalon gris en laine, derbies noires ou marron foncé.' }),
+  P(35881993, 'elegant-businessman-looking-out-window-in-suit', 'xomidov Photo', { title: 'Business Formal : costume marine, chemise claire, cravate sombre', styleIds: ['business-formal'], seasons: ['autumn', 'winter', 'spring'], colors: ['navy', 'white', 'burgundy'],
+    alt: 'Homme en costume trois-pièces marine, chemise claire et cravate sombre près d\'une fenêtre',
+    visible: 'Costume marine avec gilet, chemise claire, cravate sombre. Cadrage aux trois quarts : chaussures invisibles.',
+    analysis: 'Code professionnel formel : couleur unique du costume, contraste clair de la chemise, cravate discrète. Le gilet ajoute de la formalité ; il n\'est pas indispensable.',
+    accessibleAlternative: 'Costume marine deux pièces, chemise blanche en popeline, cravate bordeaux ou marine unie, richelieus noirs.' }),
+  P(39715168, 'stylish-man-in-formal-attire-with-red-tie-in-studio', 'Alfredo Dacosta', { title: 'Business Formal croisé : costume marine, cravate rouge', styleIds: ['business-formal', 'sartorial'], seasons: ['autumn', 'winter'], colors: ['navy', 'white', 'burgundy', 'black'],
+    alt: 'Homme en costume croisé marine, chemise blanche, cravate rouge et chaussures noires, en pied',
+    visible: 'Costume croisé marine, chemise blanche, cravate rouge, pochette rouge, chaussures noires ; silhouette entière.',
+    analysis: 'Veste croisée et accent rouge : plus affirmé, proche du sartorial. Montre bien la longueur de veste et la ligne du pantalon. Cravate et pochette assorties : à réserver aux occasions habillées.',
+    accessibleAlternative: 'Costume marine droit (plus polyvalent), chemise blanche, cravate bordeaux sans pochette assortie, richelieus noirs.' }),
+  P(9102964, 'close-up-shot-of-a-man-wearing-a-white-knitted-long-sleeves', 'Nickolas Johnston', { title: 'Old Money : pull torsadé écru et pantalon beige', styleIds: ['old-money', 'quiet'], seasons: ['autumn', 'winter'], colors: ['ecru', 'beige'],
+    alt: 'Homme assis en pull torsadé écru et pantalon beige',
+    visible: 'Pull en maille torsadée écru, pantalon beige. Cadrage serré, homme assis : coupe du pantalon et chaussures invisibles.',
+    analysis: 'Camaïeu écru/beige typique de l\'esthétique Old Money : la texture du torsadé remplace la couleur. Une esthétique, pas une tradition : l\'enjeu est la qualité de la maille, pas de « paraître riche ».',
+    accessibleAlternative: 'Pull torsadé écru en laine ou coton, chino beige ou écru, chemise blanche dessous, mocassins marron.' }),
+  P(30220583, 'stylish-man-walking-on-sunny-buenos-aires-street', 'Nicolás Langellotti', { title: 'Ivy / Preppy : chemise bleu ciel et pantalon écru', styleIds: ['ivy', 'mediterranean'], seasons: ['spring', 'summer'], colors: ['sky', 'ecru', 'black'],
+    alt: 'Homme marchant dans une rue arborée, chemise bleu ciel manches retroussées, pantalon écru, chaussures sombres',
+    visible: 'Chemise bleu ciel manches retroussées, pantalon écru droit, chaussures sombres, lunettes de soleil ; silhouette entière mais petite dans le cadre.',
+    analysis: 'Bleu ciel et écru : association douce et lumineuse du vestiaire universitaire américain. La silhouette entière montre un pantalon droit sans excès de longueur.',
+    accessibleAlternative: 'Chemise Oxford bleu ciel, chino écru, mocassins marron ; pull marine sur les épaules en mi-saison.' }),
+  P(19974898, 'man-in-white-shirt-on-sea-shore', 'Ala Ben Brahem', { title: 'Proportions nettes : chemise blanche rentrée, chino beige, mocassins', styleIds: ['ivy', 'smart-casual', 'mediterranean'], seasons: ['spring', 'summer'], colors: ['white', 'beige', 'chocolate'],
+    alt: 'Homme en bord de mer, chemise blanche rentrée, chino beige, ceinture et mocassins marron',
+    visible: 'Chemise blanche col officier rentrée, chino beige ajusté, ceinture marron, mocassins marron ; silhouette entière.',
+    analysis: 'Chemise rentrée et ceinture assortie aux chaussures : la taille visuelle remonte et la jambe s\'allonge (voir chapitre Morphologie). Le chino est près du corps : une coupe légèrement plus droite serait plus intemporelle.',
+    accessibleAlternative: 'Chemise blanche en coton ou lin, chino beige droit légèrement fuselé, ceinture et mocassins marron foncé.' }),
+  P(14979424, 'woman-walking-on-a-street', 'Vika Kirillova', { title: 'Minimalisme scandinave : manteau gris, col roulé noir, monochrome', styleIds: ['scandi'], seasons: ['autumn', 'winter'], colors: ['mid-gray', 'black', 'charcoal'],
+    alt: 'Personne marchant dans la rue en manteau long gris, col roulé noir, pantalon gris et chaussures noires',
+    visible: 'Manteau long gris, col roulé noir, pantalon gris large, chaussures noires ; silhouette entière en marche.',
+    analysis: 'Continuité visuelle par les gris et le noir, aucune pièce qui crie : c\'est la logique scandinave. Les volumes amples demandent des proportions maîtrisées ; pour une silhouette d\'1,63 m, un manteau au genou et un pantalon droit plus net conviennent mieux.',
+    accessibleAlternative: 'Manteau anthracite au genou, col roulé gris ou noir en mérinos, pantalon gris droit, chaussures noires épurées.' }),
+  P(32144132, 'stylish-man-in-grey-coat-against-urban-backdrop', 'Yasser Amin', { title: 'Scandinave / contemporain : veste anthracite texturée et col roulé noir', styleIds: ['scandi', 'contemporary'], seasons: ['autumn', 'winter'], colors: ['charcoal', 'black'],
+    alt: 'Homme de nuit en veste anthracite chinée et col roulé noir',
+    visible: 'Veste anthracite à texture chinée, col roulé noir. Cadrage à la taille : bas et chaussures invisibles.',
+    analysis: 'Le col roulé remplace la chemise et la cravate : sobriété moderne. La texture de la veste évite la monotonie d\'un ensemble sombre.',
+    accessibleAlternative: 'Blazer ou surchemise anthracite texturé, col roulé noir ou anthracite fin, pantalon gris, Chelsea noires.' }),
+  P(27584193, 'man-leaning-against-clay-vase-posing', 'Manish Jangid', { title: 'Chic méditerranéen : chemise claire et pantalon camel', styleIds: ['mediterranean', 'italian'], seasons: ['summer', 'spring'], colors: ['ecru', 'camel', 'chocolate'],
+    alt: 'Homme appuyé contre une niche blanche, chemise claire, pantalon camel, chaussures en daim foncé',
+    visible: 'Haut écru léger à col ouvert, pantalon camel, chaussures en daim foncé, décor blanc et terre cuite ; silhouette entière.',
+    analysis: 'Palette chaude écru / camel / brun : légèreté estivale sans négligence. Le pantalon un peu long accumule des plis à la cheville : un ourlet à légère cassure serait plus net.',
+    accessibleAlternative: 'Chemise en lin écru, chino camel ou beige ourlé à légère cassure, mocassins en daim marron.' }),
+  P(5149729, 'trendy-brutal-man-with-modern-hairstyle-squinting', 'emre keshavarz', { title: 'Camaïeu en lin : chemise et pantalon beige à pinces', styleIds: ['mediterranean', 'quiet'], seasons: ['summer'], colors: ['beige', 'ecru'],
+    alt: 'Homme en chemise de lin claire et pantalon beige à pinces avec ceinture, fond vert',
+    visible: 'Chemise en lin claire manches retroussées, pantalon beige taille haute à pinces avec ceinture. Cadrage aux cuisses : chaussures invisibles.',
+    analysis: 'Camaïeu de beiges : la profondeur vient de la matière (lin froissé) et des pinces du pantalon. Taille haute ceinturée qui allonge la jambe.',
+    accessibleAlternative: 'Chemise en lin écru, pantalon beige à pinces taille mi-haute, ceinture fine en cuir, espadrilles ou mocassins en daim.' }),
+];
+
 // C2 — Galeries vérifiées/retrouvées
 export const GALLERIES = [
   ['Vogue France — Pitti Uomo printemps-été 2026', 'https://www.vogue.fr/galerie/personnalites-pitti-uomo-printemps-ete-2026', 'Street style, Italie, tailoring, été'],
@@ -95,18 +166,18 @@ export const GALLERIES = [
 // C2 — Fiches à compléter pour les 15 styles (statut needs_review : liens non revérifiés individuellement)
 export const STYLE_PHOTO_BRIEFS = {
   italian: { links: ['https://www.tag-walk.com/en/look/e873a993f958c618db6e5eb5d25bd2a5?season=spring-summer-2026&tags=casual-tailoring&type=man'], photos: ['C1-01', 'C1-05'], brief: 'Brunello Cucinelli SS26 beige tonal, chemise blanche, coupe souple ; cohérence du camaïeu' },
-  french: { links: ['https://www.queen.gr/moda/symvoules-modas/story/284771/5-chic-synola-me-flats-pou-forane-tora-oi-gallides-apo-balarines-mexri-loafers', 'https://www.vogue.fr/dossier/street-style'], photos: [], brief: 'Parisian black blazer white shirt straight jeans, ballerines ; jean détend le blazer, taille structurée' },
+  french: { links: ['https://www.queen.gr/moda/symvoules-modas/story/284771/5-chic-synola-me-flats-pou-forane-tora-oi-gallides-apo-balarines-mexri-loafers', 'https://www.vogue.fr/dossier/street-style'], photos: ['C1-10'], brief: 'Parisian black blazer white shirt straight jeans, ballerines ; jean détend le blazer, taille structurée' },
   british: { links: ['https://www.permanentstyle.com/2014/01/pictures-from-pitti-uomo-2014.html'], photos: ['C1-08'], brief: 'Drake\'s brown tweed jacket grey flannel trousers blue shirt tie ; textures et contraste mesuré' },
   sartorial: { links: ['https://www.permanentstyle.com/style-lookbook'], photos: ['C1-04', 'C1-06'], brief: 'Bespoke navy sports jacket grey pleated trousers tie loafers ; proportions et maîtrise du tailoring' },
-  'old-money': { links: ['https://www.ralphlauren.com/men-clothing-pants/straight-fit-stretch-chino-pant/624054.html'], photos: [], brief: 'Pull torsadé bleu ciel, pantalon écru, chemise blanche, chaussures marron ; références sportives classiques' },
+  'old-money': { links: ['https://www.ralphlauren.com/men-clothing-pants/straight-fit-stretch-chino-pant/624054.html'], photos: ['PX-9102964'], brief: 'Pull torsadé bleu ciel, pantalon écru, chemise blanche, chaussures marron ; références sportives classiques' },
   quiet: { links: ['https://www.vogue.com/fashion-shows/fall-2026-menswear/brunello-cucinelli'], photos: ['C1-03'], brief: 'Cucinelli taupe cream cashmere knit trousers, matières et discrétion' },
   'smart-casual': { links: ['https://www.harryrosen.com/en/product/patrick-assaraf-textured-stitch-knit-polo-20177800066'], photos: ['C1-05'], brief: 'Polo en maille beige, pantalon marine, mocassins ; équilibre chic/décontracté' },
-  'business-casual': { links: ['https://mensfashioner.com/articles/ultimate-guide-to-mens-business-casual'], photos: [], brief: 'Navy blazer white shirt beige chinos brown loafers ; structure sans cravate' },
-  'business-formal': { links: ['https://www.brioni.com/ja/jp', 'https://www.permanentstyle.com/style-lookbook'], photos: [], brief: 'Costume bleu marine, chemise blanche, cravate sombre, richelieus ; architecture revers/col/épaules' },
-  ivy: { links: ['https://www.esdemarca.com/es/polo-ralph-lauren/camisa-oxford-custom-fit-azul-710792041004-3040728.html', 'https://www.ralphlauren.fr/'], photos: [], brief: 'Oxford bleue, chino beige, pull col rond, ceinture tressée, mocassins' },
-  scandi: { links: ['https://bcncoolhunter.com/2015/12/cos-adiccion-minimal-moda-estilo-nordico/'], photos: [], brief: 'Manteau anthracite, col roulé gris clair, pantalon gris ; continuité visuelle' },
+  'business-casual': { links: ['https://mensfashioner.com/articles/ultimate-guide-to-mens-business-casual'], photos: ['PX-40385866', 'PX-28426812'], brief: 'Navy blazer white shirt beige chinos brown loafers ; structure sans cravate' },
+  'business-formal': { links: ['https://www.brioni.com/ja/jp', 'https://www.permanentstyle.com/style-lookbook'], photos: ['PX-35881993', 'PX-39715168'], brief: 'Costume bleu marine, chemise blanche, cravate sombre, richelieus ; architecture revers/col/épaules' },
+  ivy: { links: ['https://www.esdemarca.com/es/polo-ralph-lauren/camisa-oxford-custom-fit-azul-710792041004-3040728.html', 'https://www.ralphlauren.fr/'], photos: ['PX-30220583', 'PX-19974898'], brief: 'Oxford bleue, chino beige, pull col rond, ceinture tressée, mocassins' },
+  scandi: { links: ['https://bcncoolhunter.com/2015/12/cos-adiccion-minimal-moda-estilo-nordico/'], photos: ['PX-14979424', 'PX-32144132'], brief: 'Manteau anthracite, col roulé gris clair, pantalon gris ; continuité visuelle' },
   japanese: { links: ['https://www.beams.co.jp/blog/smb/110627/'], photos: ['C1-07', 'C1-08'], brief: 'Blazer marine boutons dorés, pantalon kaki, chemise blanche, cravate rayée ; équilibre de volumes' },
-  mediterranean: { links: ['https://www.beymen.com/tr/p_brunello-cucinelli-kahverengi-keten-gomlek_1954706', 'https://www.vogue.fr/galerie/personnalites-pitti-uomo-printemps-ete-2026'], photos: [], brief: 'Chemise lin taupe, pantalon écru, mocassins daim ; légèreté' },
+  mediterranean: { links: ['https://www.beymen.com/tr/p_brunello-cucinelli-kahverengi-keten-gomlek_1954706', 'https://www.vogue.fr/galerie/personnalites-pitti-uomo-printemps-ete-2026'], photos: ['PX-27584193', 'PX-5149729'], brief: 'Chemise lin taupe, pantalon écru, mocassins daim ; légèreté' },
   'casual-chic': { links: ['https://www.thelovelist.wtf/p/todd-snyder-and-the-state-of-american'], photos: ['C1-03'], brief: 'Manteau marine, pull gris, jean droit, chaussures cuir ; vêtements ordinaires élevés par les pièces fortes' },
   contemporary: { links: ['https://www.drakes.com/blogs/news/collection-five-2020-lookbook'], photos: ['C1-02', 'C1-01'], brief: 'Veste texturée, pull écru, jean brut, chemise, bottines ; caractère et modernité' },
 };
@@ -132,5 +203,6 @@ export const PHOTO_QUERIES = [
   ['Six signatures', 'Pini Parma navy polo cream high-rise trousers ; beige knit polo chocolate trousers ; white shirt olive trousers ; navy blazer blue shirt grey trousers ; camel coat ecru turtleneck ; navy suit white shirt burgundy tie'],
 ];
 export const PHOTO_CHECKLIST = ['Source identifiable', 'Image réelle', 'Lien exact', 'Crédit connu ou explicitement inconnu', 'Analyse conforme à ce qui est visible', 'Licence/statut', 'Alternative abordable', 'Revalidation périodique', 'Lien de secours'];
-export const RIGHTS_LABELS = { unknown: 'Droits inconnus — lien uniquement', link_only: 'Lien uniquement', licensed: 'Sous licence', user_owned: 'Image fournie par l\'utilisateur' };
-export const PHOTO_BY_ID = Object.fromEntries(PHOTOS.map((p) => [p.id, p]));
+export const RIGHTS_LABELS = { unknown: 'Droits inconnus — lien uniquement', link_only: 'Lien uniquement', licensed: 'Licence libre (Pexels)', user_owned: 'Image fournie par l\'utilisateur' };
+export const ALL_PHOTOS = [...PHOTOS, ...EXTRA_PHOTOS];
+export const PHOTO_BY_ID = Object.fromEntries(ALL_PHOTOS.map((p) => [p.id, p]));

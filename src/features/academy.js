@@ -10,7 +10,7 @@ import { STYLES, STYLE_BY_ID, CLOSE_STYLES, TRADITIONS, TRADITIONS_NOTE, ITALY_C
 import { OCCASIONS, OCCASION_NOTES, PRIORITY_VISUALS } from '../data/occasions.js';
 import { MAIN_COLORS, PALETTES_20, COLOR_RULES, FACE_COLOR_NOTE, ITALIAN_SIGNATURES } from '../data/colors.js';
 import { CAPSULE, TEMPLATES, CAPSULE_NOTE } from '../data/capsule.js';
-import { PHOTOS, PHOTO_BY_ID, GALLERIES, STYLE_PHOTO_BRIEFS, PHOTO_QUERIES, PHOTO_CHECKLIST, RIGHTS_LABELS } from '../data/photos.js';
+import { PHOTOS, ALL_PHOTOS, PHOTO_BY_ID, GALLERIES, STYLE_PHOTO_BRIEFS, PHOTO_QUERIES, PHOTO_CHECKLIST, RIGHTS_LABELS } from '../data/photos.js';
 import { colorHex } from '../domain/colors.js';
 import { checkImageFile, loadBitmap, processImage } from '../services/image.js';
 import { navigate } from '../app.js';
@@ -212,19 +212,30 @@ async function renderStyle(main, id) {
 // ------------------------------------------------------------- Photothèque
 function refCards(ids) {
   return html`<div class="grid-wide" style="margin-top:12px">${ids.map((pid2) => PHOTO_BY_ID[pid2]).filter(Boolean).map((ph) => html`<article class="card ref-card">
-    <div class="ref-frame" data-photo-ref="${ph.id}" role="img" aria-label="${ph.alt}">
+    ${ph.displayMode === 'image' && ph.rights === 'licensed' && ph.imageUrl
+      ? html`<a class="ref-frame ref-photo" href="${ph.sourcePageUrl}" target="_blank" rel="noopener noreferrer" data-photo-ref="${ph.id}" data-remote="1" title="Ouvrir la photo originale">
+          <img src="${ph.imageUrl}" alt="${ph.alt}" loading="lazy" decoding="async" referrerpolicy="no-referrer">
+          <span class="ref-fallback hidden"><span class="eyebrow">Photo indisponible</span><span class="serif-italic">${ph.alt}</span><span class="btn btn-sm">Voir sur la source ${icon('external')}</span></span></a>`
+      : html`<div class="ref-frame" data-photo-ref="${ph.id}" role="img" aria-label="${ph.alt}">
       <span class="eyebrow">Photographie réelle · ${ph.id}</span><span class="serif-italic" style="font-size:18px">${ph.alt}</span>
       <span class="tag tag-warn">${RIGHTS_LABELS[ph.rights]}</span>
       <a class="btn btn-sm" href="${ph.sourcePageUrl}" target="_blank" rel="noopener noreferrer">Voir la photo sur la source ${icon('external')}</a>
-    </div>
+    </div>`}
+    ${ph.rights === 'licensed' ? html`<span class="tag tag-ok" style="align-self:flex-start">${RIGHTS_LABELS.licensed} · <a href="${ph.licenseUrl}" target="_blank" rel="noopener noreferrer">conditions</a></span>` : ''}
     <h4>${ph.title}</h4>
     <p class="small muted">Source : <a href="${ph.sourcePageUrl}" target="_blank" rel="noopener noreferrer">${ph.sourceLabel}</a> · Crédit : ${ph.credit} · photographe : ${ph.photographer || 'non identifié'} · vérifiée le ${ph.verifiedAt}</p>
     <p class="small"><strong>Visible :</strong> ${ph.visible}</p><p class="small"><strong>Analyse :</strong> ${ph.analysis}</p><p class="small"><strong>Version accessible :</strong> ${ph.accessibleAlternative}</p>
     ${ph.counterpoint ? html`<p class="small callout callout-warn">Contrepoint : ne pas classer automatiquement comme élégance italienne classique.</p>` : ''}
-    <div class="btn-row"><label class="btn btn-sm btn-ghost" for="up-${ph.id}">Fournir une image dont je détiens les droits</label><input type="file" id="up-${ph.id}" class="sr-only" accept="image/*" data-refupload="${ph.id}"></div>
+    ${ph.rights !== 'licensed' ? html`<div class="btn-row"><label class="btn btn-sm btn-ghost" for="up-${ph.id}">Fournir une image dont je détiens les droits</label><input type="file" id="up-${ph.id}" class="sr-only" accept="image/*" data-refupload="${ph.id}"></div>` : ''}
   </article>`)}</div>`;
 }
 async function hydrateRef(el) {
+  if (el.dataset.remote) {
+    const img = el.querySelector('img');
+    const fail = () => { img.remove(); el.querySelector('.ref-fallback').classList.remove('hidden'); };
+    if (img.complete && !img.naturalWidth) fail(); else img.addEventListener('error', fail, { once: true });
+    return;
+  }
   const own = await store.repo.get('photos', `ref_${el.dataset.photoRef}`);
   if (!own) return;
   const url = URL.createObjectURL(own.thumb || own.blob);
@@ -249,9 +260,9 @@ async function renderPhotos(main) {
   const covered = STYLES.filter((s) => STYLE_PHOTO_BRIEFS[s.id]?.photos?.length).length;
   setHTML(main, html`<a href="#/academy" class="small">← Académie</a>
     <div class="page-head" style="margin-top:8px"><div class="eyebrow">Partie C</div><h1>Photothèque et sources</h1>
-    <p class="lede">Neuf photographies réelles retrouvées (C1), vérifiées visuellement le 24 novembre 2026. Elles ne constituent pas une licence d'exploitation : affichage par carte et lien original. Aucune image générée n'est présentée comme photo.</p></div>
-    <div class="callout callout-warn">Lot incomplet : ${covered}/15 styles disposent d'au moins une référence validée. Les autres restent des briefs en attente.</div>
-    ${refCards(PHOTOS.map((p) => p.id))}
+    <p class="lede">${ALL_PHOTOS.length} photographies réelles, toutes ouvertes et examinées le 24 novembre 2026. Les photos de magazines (droits inconnus) s'affichent en carte avec lien vers la publication originale ; les photos Pexels, sous licence libre, s'affichent directement avec leur crédit. Aucune image générée n'est présentée comme photo.</p></div>
+    <div class="callout ${covered === 15 ? 'callout-info' : 'callout-warn'}">${covered === 15 ? `Les 15 styles disposent d'au moins une référence vérifiée.` : `Lot incomplet : ${covered}/15 styles disposent d'au moins une référence validée.`} Les briefs C2 restent utiles pour enrichir la photothèque.</div>
+    ${refCards(ALL_PHOTOS.map((p) => p.id))}
     <h2>Galeries vérifiées ou retrouvées (C2)</h2>${galleryLinks(GALLERIES)}
     <h2>Tableau des contenus à compléter</h2>
     ${tbl(['Style', 'Photos validées', 'Statut', 'Brief'], STYLES.map((s) => { const b = STYLE_PHOTO_BRIEFS[s.id]; return [html`<a href="#/academy/style/${s.id}">${s.name}</a>`, b?.photos?.join(', ') || '—', b?.photos?.length ? html`<span class="tag tag-ok">référencé</span>` : html`<span class="tag tag-warn">needs_review</span>`, b?.brief || '']; }))}
@@ -270,7 +281,7 @@ function buildIndex() {
   searchIndex = [
     ...CHAPTERS.map((c) => ({ href: `#/academy/ch/${c.id}`, title: `${c.n}. ${c.title}`, kind: 'Chapitre', text: `${c.title} ${c.summary} ${strip(chapterBody(c.id))}` })),
     ...STYLES.map((s) => ({ href: `#/academy/style/${s.id}`, title: s.name, kind: 'Style', text: Object.values(s).join(' ') })),
-    ...PHOTOS.map((p) => ({ href: '#/academy/photos', title: p.title, kind: 'Photo', text: `${p.title} ${p.visible} ${p.analysis} ${p.accessibleAlternative}` })),
+    ...ALL_PHOTOS.map((p) => ({ href: '#/academy/photos', title: p.title, kind: 'Photo', text: `${p.title} ${p.visible} ${p.analysis} ${p.accessibleAlternative}` })),
   ];
 }
 function renderSearch(main, q) {

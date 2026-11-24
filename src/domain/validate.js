@@ -75,11 +75,11 @@ export function validateAnalysis(input, { ownedIds = [] } = {}) {
   };
 }
 
-/** Valide un export JSON Style Studio avant import ; renvoie l'aperçu des conflits. */
+/** Valide un export JSON SPREZZA avant import ; renvoie l'aperçu des conflits. */
 export function validateExport(data, existing = {}) {
   const issues = [];
   if (!data || typeof data !== 'object') throw new ValidationError(['fichier non reconnu']);
-  if (data.app !== 'style-studio') issues.push('ce fichier ne provient pas de Style Studio');
+  if (!['sprezza', 'style-studio'].includes(data.app)) issues.push('ce fichier ne provient pas de SPREZZA');
   if (!isNum(data.schemaVersion)) issues.push('schemaVersion manquant');
   else if (data.schemaVersion > SCHEMA_VERSION) issues.push(`version ${data.schemaVersion} plus récente que l'application (${SCHEMA_VERSION})`);
   if (!data.stores || typeof data.stores !== 'object') issues.push('données absentes');

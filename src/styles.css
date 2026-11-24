@@ -1,4 +1,4 @@
-/* Style Studio — Quiet Luxury design system
+/* SPREZZA — Quiet Luxury design system
    Vert forêt profond · or champagne · ivoire · Cormorant Garamond · Inter */
 :root {
   --forest: #1F3D2F;
@@ -349,3 +349,12 @@ th button.sort { background: none; border: 0; font-weight: 600; cursor: pointer;
   .grid-split > .split-aside { order: 0; position: sticky; top: 80px; }
 }
 @media (max-width: 899px) { .grid-split .mannequin-wrap svg { max-width: 170px; } }
+
+/* Marque SPREZZA : capitales espacées, sobres */
+.brand-name { letter-spacing: .16em; font-size: 20px; }
+.sidebar .brand-name { font-size: 22px; }
+
+/* Photos de référence sous licence : affichage direct 3:4 */
+.ref-photo { padding: 0; text-decoration: none; color: inherit; position: relative; }
+.ref-photo img { width: 100%; height: 100%; object-fit: cover; }
+.ref-fallback { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px; text-align: center; }
