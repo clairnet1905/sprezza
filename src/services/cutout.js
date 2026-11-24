@@ -1,13 +1,37 @@
 // Détourage sur l'appareil (aucune photo envoyée) avec @imgly/background-removal (AGPL-3.0).
 // Premier usage : téléchargement unique du moteur et du modèle (~56 Mo), ensuite en cache du navigateur.
 // Résultat : la pièce recadrée et centrée sur un fond ivoire uniforme, au format 3:4.
-const LIB = 'https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/+esm';
-const DATA = 'https://staticimgly.com/@imgly/background-removal-data/1.7.0/dist/';
 export const CUTOUT_BG = '#F4F1EA';
 export const CUTOUT_DOWNLOAD_MB = 56;
 
-let libPromise = null;
-const loadLib = () => (libPromise ||= import(/* @vite-ignore */ LIB).catch((e) => { libPromise = null; throw new Error(`Module de détourage indisponible (${e.message}) : vérifiez la connexion`); }));
+// Le moteur tourne dans une page isolée (tools/cutout-frame.html) : la politique de sécurité de l'app reste stricte.
+let frame = null; let ready = null; let seq = 0;
+function getFrame() {
+  if (ready) return ready;
+  ready = new Promise((resolve, reject) => {
+    frame = document.createElement('iframe');
+    frame.src = new URL('../../tools/cutout-frame.html', import.meta.url).href;
+    frame.title = 'Détourage'; frame.setAttribute('aria-hidden', 'true'); frame.tabIndex = -1;
+    frame.style.cssText = 'position:absolute;width:1px;height:1px;border:0;left:-9999px;top:0';
+    const t = setTimeout(() => { ready = null; reject(new Error('Module de détourage indisponible : vérifiez la connexion')); }, 20000);
+    const onReady = (e) => { if (e.source === frame.contentWindow && e.data?.type === 'ready') { clearTimeout(t); window.removeEventListener('message', onReady); resolve(frame); } };
+    window.addEventListener('message', onReady);
+    document.body.appendChild(frame);
+  });
+  return ready;
+}
+function removeBackgroundIsolated(blob, onProgress) {
+  return getFrame().then((f) => new Promise((resolve, reject) => {
+    const id = ++seq;
+    const onMsg = (e) => {
+      if (e.source !== f.contentWindow || e.origin !== location.origin || e.data?.id !== id) return;
+      if (e.data.type === 'progress') onProgress(e.data.key, e.data.pct);
+      else { window.removeEventListener('message', onMsg); e.data.type === 'done' ? resolve(e.data.png) : reject(new Error(e.data.message)); }
+    };
+    window.addEventListener('message', onMsg);
+    f.contentWindow.postMessage({ type: 'cutout', id, blob }, location.origin);
+  }));
+}
 
 /** Boîte englobante des pixels visibles (alpha > seuil). Fonction pure, testée. */
 export function alphaBounds(data, w, h, threshold = 24) {
@@ -27,11 +51,7 @@ function toBlob(canvas, q = 0.86) { return new Promise((res, rej) => canvas.toBl
  */
 export async function cutout(blob, onProgress = () => {}) {
   onProgress({ step: 'Chargement du module de détourage', pct: null });
-  const { removeBackground } = await loadLib();
-  const png = await removeBackground(blob, {
-    publicPath: DATA, model: 'isnet_quint8', output: { format: 'image/png', quality: 1 },
-    progress: (key, cur, total) => onProgress({ step: /fetch/.test(key) ? `Téléchargement du modèle (une seule fois, ~${CUTOUT_DOWNLOAD_MB} Mo)` : 'Détourage en cours', pct: total ? Math.round((cur / total) * 100) : null }),
-  });
+  const png = await removeBackgroundIsolated(blob, (key, pct) => onProgress({ step: /fetch/.test(key) ? `Téléchargement du modèle (une seule fois, ~${CUTOUT_DOWNLOAD_MB} Mo)` : 'Détourage en cours', pct }));
   onProgress({ step: 'Mise en forme', pct: null });
   const bmp = await createImageBitmap(png);
   const src = document.createElement('canvas'); src.width = bmp.width; src.height = bmp.height;

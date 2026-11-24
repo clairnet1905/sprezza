@@ -1,11 +1,11 @@
 // Service worker SPREZZA : coque applicative hors ligne, polices en cache, API jamais mise en cache.
-const VERSION = 'sprezza-v17';
+const VERSION = 'sprezza-v18';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'src/styles.css', 'src/app.js', 'src/state.js',
   'src/lib/html.js', 'src/components/ui.js', 'src/components/mannequin.js', 'src/repositories/db.js',
   'src/data/colors.js', 'src/data/occasions.js', 'src/data/styles.js', 'src/data/guide.js', 'src/data/capsule.js', 'src/data/retailers.js', 'src/data/photos.js', 'src/data/taxonomy.js', 'src/data/chapters.js',
   'src/domain/colors.js', 'src/domain/scoring.js', 'src/domain/recommend.js', 'src/domain/weather.js', 'src/domain/validate.js', 'src/domain/wardrobe-logic.js', 'src/domain/review.js',
-  'src/services/image.js', 'src/services/weather.js', 'src/services/ai.js', 'src/services/sync.js', 'src/services/pexels.js', 'src/services/cutout.js', 'src/config.js',
+  'src/services/image.js', 'src/services/weather.js', 'src/services/ai.js', 'src/services/sync.js', 'src/services/pexels.js', 'src/services/cutout.js', 'tools/cutout-frame.html', 'tools/cutout-frame.js', 'src/config.js',
   'src/features/shared.js', 'src/features/today.js', 'src/features/daily.js', 'src/features/wardrobe.js', 'src/features/outfits.js', 'src/features/colors.js', 'src/features/academy.js', 'src/features/analysis.js',
   'src/features/shopping.js', 'src/features/favorites.js', 'src/features/calendar.js', 'src/features/capsule.js', 'src/features/profile.js', 'src/features/settings.js', 'src/features/more.js',
   'assets/icons/icon.svg', 'assets/icons/icon-192.png', 'assets/icons/icon-512.png', 'assets/icons/apple-touch-icon.png',
