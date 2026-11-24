@@ -86,7 +86,7 @@ export async function renderDaily(box, { onShowAll } = {}) {
     }
 
     setHTML(box, html`<section class="card card-accent" aria-labelledby="daily-h">
-      <div class="small" style="margin-bottom:10px">${icon('today')} <strong>${fmtDate(today, { weekday: 'long', day: 'numeric', month: 'long' })}</strong> — ${wxLine(w0)}</div>
+      <div class="small" style="margin-bottom:10px">${icon('today')} <strong>${fmtDate(today, { weekday: 'long', day: 'numeric', month: 'long' })}</strong> — ${wxLine(w0)}${(() => { const n = all.filter((g) => g.availability === 'to-wash').length; return n ? html` · <a href="#/wardrobe/care">${n} pièce${n > 1 ? 's' : ''} au panier à linge</a>` : ''; })()}</div>
       ${!all.length ? html`<h2 id="daily-h" style="margin-top:0">Votre tenue du jour vous attend</h2><p>Ajoutez quelques pièces (haut, bas, chaussures) : SPREZZA vous proposera chaque matin une tenue prête, adaptée à la météo et à votre journée.</p><div class="btn-row"><a class="btn btn-primary" href="#/wardrobe/quick">${icon('camera')} Ajout rapide</a><a class="btn" href="#/outfits/templates">Inspiration</a></div>`
         : !pieces ? html`<h2 id="daily-h" style="margin-top:0">Pas encore de tenue complète</h2><p class="small">${res.info.missing.map((m) => m.text).join(' ') || 'Le dressing disponible ne permet pas de tenue complète pour cette occasion.'}</p><a class="btn btn-primary" href="#/wardrobe/quick">${icon('camera')} Ajouter une pièce</a>`
         : html`<div id="daily-h">${head}</div>

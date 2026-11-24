@@ -10,6 +10,7 @@ import { nearestColor, colorIdFromHex } from '../domain/colors.js';
 import { isAvailable, pairingsFor } from '../domain/recommend.js';
 import { costPerWear, wardrobeStats } from '../domain/wardrobe-logic.js';
 import { versatility, reviewGarment, keyThresholdOf, VERDICTS } from '../domain/review.js';
+import { careStatus, afterWash, afterCare } from '../domain/care.js';
 import { prefs as loadPrefs } from '../state.js';
 import { checkImageFile, loadBitmap, processImage, renderToCanvas } from '../services/image.js';
 import { aiStatus } from '../services/ai.js';
@@ -27,6 +28,7 @@ export async function render(main, params, query) {
   if (a === 'stats') return renderStats(main);
   if (a === 'review') return renderReview(main);
   if (a === 'quick') return renderQuick(main);
+  if (a === 'care') return renderCare(main);
   if (b === 'edit') { const g = await store.repo.get('garments', a); return g ? renderEditor(main, g) : notFound(main); }
   const g = await store.repo.get('garments', a);
   return g && g.profileId === pid() ? renderDetail(main, g) : notFound(main);
@@ -60,7 +62,7 @@ async function renderList(main) {
   setHTML(main, html`
     <div class="page-head row-between"><div><div class="eyebrow">Dressing numérique</div><h1>Mon dressing</h1>
       <p class="lede">${all.length} pièce${all.length > 1 ? 's' : ''} · ${all.filter(isAvailable).length} disponible${all.filter(isAvailable).length > 1 ? 's' : ''} immédiatement. Vos photos restent privées sur cet appareil.</p></div>
-      <div class="btn-row"><a class="btn btn-primary" href="#/wardrobe/quick">${icon('camera')} Ajout rapide</a><a class="btn" href="#/wardrobe/new">${icon('plus')} Fiche complète</a><a class="btn" href="#/wardrobe/import">${icon('upload')} Import multiple</a><a class="btn" href="#/wardrobe/review">Revue du dressing</a><a class="btn" href="#/wardrobe/stats">Statistiques</a></div></div>
+      <div class="btn-row"><a class="btn btn-primary" href="#/wardrobe/quick">${icon('camera')} Ajout rapide</a><a class="btn" href="#/wardrobe/new">${icon('plus')} Fiche complète</a><a class="btn" href="#/wardrobe/import">${icon('upload')} Import multiple</a><a class="btn" href="#/wardrobe/care">${icon('rotate')} Lessive & entretien${all.filter((g) => g.availability === 'to-wash').length ? ` (${all.filter((g) => g.availability === 'to-wash').length})` : ''}</a><a class="btn" href="#/wardrobe/review">Revue du dressing</a><a class="btn" href="#/wardrobe/stats">Statistiques</a></div></div>
     ${all.length ? html`
     <div class="card" style="margin-bottom:16px">
       <div class="field"><label for="wq">Rechercher</label><input id="wq" type="search" placeholder="Nom, marque, matière, tag…" value="${filters.q}"></div>
@@ -154,7 +156,7 @@ async function renderDetail(main, g) {
     forgetPhotoURL(ph0.id); toast('Photo originale rétablie'); navigate(`#/wardrobe/${g.id}`);
   });
   main.querySelector('#fav').onclick = async () => { await store.repo.put('garments', { ...g, favorite: !g.favorite }); navigate(`#/wardrobe/${g.id}`); };
-  main.querySelectorAll('[data-avail]').forEach((b) => b.onclick = async () => { await store.repo.put('garments', { ...g, availability: b.dataset.avail }); toast(`Disponibilité : ${AVAIL_LABEL[b.dataset.avail]}`); navigate(`#/wardrobe/${g.id}`); });
+  main.querySelectorAll('[data-avail]').forEach((b) => b.onclick = async () => { await store.repo.put('garments', b.dataset.avail === 'clean' && g.availability === 'to-wash' ? afterWash(g) : { ...g, availability: b.dataset.avail }); toast(`Disponibilité : ${AVAIL_LABEL[b.dataset.avail]}`); navigate(`#/wardrobe/${g.id}`); });
   main.querySelector('#del').onclick = async () => {
     if (await confirmDialog({ title: 'Supprimer cette pièce ?', message: `« ${g.name} » et ses photos seront supprimées de cet appareil. Les tenues qui l'utilisent la signaleront comme pièce supprimée. Cette action est irréversible.`, confirmLabel: 'Supprimer', danger: true })) {
       (g.photoIds || []).forEach(forgetPhotoURL);
@@ -466,7 +468,7 @@ async function renderStats(main) {
     <h2>Tenues sauvegardées jamais portées</h2>
     <div class="card">${unusedOutfits.length ? html`<ul class="clean">${unusedOutfits.map((o) => html`<li style="padding:5px 0"><a href="#/outfits/${o.id}">${o.name}</a></li>`)}</ul>` : html`<p class="muted small">Aucune.</p>`}</div>`);
   main.querySelector('#allclean')?.addEventListener('click', async () => {
-    for (const g of all.filter((x) => x.availability === 'to-wash')) await store.repo.put('garments', { ...g, availability: 'clean' }, { silent: true });
+    for (const g of all.filter((x) => x.availability === 'to-wash')) await store.repo.put('garments', afterWash(g), { silent: true });
     toast('Pièces marquées propres'); navigate('#/wardrobe/stats');
   });
 }
@@ -571,4 +573,41 @@ async function renderQuick(main) {
     $('#qdone').onclick = () => save(false);
   };
   draw();
+}
+
+// ---------------------------------------------------------------- Lessive & entretien
+async function renderCare(main) {
+  const all = await loadGarments();
+  const autoBasket = await store.repo.kvGet('pref:autobasket', true);
+  const rows = all.map((g) => ({ g, c: careStatus(g) }));
+  const basket = rows.filter((r) => r.g.availability === 'to-wash');
+  const soon = rows.filter((r) => r.g.availability !== 'to-wash' && r.c.washable && r.c.wearsSinceWash > 0 && r.c.washAfter - r.c.wearsSinceWash <= 1);
+  const tasks = rows.flatMap((r) => r.c.dueTasks.map((t) => ({ g: r.g, t })));
+  const thumb = (g) => html`<a class="mini-thumb" href="#/wardrobe/${g.id}">${g.photoIds?.length ? html`<img data-photo="${g.photoIds[0]}" alt="${g.name}">` : html`<span class="small muted">—</span>`}</a>`;
+  setHTML(main, html`<a href="#/wardrobe" class="small">← Dressing</a>
+    <div class="page-head" style="margin-top:8px"><div class="eyebrow">Lessive & entretien</div><h1>Des vêtements toujours prêts</h1>
+    <p class="lede">Bella figura : des vêtements propres, entretenus, adaptés. Les pièces à laver ne sont jamais proposées comme portables. Repères généraux : l'étiquette de chaque vêtement prime.</p></div>
+    <label class="check" style="margin-bottom:14px"><input type="checkbox" id="autob" ${autoBasket ? raw('checked') : ''}> Mettre automatiquement au panier une pièce après son nombre de ports habituel (tee-shirt et chemise 1, polo 2, chino 4, pull 5, jean 8…)</label>
+    <div class="grid-3">
+      <div class="card"><div class="stat">${basket.length}</div><div class="stat-label">au panier à linge</div></div>
+      <div class="card"><div class="stat">${soon.length}</div><div class="stat-label">à laver après le prochain port</div></div>
+      <div class="card"><div class="stat">${tasks.length}</div><div class="stat-label">soins à faire (cirage, défeutrage…)</div></div>
+    </div>
+    <h2>Panier à linge</h2>
+    ${basket.length ? html`<div class="btn-row" style="margin-bottom:10px"><button class="btn btn-primary" id="allwashed">${icon('check')} Tout est lavé</button></div>
+      <div class="stack">${basket.map(({ g, c }) => html`<div class="card row" style="flex-wrap:nowrap">${thumb(g)}<div style="flex:1;min-width:0"><strong>${g.name}</strong><p class="small muted" style="margin:2px 0">${c.tips}</p></div><button class="btn btn-sm" data-wash="${g.id}">Lavé</button></div>`)}</div>`
+      : html`<p class="muted">Panier vide : tout est prêt à porter.</p>`}
+    ${soon.length ? html`<h2>Bientôt à laver</h2><div class="chips">${soon.map(({ g, c }) => html`<span class="tag">${g.name} · ${c.wearsSinceWash}/${c.washAfter} ports</span>`)}</div>` : ''}
+    <h2>Soins à faire</h2>
+    ${tasks.length ? html`<div class="stack">${tasks.map(({ g, t }) => html`<div class="card row" style="flex-wrap:nowrap">${thumb(g)}<div style="flex:1;min-width:0"><strong>${t.label}</strong> — ${g.name}<p class="small muted" style="margin:2px 0">${t.how} (${t.wearsSince} ports depuis le dernier soin)</p></div><button class="btn btn-sm" data-care="${g.id}" data-task="${t.id}">Fait</button></div>`)}</div>`
+      : html`<p class="muted">Aucun soin en retard. Les rappels apparaissent selon l'usage réel de chaque pièce.</p>`}
+    <details class="disclosure" style="margin-top:18px"><summary>Conseils d'entretien par pièce</summary>
+      <div class="table-wrap"><table><thead><tr><th>Pièce</th><th>Lavage</th><th>Soins réguliers</th></tr></thead><tbody>
+      ${rows.map(({ g, c }) => html`<tr><td>${g.name}</td><td class="small">${c.washable ? `Tous les ${c.washAfter} port${c.washAfter > 1 ? 's' : ''} · ` : 'Pas de machine · '}${c.tips}</td><td class="small">${c.tasks.map((t) => `${t.label} (tous les ${t.every} ports)`).join(' ; ') || '—'}</td></tr>`)}
+      </tbody></table></div></details>`);
+  hydratePhotos(main);
+  main.querySelector('#autob').onchange = async (e) => { await store.repo.kvSet('pref:autobasket', e.target.checked); toast(e.target.checked ? 'Panier automatique activé' : 'Panier automatique désactivé'); };
+  main.querySelector('#allwashed')?.addEventListener('click', async () => { for (const { g } of basket) await store.repo.put('garments', afterWash(g), { silent: true }); store.repo.emit('garments', 'bulk', null); toast(`${basket.length} pièce(s) remise(s) au propre`); renderCare(main); });
+  main.querySelectorAll('[data-wash]').forEach((b) => b.onclick = async () => { const g = all.find((x) => x.id === b.dataset.wash); await store.repo.put('garments', afterWash(g)); toast(`${g.name} : propre`); renderCare(main); });
+  main.querySelectorAll('[data-care]').forEach((b) => b.onclick = async () => { const g = all.find((x) => x.id === b.dataset.care); await store.repo.put('garments', afterCare(g, b.dataset.task)); toast('Soin noté'); renderCare(main); });
 }

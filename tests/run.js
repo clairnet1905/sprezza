@@ -25,6 +25,7 @@ import { chooseAccessories } from '../src/domain/recommend.js';
 import { shortQuery } from '../src/features/shopping.js';
 import { inspirationQuery, colorsQuery, searchPhotos } from '../src/services/pexels.js';
 import { alphaBounds } from '../src/services/cutout.js';
+import { careStatus, afterWear, afterWash, afterCare } from '../src/domain/care.js';
 import { OCCASION_BY_ID } from '../src/data/occasions.js';
 
 const tests = [];
@@ -303,6 +304,21 @@ test('Détourage : cadrage sur les pixels visibles', () => {
   const w = 10, h = 8, d = new Uint8ClampedArray(w * h * 4);
   for (let y = 2; y <= 5; y++) for (let x = 3; x <= 6; x++) d[(y * w + x) * 4 + 3] = 255;
   eq(alphaBounds(d, w, h), { x: 3, y: 2, w: 4, h: 4 }); eq(alphaBounds(new Uint8ClampedArray(w * h * 4), w, h), null);
+});
+test('Lessive : tee-shirt au panier après 1 port, jean après 8, manteau jamais', () => {
+  const tee = G('tee-shirt', 'haut', 'white', { availability: 'clean' });
+  eq(afterWear(tee).availability, 'to-wash');
+  let jean = G('jean', 'bas', 'navy', { availability: 'clean' });
+  for (let i = 0; i < 7; i++) jean = afterWear(jean); eq(jean.availability, 'worn'); jean = afterWear(jean); eq(jean.availability, 'to-wash');
+  jean = afterWash(jean); eq([jean.availability, jean.wearsSinceWash], ['clean', 0]);
+  let coat = G('manteau', 'manteau', 'navy', { availability: 'clean' }); for (let i = 0; i < 30; i++) coat = afterWear(coat); ok(coat.availability !== 'to-wash', 'manteau en machine');
+  eq(afterWear(tee, { autoBasket: false }).availability, 'worn');
+});
+test('Entretien : cirage dû après 8 ports de chaussures en cuir, remis à zéro quand fait', () => {
+  const sh = G('derbies', 'chaussures', 'chocolate', { material: 'Cuir', wearCount: 9 });
+  ok(careStatus(sh).dueTasks.some((t) => t.id === 'polish'), 'cirage non signalé');
+  ok(!careStatus(afterCare(sh, 'polish')).dueTasks.some((t) => t.id === 'polish'), 'cirage non remis à zéro');
+  ok(careStatus(G('mocassins', 'chaussures', 'chocolate', { material: 'Daim', wearCount: 12 })).dueTasks.some((t) => t.id === 'suede'));
 });
 test('Requête courte boutique sans doublons', () => eq(shortQuery({ category: 'pantalon écru', color: 'ecru', material: 'coton' }), 'pantalon écru coton'));
 

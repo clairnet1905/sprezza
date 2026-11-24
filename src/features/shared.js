@@ -8,6 +8,7 @@ import { store, pid } from '../state.js';
 import { uid } from '../repositories/db.js';
 import { roleOf, isAvailable, comboKey } from '../domain/recommend.js';
 import { colorHex, colorName } from '../domain/colors.js';
+import { afterWear } from '../domain/care.js';
 import { inspirationQuery, genderWord } from '../services/pexels.js';
 
 /** Bloc « Inspiration : photos réelles » (chargé à la demande, voir app.js). */
@@ -134,9 +135,14 @@ export async function wearOutfit(pieces, { date = todayISO(), occasionId = null,
   const ids = Object.values(piecesToIds(pieces)).flat().filter(Boolean);
   await store.repo.put('wearlog', { id: uid('wear'), profileId: pid(), date, occasionId, outfitId, garmentIds: ids });
   const all = await store.repo.all('garments', (g) => ids.includes(g.id));
+  const autoBasket = await store.repo.kvGet('pref:autobasket', true);
+  const basketed = [];
   for (const g of all) {
-    await store.repo.put('garments', { ...g, lastWornAt: new Date(date + 'T12:00:00').toISOString(), wearCount: (g.wearCount || 0) + 1, availability: g.availability === 'clean' ? 'worn' : g.availability }, { silent: true });
+    const next = afterWear({ ...g, lastWornAt: new Date(date + 'T12:00:00').toISOString(), wearCount: (g.wearCount || 0) + 1 }, { autoBasket });
+    if (next.availability === 'to-wash' && g.availability !== 'to-wash') basketed.push(g.name);
+    await store.repo.put('garments', next, { silent: true });
   }
+  if (basketed.length) setTimeout(() => toast(`Panier à linge : ${basketed.join(', ')}`, { action: 'Voir', onAction: () => { location.hash = '#/wardrobe/care'; }, timeout: 7000 }), 1200);
   // Un calendrier planifié ce jour-là devient « porté »
   const cal = await store.repo.all('calendar', (c) => c.profileId === pid() && c.date === date && c.status === 'planned');
   for (const c of cal) await store.repo.put('calendar', { ...c, status: 'worn' });
