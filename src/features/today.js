@@ -11,6 +11,7 @@ import { buildQuery } from '../domain/wardrobe-logic.js';
 import { MODE_STYLES } from '../domain/scoring.js';
 import { proposalCard, saveOutfit, wearOutfit, addToCalendar, piecesList, pieceRow, MODE_NAME } from './shared.js';
 import { navigate } from '../app.js';
+import { renderDaily } from './daily.js';
 
 const KEY = () => `today:${pid()}`;
 
@@ -31,6 +32,9 @@ export async function render(main) {
       <p class="serif-italic">L'élégance devient naturelle.</p>
       <p class="lede">${all.length ? `${all.filter(isAvailable).length} pièces disponibles dans votre dressing.` : 'Votre dressing est vide : ajoutez vos pièces pour des propositions réelles.'}</p>
     </section>
+    <div id="daily" style="margin-bottom:26px"></div>
+    <h2 id="all-h">Toutes les propositions</h2>
+    <p class="small muted" style="margin-top:-6px">Choisissez une occasion, la météo ou une pièce imposée pour obtenir trois tenues détaillées.</p>
     <div class="grid-2" style="align-items:start">
       <section class="card" aria-labelledby="ctx-h"><h2 id="ctx-h" style="margin-top:0">Contexte</h2>
         <div class="field"><label for="occ">Occasion</label><select id="occ">${options(OCCASIONS.map((o) => [o.id, o.name]), st.occasionId)}</select><p class="hint" id="occnote"></p></div>
@@ -191,4 +195,5 @@ export async function render(main) {
     if (kind !== 'like') run();
   };
   $('#go').onclick = run;
+  renderDaily($('#daily'), { onShowAll: (occasionId) => { $('#occ').value = occasionId; st.occasionId = occasionId; occNote(); persist(); run().then(() => $('#all-h').scrollIntoView({ behavior: 'smooth' })); } });
 }

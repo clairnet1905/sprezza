@@ -20,6 +20,7 @@ import { mannequinSVG } from '../src/components/mannequin.js';
 import { evaluateManual } from '../src/features/analysis.js';
 import { SyncService, shouldSync, remoteWins } from '../src/services/sync.js';
 import { versatility, reviewGarment, keyThresholdOf } from '../src/domain/review.js';
+import { defaultOccasion, preferredMode } from '../src/features/daily.js';
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -241,6 +242,16 @@ test('Revue : abîmée et isolée → donner ; abîmée mais polyvalente → ret
   const isolated = reviewGarment(G('chemise', 'haut', 'burgundy', { condition: 'good' }), { versatility: 0, total: 10 });
   eq(isolated.verdict, 'think'); ok(isolated.missing.includes('coupe'), 'info manquante non signalée');
   ok(keyThresholdOf({ a: 1, b: 2 }) >= 4);
+});
+
+// ---------------- Tenue du jour
+test('Tenue du jour : occasion par défaut (semaine client, week-end promenade) et mode selon l\'identité', () => {
+  eq(defaultOccasion(new Date('2026-11-24T09:00:00'), 'main'), 'client'); // mardi
+  eq(defaultOccasion(new Date('2026-11-29T09:00:00'), 'main'), 'walk'); // dimanche
+  eq(defaultOccasion(new Date('2026-11-24T09:00:00'), 'woman'), 'daily');
+  eq(preferredMode([{ id: 'italian', pct: 50 }, { id: 'british', pct: 10 }]), 'italian');
+  eq(preferredMode([{ id: 'scandi', pct: 60 }, { id: 'italian', pct: 10 }]), 'modern');
+  eq(preferredMode([]), 'italian');
 });
 
 // ---------------- Synchronisation (faux serveur Supabase, deux appareils réels IndexedDB)
