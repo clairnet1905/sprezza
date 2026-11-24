@@ -9,6 +9,8 @@ import { suggestPalette, classifyHarmony, paletteNote, nearestColor, BOTTOM_IDS,
 import { roleOf, isAvailable } from '../domain/recommend.js';
 import { seasonFromDate, SEASON_NAMES } from '../domain/weather.js';
 import { garmentGlyph } from '../components/mannequin.js';
+import { inspireBlock } from './shared.js';
+import { colorsQuery, genderWord } from '../services/pexels.js';
 
 // État du générateur conservé pendant la session
 export const gen = { mode: 'bottom', base: 'beige', top: null, jacketOn: true, jacket: null, shoe: null, beltOn: true, belt: null, textures: {}, sort: 'original', season: '', contrast: '', withWardrobe: false };
@@ -101,6 +103,7 @@ async function renderGenerator(box) {
             ${!inMatrixTop ? html`<p class="small callout callout-warn">Association hors des conseils prioritaires : possible, mais moins adaptée à l'objectif classique.</p>` : ''}
             <div class="btn-row" style="margin-top:12px"><button class="btn btn-sm btn-primary" id="savep">${icon('heart')} Sauvegarder cette palette</button><button class="btn btn-sm" id="copyp">${icon('copy')} Copier les couleurs</button><button class="btn btn-sm" id="sharep">${icon('share')} Partager la palette</button></div>
             <p class="hint">Partage du texte des couleurs uniquement, sans photos personnelles.</p>
+            ${inspireBlock(colorsQuery({ top: topId, bottom: bottomId, jacket }, { gender: genderWord() }), 'Photos réelles de cette association (Pexels)')}
           </section>
           ${gen.withWardrobe ? html`<section class="card" id="mine"></section>` : ''}
         </div>

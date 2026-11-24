@@ -6,7 +6,7 @@ import { SYNC_CONFIG } from '../config.js';
 
 const BUCKET = 'sprezza-photos';
 const SYNCED_STORES = ['profiles', 'garments', 'photos', 'outfits', 'wearlog', 'calendar', 'wishlist', 'palettes', 'analyses', 'kv'];
-const KV_SYNCED = /^(prefs:|capsule:|today:|academy$)/;
+const KV_SYNCED = /^(prefs:|capsule:|today:|academy$|apikey:)/;
 const PAGE = 500;
 
 /** Une ligne locale doit-elle être synchronisée ? (fonction pure, testée) */

@@ -8,6 +8,12 @@ import { store, pid } from '../state.js';
 import { uid } from '../repositories/db.js';
 import { roleOf, isAvailable, comboKey } from '../domain/recommend.js';
 import { colorHex, colorName } from '../domain/colors.js';
+import { inspirationQuery, genderWord } from '../services/pexels.js';
+
+/** Bloc « Inspiration : photos réelles » (chargé à la demande, voir app.js). */
+export function inspireBlock(query, label = 'Inspiration : photos réelles similaires (Pexels)') {
+  return html`<details class="disclosure"><summary>${label}</summary><div style="margin-top:8px"><button type="button" class="btn btn-sm" data-inspire="${query}">${icon('search')} Afficher des photos</button> <span class="small muted">Recherche : « ${query} »</span><div class="inspire-out" aria-live="polite"></div></div></details>`;
+}
 
 export const AVAIL_LABEL = Object.fromEntries(AVAILABILITY.map(([id, l]) => [id, l]));
 export const MODE_NAME = Object.fromEntries(OUTFIT_MODES.map((m) => [m.id, m.name]));
@@ -84,6 +90,7 @@ export function proposalCard(opt, idx, { actions = true, title } = {}) {
     <details class="disclosure"><summary>Détail de la note (grille B18)</summary>${criteriaView(opt.score)}
       ${opt.bonus?.length ? html`<p class="small muted" style="margin-top:8px">Classement (distinct de la note d'élégance) : ${opt.bonus.join(' ; ')}</p>` : ''}</details>
     ${Object.keys(opt.alternatives || {}).length ? html`<details class="disclosure"><summary>Alternatives</summary>${Object.entries(opt.alternatives).map(([role, alts]) => html`<p class="small"><strong>${ROLE_LABELS[role]} :</strong> ${alts.map((a) => `${a.garment?.name || 'sans'}${a.score !== null ? ` (${a.score})` : ''}`).join(' · ')}</p>`)}</details>` : ''}
+    ${inspireBlock(inspirationQuery(p, { gender: genderWord() }))}
     ${actions ? html`<div class="btn-row">
       <button class="btn btn-primary" data-act="wear">${icon('check')} Je porte cette tenue</button>
       <button class="btn" data-act="save">${icon('heart')} Sauvegarder</button>

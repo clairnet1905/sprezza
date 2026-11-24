@@ -37,6 +37,7 @@ export async function render(main) {
         <li>Aucune télémétrie, aucune publicité, aucun partage public. Liens externes ouverts sans référent.</li>
         <li>Cette application ne prétend pas à une conformité RGPD totale sans audit ; documenter traitements et fournisseurs avant toute mise en ligne publique.</li></ul></details></section>
     <section class="card" style="margin-top:14px" id="sync"><h2 style="margin-top:0">Synchronisation iPhone ↔ ordinateur</h2><div id="syncbox"><span class="loader"></span></div></section>
+    <section class="card" style="margin-top:14px" id="apis"><h2 style="margin-top:0">Services gratuits connectés</h2><div id="apibox"></div></section>
     <section class="card" style="margin-top:14px"><h2 style="margin-top:0">Sauvegarde</h2>
       <label class="check"><input type="checkbox" id="withphotos"> Exporter aussi les photos (archive séparée, privée)</label>
       <div class="btn-row" style="margin-top:8px"><button class="btn btn-primary" id="export">${icon('download')} Exporter mes données (.json)</button><label class="btn" for="import">${icon('upload')} Importer une sauvegarde</label><input id="import" type="file" accept="application/json,.json" multiple class="sr-only"></div>
@@ -54,6 +55,7 @@ export async function render(main) {
   const $ = (s) => main.querySelector(s);
   $('#theme').onchange = (e) => saveSettings({ theme: e.target.value });
   renderSync(main.querySelector('#syncbox'));
+  renderApis(main.querySelector('#apibox'));
   main.querySelectorAll('[data-consent]').forEach((cb) => cb.onchange = async () => { await saveProfile({ ...store.profile, consents: { ...store.profile.consents, [cb.dataset.consent]: cb.checked } }); toast(cb.checked ? 'Consentement enregistré' : 'Consentement retiré'); });
   $('#export').onclick = () => exportData($('#withphotos').checked);
   $('#import').onchange = (e) => importData([...e.target.files], main);
@@ -79,7 +81,7 @@ async function exportData(withPhotos) {
     if (s === 'photos') continue;
     stores[s] = await store.repo.all(s);
   }
-  stores.kv = stores.kv.filter((r) => !r.key.startsWith('weather:') && !r.key.startsWith('sync:')); // jamais de jeton de session dans un export
+  stores.kv = stores.kv.filter((r) => !/^(weather:|sync:|apikey:|pexels:)/.test(r.key)); // jamais de jeton de session dans un export
   delete stores.tombstones;
   const stamp = new Date().toISOString().slice(0, 10);
   downloadFile(`sprezza-sauvegarde-${stamp}.json`, JSON.stringify({ app: 'sprezza', schemaVersion: SCHEMA_VERSION, seedVersion: SEED_VERSION, exportedAt: new Date().toISOString(), photosIncluded: false, stores }, null, 2));
@@ -210,3 +212,27 @@ async function renderSync(box) {
   };
 }
 function atobSafe(jwt) { try { return atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')); } catch { return ''; } }
+
+// ------------------------------------------------------------ Services gratuits (clés personnelles)
+async function renderApis(box) {
+  const { getKey, setKey, searchPhotos } = await import('../services/pexels.js');
+  const key = await getKey();
+  setHTML(box, html`<div class="table-wrap"><table><tbody>
+      <tr><td><strong>Open-Meteo</strong><br><span class="small muted">Météo et recherche de ville</span></td><td>${store.profile.consents?.weather ? html`<span class="tag tag-ok">actif</span>` : html`<span class="tag">consentement requis</span>`}</td></tr>
+      <tr><td><strong>Supabase</strong><br><span class="small muted">Synchronisation iPhone ↔ ordinateur</span></td><td>${(await store.sync.session()) ? html`<span class="tag tag-ok">connecté</span>` : html`<span class="tag">non connecté</span>`}</td></tr>
+      <tr><td><strong>Pexels</strong><br><span class="small muted">Photos réelles d'inspiration pour chaque tenue (licence libre)</span></td><td>${key ? html`<span class="tag tag-ok">clé enregistrée</span>` : html`<span class="tag">clé à ajouter</span>`}</td></tr>
+    </tbody></table></div>
+    <form id="pxf" class="form-grid"><div class="field span-2"><label for="pxkey">Clé API Pexels (gratuite)</label><input id="pxkey" type="text" autocomplete="off" spellcheck="false" placeholder="Collez votre clé ici" value="${key ? `${key.slice(0, 4)}…${key.slice(-4)}` : ''}"></div>
+      <div class="btn-row span-2"><button class="btn btn-primary" type="submit">Enregistrer et tester</button>${key ? html`<button class="btn btn-ghost" type="button" id="pxdel">Retirer la clé</button>` : ''}<a class="btn" href="https://www.pexels.com/api/" target="_blank" rel="noopener noreferrer">${icon('external')} Obtenir une clé gratuite</a></div></form>
+    <p class="small" id="pxmsg" aria-live="polite"></p>
+    <p class="hint">La clé est privée : elle reste dans vos données (synchronisées entre vos appareils, protégées par votre compte), jamais dans le code publié ni dans les exports.</p>`);
+  box.querySelector('#pxf').onsubmit = async (e) => {
+    e.preventDefault();
+    const v = box.querySelector('#pxkey').value.trim(); const msg = box.querySelector('#pxmsg');
+    if (!v || v.includes('…')) { msg.textContent = 'Collez la clé complète.'; return; }
+    msg.textContent = 'Test en cours…';
+    try { const photos = await searchPhotos('men navy blazer', { perPage: 1, key: v }); await setKey(v); msg.textContent = `Clé valide (${photos.length ? 'photos reçues' : 'aucune photo'}) : l'inspiration photo est active.`; renderApis(box); }
+    catch (err) { msg.textContent = err.message; }
+  };
+  box.querySelector('#pxdel')?.addEventListener('click', async () => { await setKey(''); renderApis(box); });
+}
