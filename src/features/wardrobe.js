@@ -588,7 +588,7 @@ async function renderCare(main) {
     <div class="page-head" style="margin-top:8px"><div class="eyebrow">Lessive & entretien</div><h1>Des vêtements toujours prêts</h1>
     <p class="lede">Bella figura : des vêtements propres, entretenus, adaptés. Les pièces à laver ne sont jamais proposées comme portables. Repères généraux : l'étiquette de chaque vêtement prime.</p></div>
     <label class="check" style="margin-bottom:14px"><input type="checkbox" id="autob" ${autoBasket ? raw('checked') : ''}> Mettre automatiquement au panier une pièce après son nombre de ports habituel (tee-shirt et chemise 1, polo 2, chino 4, pull 5, jean 8…)</label>
-    <div class="grid-3">
+    <div class="stat-grid">
       <div class="card"><div class="stat">${basket.length}</div><div class="stat-label">au panier à linge</div></div>
       <div class="card"><div class="stat">${soon.length}</div><div class="stat-label">à laver après le prochain port</div></div>
       <div class="card"><div class="stat">${tasks.length}</div><div class="stat-label">soins à faire (cirage, défeutrage…)</div></div>

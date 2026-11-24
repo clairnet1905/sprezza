@@ -361,3 +361,8 @@ th button.sort { background: none; border: 0; font-weight: 600; cursor: pointer;
 
 /* Icônes dans le texte : taille par défaut (les boutons, onglets et menus gardent leurs tailles propres) */
 svg[aria-hidden="true"] { width: 1.1em; height: 1.1em; flex: none; vertical-align: -0.18em; }
+
+/* Compteurs côte à côte, y compris sur iPhone */
+.stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.stat-grid .card { padding: 12px; }
+@media (max-width: 480px) { .stat-grid .stat { font-size: 28px; } .stat-grid .stat-label { font-size: 11px; } }
