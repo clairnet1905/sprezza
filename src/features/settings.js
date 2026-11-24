@@ -172,11 +172,18 @@ async function renderSync(box) {
       <form id="authf" class="form-grid"><div class="field"><label for="semail">E-mail</label><input id="semail" type="email" autocomplete="username" required></div>
       <div class="field"><label for="spass">Mot de passe (8 caractères minimum)</label><input id="spass" type="password" autocomplete="current-password" minlength="8" required></div>
       <label class="check span-2"><input type="checkbox" id="sphotos" checked> Synchroniser aussi les photos des vêtements (stockage privé ; jamais celles d'un profil enfant)</label>
-      <div class="btn-row span-2"><button class="btn btn-primary" type="submit" data-mode="in">Se connecter</button><button class="btn" type="submit" data-mode="up">Créer mon compte</button></div></form>
+      <div class="btn-row span-2"><button class="btn btn-primary" type="submit" data-mode="in">Se connecter</button><button class="btn" type="submit" data-mode="up">Créer mon compte</button><button class="btn btn-ghost" type="button" id="forgot">Mot de passe oublié ?</button></div></form>
       <p class="small" id="autherr" role="alert" aria-live="polite"></p>
       <details class="disclosure"><summary>Configuration</summary><p class="small muted">Projet : ${cfg.url}</p><button class="btn btn-sm btn-ghost" id="resetcfg">Modifier la configuration</button></details>`);
     let mode = 'in';
     box.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => { mode = b.dataset.mode; }));
+    box.querySelector('#forgot').onclick = async () => {
+      const email = box.querySelector('#semail').value.trim(); const out = box.querySelector('#autherr');
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { out.textContent = 'Saisissez d\'abord votre e-mail dans le champ ci-dessus.'; box.querySelector('#semail').focus(); return; }
+      out.textContent = 'Envoi…';
+      try { await sync.requestPasswordReset(email); out.textContent = `Si un compte existe pour ${email}, un e-mail de réinitialisation vient d'être envoyé. Ouvrez le lien (sur n'importe quel appareil) pour choisir un nouveau mot de passe.`; }
+      catch (err) { out.textContent = err.message; }
+    };
     box.querySelector('#resetcfg').onclick = async () => { await store.repo.remove('kv', 'sync:config', { tombstone: false }); renderSync(box); };
     box.querySelector('#authf').onsubmit = async (e) => {
       e.preventDefault();

@@ -81,6 +81,14 @@ export class SyncService {
     const d = await this.http('/auth/v1/token?grant_type=password', { method: 'POST', body: { email, password }, auth: false });
     await this.storeSession(d);
   }
+  /** E-mail de réinitialisation ; le lien ramène sur l'app (#access_token=…&type=recovery). */
+  async requestPasswordReset(email) {
+    const back = `${location.origin}${location.pathname}`;
+    await this.http(`/auth/v1/recover?redirect_to=${encodeURIComponent(back)}`, { method: 'POST', body: { email }, auth: false });
+  }
+  async updatePassword(password) {
+    await this.http('/auth/v1/user', { method: 'PUT', body: { password } });
+  }
   async storeSession(d) {
     await this.repo.kvSet('sync:session', { access_token: d.access_token, refresh_token: d.refresh_token, expires_at: Date.now() + (d.expires_in || 3600) * 1000, user: { id: d.user?.id, email: d.user?.email } });
   }
@@ -239,6 +247,8 @@ function translate(msg) {
   if (/Invalid login credentials/i.test(m)) return 'E-mail ou mot de passe incorrect';
   if (/Email not confirmed/i.test(m)) return 'Confirmez d\'abord votre e-mail (lien reçu par mail), puis reconnectez-vous';
   if (/already registered|already exists/i.test(m)) return 'Un compte existe déjà avec cet e-mail : connectez-vous';
+  if (/New password should be different/i.test(m)) return 'Choisissez un mot de passe différent de l\'ancien';
+  if (/rate limit|only request this after/i.test(m)) return 'Trop de demandes : attendez une minute avant de réessayer';
   if (/Password should be at least/i.test(m)) return 'Mot de passe trop court (8 caractères minimum conseillés)';
   if (/relation .* does not exist|sprezza_records/i.test(m)) return 'Base non initialisée : exécutez le script supabase/setup.sql';
   if (/Bucket not found/i.test(m)) return 'Stockage photo absent : exécutez le script supabase/setup.sql';

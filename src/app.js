@@ -1,6 +1,6 @@
 // SPREZZA — point d'entrée : routeur hash, navigation, enregistrement PWA.
 import { html, setHTML, raw } from './lib/html.js';
-import { icon, toast } from './components/ui.js';
+import { icon, toast, openModal } from './components/ui.js';
 import { initStore, store, switchProfile } from './state.js';
 
 const ROUTES = {
@@ -110,6 +110,24 @@ async function onInspireClick(e) {
   }
 }
 
+/** Après le lien « mot de passe oublié » : choisir le nouveau mot de passe. */
+function askNewPassword() {
+  openModal({ title: 'Nouveau mot de passe', body: html`<form id="npf"><p class="small">Choisissez votre nouveau mot de passe SPREZZA (8 caractères minimum).</p>
+      <div class="field"><label for="np1">Nouveau mot de passe</label><input id="np1" type="password" autocomplete="new-password" minlength="8" required></div>
+      <div class="field"><label for="np2">Confirmer</label><input id="np2" type="password" autocomplete="new-password" minlength="8" required></div>
+      <p class="small" id="npmsg" role="alert"></p><button class="btn btn-primary" type="submit">Enregistrer</button></form>`,
+  onMount(body, close) {
+    body.querySelector('#npf').onsubmit = async (e) => {
+      e.preventDefault();
+      const a = body.querySelector('#np1').value; const b = body.querySelector('#np2').value; const msg = body.querySelector('#npmsg');
+      if (a.length < 8) { msg.textContent = '8 caractères minimum.'; return; }
+      if (a !== b) { msg.textContent = 'Les deux mots de passe ne sont pas identiques.'; return; }
+      try { await store.sync.updatePassword(a); close(); toast('Mot de passe modifié. Sur vos autres appareils (dont l\'app de l\'écran d\'accueil), connectez-vous avec ce nouveau mot de passe.', { timeout: 10000 }); route(); }
+      catch (err) { msg.textContent = err.message; }
+    };
+  } });
+}
+
 /** Retour depuis l'e-mail de confirmation Supabase (#access_token=… ou #error=…). */
 async function handleAuthRedirect() {
   const h = location.hash.replace(/^#/, '');
@@ -120,6 +138,7 @@ async function handleAuthRedirect() {
   try {
     const claims = JSON.parse(atob(p.get('access_token').split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
     await store.sync.storeSession({ access_token: p.get('access_token'), refresh_token: p.get('refresh_token'), expires_in: Number(p.get('expires_in')) || 3600, user: { id: claims.sub, email: claims.email } });
+    if (p.get('type') === 'recovery') { setTimeout(askNewPassword, 600); return; }
     toast('E-mail confirmé : vous êtes connecté. Sur l\'app installée de l\'iPhone, connectez-vous aussi avec le même compte.', { timeout: 9000 });
   } catch { toast('E-mail confirmé. Connectez-vous dans Paramètres › Synchronisation.', { timeout: 9000 }); }
 }
