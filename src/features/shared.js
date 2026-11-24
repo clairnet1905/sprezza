@@ -16,7 +16,7 @@ export function garmentThumb(g, cls = 'g-thumb') {
   return html`<div class="${cls}">${g.photoIds?.length ? html`<img data-photo="${g.photoIds[0]}" alt="${g.name}" loading="lazy">` : garmentGlyph(roleOf(g), g.color?.hex)}</div>`;
 }
 
-export function garmentCard(g) {
+export function garmentCard(g, { versatility } = {}) {
   const avail = isAvailable(g);
   return html`<a class="g-card" href="#/wardrobe/${g.id}">
     ${garmentThumb(g)}
@@ -24,6 +24,7 @@ export function garmentCard(g) {
     ${g.favorite ? html`<span class="g-fav" aria-label="Favori" style="color:var(--champagne-ink)">${icon('heart', { filled: true })}</span>` : ''}
     <div class="g-body"><div class="g-title">${g.name}</div>
       <div class="g-meta">${g.color?.hex ? swatch(g.color.hex, g.color.name) : ''}<span>${g.color?.name || ''}</span><span>· ${SUB_INFO[g.sub]?.name || CATEGORY_BY_ID[g.category]?.name || ''}</span></div>
+      ${typeof versatility === 'number' ? html`<div class="g-meta"><span class="tag ${versatility === 0 ? 'tag-warn' : ''}" title="Nombre de tenues de base possibles avec le reste du dressing">${versatility} tenue${versatility > 1 ? 's' : ''}</span>${g.tags?.includes('à compléter') ? html`<span class="tag">à compléter</span>` : ''}</div>` : ''}
     </div></a>`;
 }
 

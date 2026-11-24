@@ -9,6 +9,8 @@ import { CAPSULE } from '../data/capsule.js';
 import { nearestColor, colorIdFromHex } from '../domain/colors.js';
 import { isAvailable, pairingsFor } from '../domain/recommend.js';
 import { costPerWear, wardrobeStats } from '../domain/wardrobe-logic.js';
+import { versatility, reviewGarment, keyThresholdOf, VERDICTS } from '../domain/review.js';
+import { prefs as loadPrefs } from '../state.js';
 import { checkImageFile, loadBitmap, processImage, renderToCanvas } from '../services/image.js';
 import { aiStatus } from '../services/ai.js';
 import { garmentCard, AVAIL_LABEL, deleteGarment, proposalCard, saveOutfit, wearOutfit } from './shared.js';
@@ -22,6 +24,8 @@ export async function render(main, params, query) {
   if (a === 'new') return renderEditor(main, null, presetFromQuery(query));
   if (a === 'import') return renderImport(main);
   if (a === 'stats') return renderStats(main);
+  if (a === 'review') return renderReview(main);
+  if (a === 'quick') return renderQuick(main);
   if (b === 'edit') { const g = await store.repo.get('garments', a); return g ? renderEditor(main, g) : notFound(main); }
   const g = await store.repo.get('garments', a);
   return g && g.profileId === pid() ? renderDetail(main, g) : notFound(main);
@@ -55,7 +59,7 @@ async function renderList(main) {
   setHTML(main, html`
     <div class="page-head row-between"><div><div class="eyebrow">Dressing numérique</div><h1>Mon dressing</h1>
       <p class="lede">${all.length} pièce${all.length > 1 ? 's' : ''} · ${all.filter(isAvailable).length} disponible${all.filter(isAvailable).length > 1 ? 's' : ''} immédiatement. Vos photos restent privées sur cet appareil.</p></div>
-      <div class="btn-row"><a class="btn btn-primary" href="#/wardrobe/new">${icon('plus')} Ajouter</a><a class="btn" href="#/wardrobe/import">${icon('upload')} Import multiple</a><a class="btn" href="#/wardrobe/stats">Statistiques</a></div></div>
+      <div class="btn-row"><a class="btn btn-primary" href="#/wardrobe/quick">${icon('camera')} Ajout rapide</a><a class="btn" href="#/wardrobe/new">${icon('plus')} Fiche complète</a><a class="btn" href="#/wardrobe/import">${icon('upload')} Import multiple</a><a class="btn" href="#/wardrobe/review">Revue du dressing</a><a class="btn" href="#/wardrobe/stats">Statistiques</a></div></div>
     ${all.length ? html`
     <div class="card" style="margin-bottom:16px">
       <div class="field"><label for="wq">Rechercher</label><input id="wq" type="search" placeholder="Nom, marque, matière, tag…" value="${filters.q}"></div>
@@ -72,6 +76,7 @@ async function renderList(main) {
     <div class="grid-cards" id="wgrid"></div>` : emptyState('Votre dressing est vide', 'Ajoutez vos vêtements (photo ou saisie manuelle) : le styliste ne proposera que des pièces réellement possédées.', html`<a class="btn btn-primary" href="#/wardrobe/new">${icon('plus')} Ajouter une pièce</a><a class="btn" href="#/wardrobe/import">Import multiple</a><a class="btn" href="#/capsule">Partir de la capsule</a>`)}`);
   if (!all.length) return;
   const grid = main.querySelector('#wgrid');
+  const vmap = versatility(all);
   const apply = () => {
     const q = filters.q.toLowerCase();
     let list = all.filter((g) => (!filters.cat || g.category === filters.cat) && (!filters.color || g.color?.id === filters.color || g.color2?.id === filters.color)
@@ -81,7 +86,7 @@ async function renderList(main) {
     const sorters = { recent: (x, y) => (y.createdAt || '').localeCompare(x.createdAt || ''), name: (x, y) => x.name.localeCompare(y.name), worn: (x, y) => (x.lastWornAt || '').localeCompare(y.lastWornAt || ''), category: (x, y) => x.category.localeCompare(y.category) || x.name.localeCompare(y.name) };
     list = list.sort(sorters[filters.sort]);
     main.querySelector('#wcount').textContent = `${list.length} résultat${list.length > 1 ? 's' : ''}`;
-    setHTML(grid, list.length ? list.map(garmentCard) : html`<div class="empty" style="grid-column:1/-1">Aucune pièce ne correspond à ces filtres.</div>`);
+    setHTML(grid, list.length ? list.map((g) => garmentCard(g, { versatility: vmap[g.id] })) : html`<div class="empty" style="grid-column:1/-1">Aucune pièce ne correspond à ces filtres.</div>`);
     hydratePhotos(grid);
   };
   main.querySelector('#wq').addEventListener('input', (e) => { filters.q = e.target.value; apply(); });
@@ -98,6 +103,7 @@ async function renderList(main) {
 // ---------------------------------------------------------------- Fiche
 async function renderDetail(main, g) {
   const sub = SUB_INFO[g.sub];
+  const vers = versatility(await loadGarments())[g.id] ?? null;
   const cpw = costPerWear(g);
   setHTML(main, html`
     <a href="#/wardrobe" class="small">← Dressing</a>
@@ -119,6 +125,7 @@ async function renderDetail(main, g) {
         ${row('Pluie / vent', `${g.rainResistance ?? 0}/3 · ${g.windResistance ?? 0}/3`)}${row('État', CONDITIONS.find((c) => c[0] === g.condition)?.[1])}
         ${row('Mesures', Object.entries(g.measures || {}).filter(([, v]) => v).map(([k, v]) => `${MEASURE_FIELDS.find((m) => m[0] === k)?.[1]} ${v} cm`).join(', ') || null)}
         ${row('Achat', g.purchaseDate ? fmtDate(g.purchaseDate) : null)}${row('Prix', g.price ? fmtEUR(g.price) : null)}
+        ${row('Polyvalence', vers === null ? null : `${vers} tenue${vers > 1 ? 's' : ''} de base possible${vers > 1 ? 's' : ''} avec votre dressing`)}
         ${row('Port', `${g.wearCount || 0} fois${g.lastWornAt ? ` · dernier le ${fmtDate(g.lastWornAt)}` : ''}`)}
         ${row('Coût par port', cpw !== null ? fmtEUR(cpw) : g.price ? 'Pas encore porté' : 'Prix inconnu')}
         ${row('Tags', g.tags?.length ? g.tags.join(', ') : null)}${row('Notes', g.notes)}
@@ -314,7 +321,7 @@ async function renderEditor(main, existing, preset = {}) {
         pattern: v.pattern, material: v.material, composition: v.composition, fit: v.fit || null, size: v.size, measures, brand: v.brand,
         seasons: v.seasons || [], formality: v.formality, warmth: v.warmth, comfort: v.comfort, rainResistance: v.rainResistance, windResistance: v.windResistance,
         styles: v.styles || [], condition: v.condition, availability: v.availability, purchaseDate: v.purchaseDate || null, price: v.price,
-        sourceUrl: v.sourceUrl || null, tags: v.tags ? v.tags.split(',').map((t) => t.trim()).filter(Boolean) : [], notes: v.notes, favorite: !!v.favorite,
+        sourceUrl: v.sourceUrl || null, tags: v.tags ? v.tags.split(',').map((t) => t.trim()).filter((t) => t && t !== 'à compléter') : [], // fiche complétée notes: v.notes, favorite: !!v.favorite,
         photoIds, photoKind: v.photoKind,
       };
       delete rec.capsuleId; delete rec.wishId;
@@ -444,4 +451,97 @@ async function renderStats(main) {
     for (const g of all.filter((x) => x.availability === 'to-wash')) await store.repo.put('garments', { ...g, availability: 'clean' }, { silent: true });
     toast('Pièces marquées propres'); navigate('#/wardrobe/stats');
   });
+}
+
+// ---------------------------------------------------------------- Revue du dressing
+async function renderReview(main) {
+  const [all, p] = await Promise.all([loadGarments(), loadPrefs()]);
+  const vmap = versatility(all); const keyThreshold = keyThresholdOf(vmap);
+  const rows = all.map((g) => ({ g, v: vmap[g.id], r: reviewGarment(g, { versatility: vmap[g.id], keyThreshold, dislikedFit: p.dislikedFit || {}, total: all.length }) }));
+  const order = ['give', 'think', 'alter', 'keep', 'key'];
+  const st = { f: '' };
+  const counts = Object.fromEntries(order.map((k) => [k, rows.filter((x) => (x.r.decision || x.r.verdict) === k).length]));
+  setHTML(main, html`<a href="#/wardrobe" class="small">← Dressing</a>
+    <div class="page-head" style="margin-top:8px"><div class="eyebrow">Revue du dressing</div><h1>Garder, retoucher ou donner ?</h1>
+    <p class="lede">Suggestions fondées sur la polyvalence réelle de chaque pièce dans votre dressing, son état, vos retours (« ne me va pas ») et son usage. Ce sont des pistes argumentées : vous décidez.</p></div>
+    ${!all.length ? emptyState('Dressing vide', 'Ajoutez vos pièces pour lancer la revue.', html`<a class="btn btn-primary" href="#/wardrobe/quick">Ajout rapide</a>`) : html`
+    <div class="chips" role="group" aria-label="Filtrer par verdict" style="margin-bottom:14px"><button class="chip" data-f="" aria-pressed="true">Toutes (${all.length})</button>${order.map((k) => html`<button class="chip" data-f="${k}" aria-pressed="false">${VERDICTS[k].label} (${counts[k]})</button>`)}</div>
+    ${all.length < 6 ? html`<div class="callout small" style="margin-bottom:12px">Avec moins de 6 pièces, la polyvalence est mécaniquement faible : la revue devient plus fiable à mesure que le dressing se complète.</div>` : ''}
+    <div class="stack" id="rlist"></div>`}`);
+  if (!all.length) return;
+  const draw = () => {
+    const list = rows.filter((x) => !st.f || (x.r.decision || x.r.verdict) === st.f).sort((a, b) => order.indexOf(a.r.decision || a.r.verdict) - order.indexOf(b.r.decision || b.r.verdict) || (a.v ?? 99) - (b.v ?? 99));
+    setHTML(main.querySelector('#rlist'), list.map(({ g, v, r }) => html`<article class="card"><div class="row" style="flex-wrap:nowrap;align-items:flex-start">
+      <a class="mini-thumb" style="width:70px" href="#/wardrobe/${g.id}">${g.photoIds?.length ? html`<img data-photo="${g.photoIds[0]}" alt="${g.name}">` : html`<span class="small muted">—</span>`}</a>
+      <div style="flex:1;min-width:0"><div class="row-between"><a href="#/wardrobe/${g.id}"><strong>${g.name}</strong></a><span class="tag ${VERDICTS[r.verdict].tone}">Suggestion : ${VERDICTS[r.verdict].label}</span></div>
+        <ul class="ticks small" style="margin-top:6px">${r.reasons.map((x) => html`<li>${x}</li>`)}</ul>
+        ${r.missing.length ? html`<p class="small muted">Infos manquantes pour affiner : ${r.missing.join(', ')}. <a href="#/wardrobe/${g.id}/edit">Compléter</a></p>` : ''}
+        <div class="row small" style="gap:6px"><span class="muted">Ma décision :</span>${['keep', 'alter', 'give'].map((k) => html`<button class="chip" data-dec="${k}" data-id="${g.id}" aria-pressed="${r.decision === k}">${VERDICTS[k].label}</button>`)}
+          ${r.decision === 'give' ? html`<a class="chip" href="https://www.vinted.fr/" target="_blank" rel="noopener noreferrer">Vendre sur Vinted ${icon('external')}</a>` : ''}</div>
+      </div></div></article>`));
+    hydratePhotos(main);
+    main.querySelectorAll('[data-dec]').forEach((b) => b.onclick = async () => {
+      const g = all.find((x) => x.id === b.dataset.id); const same = g.review?.verdict === b.dataset.dec;
+      const updated = { ...g, review: same ? null : { verdict: b.dataset.dec, at: new Date().toISOString() } };
+      await store.repo.put('garments', updated); Object.assign(g, updated);
+      const row = rows.find((x) => x.g.id === g.id); row.r.decision = updated.review?.verdict || null;
+      toast(same ? 'Décision retirée' : `Décision : ${VERDICTS[b.dataset.dec].label}`); draw();
+    });
+  };
+  main.querySelectorAll('[data-f]').forEach((b) => b.onclick = () => { st.f = b.dataset.f; main.querySelectorAll('[data-f]').forEach((x) => x.setAttribute('aria-pressed', x === b)); draw(); });
+  draw();
+}
+
+// ---------------------------------------------------------------- Ajout rapide (photo + type + couleur, le reste plus tard)
+async function renderQuick(main) {
+  let added = 0;
+  const draw = () => {
+    setHTML(main, html`<a href="#/wardrobe" class="small">← Dressing</a>
+      <div class="page-head" style="margin-top:8px"><div class="eyebrow">Ajout rapide</div><h1>Une pièce en 10 secondes</h1>
+      <p class="lede">Photo, type, couleur : c'est tout. La pièce est marquée « à compléter » ; affinez la fiche plus tard. ${added ? html`<strong>${added} pièce${added > 1 ? 's' : ''} ajoutée${added > 1 ? 's' : ''} pendant cette session.</strong>` : ''}</p></div>
+      <div class="card stack">
+        <div class="btn-row"><label class="btn btn-primary" for="qcam">${icon('camera')} Prendre la photo</label><input id="qcam" type="file" accept="image/*" capture="environment" class="sr-only"><label class="btn" for="qfile">${icon('upload')} Choisir une photo</label><input id="qfile" type="file" accept="image/*" class="sr-only"><button class="btn btn-ghost" id="qnophoto">Sans photo</button></div>
+        <div id="qform" class="hidden">
+          <div class="row" style="align-items:flex-start;flex-wrap:nowrap"><div class="mini-thumb" style="width:96px" id="qprev"></div>
+          <div style="flex:1;min-width:0">
+            <p class="small muted" style="margin:0 0 6px">Type</p>
+            <div class="chips" id="qcats">${CATEGORIES.map((c) => html`<button type="button" class="chip" data-cat="${c.id}" aria-pressed="${c.id === 'haut'}">${c.name}</button>`)}</div>
+            <div class="field" style="margin-top:10px"><label for="qsub">Précision</label><select id="qsub">${options(CATEGORY_BY_ID.haut.subs.map(([id, n]) => [id, n]), 'chemise')}</select></div>
+          </div></div>
+          <p class="small muted" style="margin:8px 0 6px">Couleur <span id="qhint"></span></p>
+          <div class="chips" id="qcols">${ALL_COLORS.filter((c) => !c.aux || ['mid-gray', 'cognac', 'mid-blue'].includes(c.id)).map((c) => html`<button type="button" class="color-btn" data-col="${c.id}" aria-pressed="false">${swatch(c.hex)} ${c.name}</button>`)}</div>
+          <div class="btn-row" style="margin-top:14px"><button class="btn btn-primary" id="qsave" disabled>${icon('check')} Enregistrer et suivante</button><button class="btn" id="qdone" disabled>Enregistrer et terminer</button></div>
+        </div>
+      </div>`);
+    const $ = (q) => main.querySelector(q);
+    const st = { cat: 'haut', sub: 'chemise', color: null, out: null };
+    const ready = () => { $('#qsave').disabled = $('#qdone').disabled = !st.color; };
+    const show = () => $('#qform').classList.remove('hidden');
+    const load = async (f) => {
+      try {
+        await checkImageFile(f); st.out = await processImage(await loadBitmap(f));
+        setHTML($('#qprev'), html`<img src="${URL.createObjectURL(st.out.thumbBlob)}" alt="Aperçu">`);
+        const d = st.out.dominant[0];
+        if (d) { st.color = d.nearestId; $('#qhint').textContent = `(estimée : ${d.nearestName}, proximité ${d.confidence} — à corriger si besoin)`; main.querySelectorAll('[data-col]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.col === st.color)); }
+        show(); ready();
+      } catch (e) { toast(e.message); }
+    };
+    $('#qcam').onchange = (e) => e.target.files[0] && load(e.target.files[0]);
+    $('#qfile').onchange = (e) => e.target.files[0] && load(e.target.files[0]);
+    $('#qnophoto').onclick = () => { st.out = null; show(); };
+    main.querySelectorAll('[data-cat]').forEach((b) => b.onclick = () => { st.cat = b.dataset.cat; main.querySelectorAll('[data-cat]').forEach((x) => x.setAttribute('aria-pressed', x === b)); setHTML($('#qsub'), options(CATEGORY_BY_ID[st.cat].subs.map(([id, n]) => [id, n]), '')); st.sub = $('#qsub').value; });
+    $('#qsub').onchange = (e) => { st.sub = e.target.value; };
+    main.querySelectorAll('[data-col]').forEach((b) => b.onclick = () => { st.color = b.dataset.col; main.querySelectorAll('[data-col]').forEach((x) => x.setAttribute('aria-pressed', x === b)); ready(); });
+    const save = async (again) => {
+      const id = uid('g'); const info = SUB_INFO[st.sub]; const c = COLOR_BY_ID[st.color];
+      const photoIds = [];
+      if (st.out) { const phId = uid('ph'); await store.repo.put('photos', { id: phId, ownerId: id, profileId: pid(), blob: st.out.blob, thumb: st.out.thumbBlob, mime: 'image/jpeg', width: st.out.width, height: st.out.height, kind: 'single', private: true, rights: 'user_owned' }, { silent: true }); photoIds.push(phId); }
+      await store.repo.put('garments', { id, profileId: pid(), name: `${info?.name || 'Pièce'} ${c.name.toLowerCase()}`, category: st.cat, sub: st.sub, color: { id: c.id, name: c.name, hex: c.hex }, color2: null, pattern: 'Uni', seasons: [], styles: [], tags: ['à compléter'], measures: {}, formality: info?.formality || 3, warmth: Math.max(1, info?.warmth || 2), comfort: 3, rainResistance: 0, windResistance: 0, availability: 'clean', photoIds, photoKind: 'single' });
+      added++; toast(`${info?.name || 'Pièce'} ${c.name.toLowerCase()} ajoutée`);
+      if (again) draw(); else navigate('#/wardrobe');
+    };
+    $('#qsave').onclick = () => save(true);
+    $('#qdone').onclick = () => save(false);
+  };
+  draw();
 }

@@ -19,6 +19,7 @@ import { resetForBase } from '../src/features/colors.js';
 import { mannequinSVG } from '../src/components/mannequin.js';
 import { evaluateManual } from '../src/features/analysis.js';
 import { SyncService, shouldSync, remoteWins } from '../src/services/sync.js';
+import { versatility, reviewGarment, keyThresholdOf } from '../src/domain/review.js';
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -223,6 +224,23 @@ test('Export/import : validation, conflits et doublons', () => {
   eq([p.conflicts, p.dupes, p.newRows], [1, 1, 1]);
   throws(() => validateExport({ app: 'autre', schemaVersion: 1, stores: {} }));
   throws(() => validateExport({ app: 'style-studio', schemaVersion: 99, stores: {} }));
+});
+
+// ---------------- Revue du dressing
+test('Polyvalence : nombre de tenues par pièce, accessoires non concernés', () => {
+  const w = businessWardrobe(); const v = versatility(w);
+  ok(v[w[4].id] > 0, 'chino beige isolé'); eq(v[w[11].id], null, 'ceinture comptée');
+  const lone = G('chemise', 'haut', 'burgundy'); const v2 = versatility([lone]); eq(v2[lone.id], 0);
+});
+test('Revue : abîmée et isolée → donner ; abîmée mais polyvalente → retoucher ; « ne me va pas » respecté', () => {
+  const g = G('pull', 'haut', 'navy', { condition: 'damaged' });
+  eq(reviewGarment(g, { versatility: 0, total: 10 }).verdict, 'give');
+  eq(reviewGarment(g, { versatility: 8, total: 10 }).verdict, 'alter');
+  eq(reviewGarment(G('chino', 'bas', 'beige', { condition: 'good' }), { versatility: 1, total: 10, dislikedFit: { [`t${n}`]: 'x' } }).verdict, 'give');
+  eq(reviewGarment(G('chino', 'bas', 'beige', { condition: 'good', fit: 'regular' }), { versatility: 9, keyThreshold: 6, total: 10 }).verdict, 'key');
+  const isolated = reviewGarment(G('chemise', 'haut', 'burgundy', { condition: 'good' }), { versatility: 0, total: 10 });
+  eq(isolated.verdict, 'think'); ok(isolated.missing.includes('coupe'), 'info manquante non signalée');
+  ok(keyThresholdOf({ a: 1, b: 2 }) >= 4);
 });
 
 // ---------------- Synchronisation (faux serveur Supabase, deux appareils réels IndexedDB)
