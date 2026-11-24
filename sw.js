@@ -1,5 +1,5 @@
 // Service worker SPREZZA : coque applicative hors ligne, polices en cache, API jamais mise en cache.
-const VERSION = 'sprezza-v7';
+const VERSION = 'sprezza-v8';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'src/styles.css', 'src/app.js', 'src/state.js',
   'src/lib/html.js', 'src/components/ui.js', 'src/components/mannequin.js', 'src/repositories/db.js',
@@ -12,7 +12,8 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache: 'reload' : la coque hors ligne est toujours prise sur le serveur, jamais dans un cache HTTP périmé.
+  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
