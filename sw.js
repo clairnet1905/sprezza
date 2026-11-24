@@ -1,5 +1,5 @@
 // Service worker SPREZZA : coque applicative hors ligne, polices en cache, API jamais mise en cache.
-const VERSION = 'sprezza-v6';
+const VERSION = 'sprezza-v7';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'src/styles.css', 'src/app.js', 'src/state.js',
   'src/lib/html.js', 'src/components/ui.js', 'src/components/mannequin.js', 'src/repositories/db.js',
@@ -27,6 +27,7 @@ self.addEventListener('fetch', (e) => {
   }
   if (url.origin !== location.origin) return; // météo et liens externes : réseau direct
   // Réseau d'abord (mises à jour immédiates), cache en secours hors ligne.
-  e.respondWith(fetch(e.request).then((r) => { if (r.ok) { const copy = r.clone(); caches.open(VERSION).then((c) => c.put(e.request, copy)); } return r; })
+  // cache: 'no-cache' : revalide toujours auprès du serveur (sinon le cache HTTP de GitHub Pages retarde les mises à jour de 10 min).
+  e.respondWith(fetch(e.request, { cache: 'no-cache' }).then((r) => { if (r.ok) { const copy = r.clone(); caches.open(VERSION).then((c) => c.put(e.request, copy)); } return r; })
     .catch(() => caches.match(e.request).then((r) => r || caches.match('index.html'))));
 });
