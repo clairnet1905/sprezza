@@ -3,7 +3,7 @@ import { html, raw, setHTML } from '../lib/html.js';
 import { icon, toast, confirmDialog, swatch, emptyState, readForm, options, fmtDate, fmtEUR, openModal } from '../components/ui.js';
 import { store, pid, garments as loadGarments, hydratePhotos, forgetPhotoURL, wearlog as loadWearlog, outfits as loadOutfits } from '../state.js';
 import { uid } from '../repositories/db.js';
-import { CATEGORIES, CATEGORY_BY_ID, SUB_INFO, PATTERNS, FITS, SEASON_OPTS, CONDITIONS, AVAILABILITY, PHOTO_KINDS, MATERIALS, STYLE_OPTS, MEASURE_FIELDS } from '../data/taxonomy.js';
+import { isEveryday, CATEGORIES, CATEGORY_BY_ID, SUB_INFO, PATTERNS, FITS, SEASON_OPTS, CONDITIONS, AVAILABILITY, PHOTO_KINDS, MATERIALS, STYLE_OPTS, MEASURE_FIELDS } from '../data/taxonomy.js';
 import { ALL_COLORS, COLOR_BY_ID } from '../data/colors.js';
 import { CAPSULE } from '../data/capsule.js';
 import { nearestColor, colorIdFromHex } from '../domain/colors.js';
@@ -236,6 +236,8 @@ async function renderEditor(main, existing, preset = {}) {
       <div class="field span-2"><label for="tags">Tags (séparés par des virgules)</label><input id="tags" name="tags" type="text" value="${(g.tags || []).join(', ')}"></div>
       <div class="field span-2"><label for="notes">Notes</label><textarea id="notes" name="notes">${g.notes || ''}</textarea></div>
       <label class="check"><input type="checkbox" name="favorite" ${g.favorite ? raw('checked') : ''}> Favori</label>
+      <label class="check span-2" id="everydayrow"><input type="checkbox" name="everyday" ${isEveryday(g) ? raw('checked') : ''}> Accessoire porté tous les jours (lunettes de vue, montre connectée…) : toujours inclus dans les tenues</label>
+      <p class="hint span-2">Bracelet de montre : indiquez sa matière (cuir, métal, sport/silicone, nylon) et sa couleur ; SPREZZA choisira le bon bracelet selon la tenue.</p>
     </div></fieldset>
     <div class="callout callout-danger hidden" id="ferr" role="alert"></div>
     <div class="btn-row" style="position:sticky;bottom:calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 8px);background:var(--ivory);padding:10px 0">
@@ -322,7 +324,7 @@ async function renderEditor(main, existing, preset = {}) {
         seasons: v.seasons || [], formality: v.formality, warmth: v.warmth, comfort: v.comfort, rainResistance: v.rainResistance, windResistance: v.windResistance,
         styles: v.styles || [], condition: v.condition, availability: v.availability, purchaseDate: v.purchaseDate || null, price: v.price,
         sourceUrl: v.sourceUrl || null, tags: v.tags ? v.tags.split(',').map((t) => t.trim()).filter((t) => t && t !== 'à compléter') : [], // fiche complétée notes: v.notes, favorite: !!v.favorite,
-        photoIds, photoKind: v.photoKind,
+        photoIds, photoKind: v.photoKind, everyday: v.category === 'accessoire' ? !!v.everyday : undefined,
       };
       delete rec.capsuleId; delete rec.wishId;
       await store.repo.put('garments', rec);

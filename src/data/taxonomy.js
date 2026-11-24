@@ -22,7 +22,7 @@ export const CATEGORIES = [
   ] },
   { id: 'ceinture', name: 'Ceinture', role: 'belt', subs: [['ceinture-cuir', 'Ceinture cuir', 4, 0], ['ceinture-tressee', 'Ceinture tressée', 2, 0], ['ceinture-toile', 'Ceinture toile', 2, 0]] },
   { id: 'accessoire', name: 'Accessoire', role: 'accessory', subs: [
-    ['cravate', 'Cravate', 5, 0], ['pochette', 'Pochette', 4, 0], ['montre', 'Montre', 3, 0], ['echarpe', 'Écharpe', 3, 2], ['lunettes', 'Lunettes', 2, 0], ['sac', 'Sac', 3, 0], ['bonnet', 'Bonnet', 1, 2], ['parapluie', 'Parapluie', 3, 0],
+    ['cravate', 'Cravate', 5, 0], ['pochette', 'Pochette', 4, 0], ['montre', 'Montre classique', 3, 0], ['montre-connectee', 'Montre connectée (Apple Watch…)', 2, 0], ['bracelet-montre', 'Bracelet de montre', 3, 0], ['lunettes-vue', 'Lunettes de vue', 3, 0], ['echarpe', 'Écharpe', 3, 2], ['lunettes', 'Lunettes', 2, 0], ['sac', 'Sac', 3, 0], ['bonnet', 'Bonnet', 1, 2], ['parapluie', 'Parapluie', 3, 0],
   ] },
 ];
 export const CATEGORY_BY_ID = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
@@ -47,3 +47,7 @@ export const STYLE_OPTS = [
   ['japanese', 'Classique japonais'], ['mediterranean', 'Chic méditerranéen'], ['casual-chic', 'Casual Chic'], ['contemporary', 'Contemporary Classic'],
 ];
 export const MEASURE_FIELDS = [['shoulders', 'Épaules'], ['chest', 'Poitrine'], ['length', 'Longueur'], ['waist', 'Taille'], ['inseam', 'Entrejambe'], ['legOpening', 'Ouverture bas']];
+
+/** Accessoires portés tous les jours par défaut (modifiable sur la fiche). */
+export const EVERYDAY_SUBS = ['lunettes-vue', 'montre-connectee'];
+export const isEveryday = (g) => (g.everyday ?? EVERYDAY_SUBS.includes(g.sub));

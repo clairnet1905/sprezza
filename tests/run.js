@@ -21,6 +21,9 @@ import { evaluateManual } from '../src/features/analysis.js';
 import { SyncService, shouldSync, remoteWins } from '../src/services/sync.js';
 import { versatility, reviewGarment, keyThresholdOf } from '../src/domain/review.js';
 import { defaultOccasion, preferredMode } from '../src/features/daily.js';
+import { chooseAccessories } from '../src/domain/recommend.js';
+import { shortQuery } from '../src/features/shopping.js';
+import { OCCASION_BY_ID } from '../src/data/occasions.js';
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -171,7 +174,12 @@ test('Photos : droits inconnus jamais transformés en autorisation ; licence et 
   if (p.displayMode === 'image') { eq(p.rights, 'licensed', p.id); ok(p.license && p.licenseUrl && p.photographer && p.imageUrl.startsWith('https://images.pexels.com/'), p.id); }
 }));
 test('Les 15 styles ont au moins une référence photo existante', () => STYLES.forEach((s) => { const b = STYLE_PHOTO_BRIEFS[s.id]; ok(b?.photos?.length, s.id); b.photos.forEach((id) => ok(PHOTO_BY_ID[id], id)); }));
-test('32 boutiques avec URL https', () => { eq(RETAILERS.length, 32); RETAILERS.forEach((r) => ok(r.url.startsWith('https://'))); });
+test('34 boutiques avec URL https ; recherches directes vérifiées bien formées', () => {
+  eq(RETAILERS.length, 34); RETAILERS.forEach((r) => ok(r.url.startsWith('https://')));
+  const zara = RETAILERS.find((r) => r.name === 'Zara'); eq(zara.search('chino beige', 'homme'), 'https://www.zara.com/fr/fr/search?searchTerm=chino%20beige&section=MAN');
+  ok(!RETAILERS.find((r) => r.name === 'Pull&Bear').search, 'Pull&Bear non vérifié ne doit pas avoir de recherche directe');
+  eq(RETAILERS.find((r) => r.name === 'H&M').search('polo marine'), 'https://www2.hm.com/fr_fr/search-results.html?q=polo%20marine');
+});
 
 // ---------------- Capsule
 test('30 pièces capsule et 30 modèles ; références valides', () => { eq(CAPSULE.length, 30); eq(TEMPLATES.length, 30); TEMPLATES.forEach((t) => t.ids.forEach((i) => ok(CAPSULE.find((c) => c.id === i)))); });
@@ -253,6 +261,23 @@ test('Tenue du jour : occasion par défaut (semaine client, week-end promenade) 
   eq(preferredMode([{ id: 'scandi', pct: 60 }, { id: 'italian', pct: 10 }]), 'modern');
   eq(preferredMode([]), 'italian');
 });
+
+// ---------------- Accessoires
+test('Accessoires : lunettes toujours portées, bracelet cuir assorti aux chaussures, cravate si réunion', () => {
+  const w = businessWardrobe();
+  const glasses = G('lunettes-vue', 'accessoire', 'black'); const watch = G('montre-connectee', 'accessoire', 'black');
+  const bandBrown = G('bracelet-montre', 'accessoire', 'chocolate', { material: 'Cuir' }); const bandBlack = G('bracelet-montre', 'accessoire', 'black', { material: 'Cuir' }); const bandSport = G('bracelet-montre', 'accessoire', 'white', { material: 'Sport silicone' });
+  const tie = G('cravate', 'accessoire', 'burgundy');
+  const pool = [glasses, watch, bandBrown, bandBlack, bandSport, tie];
+  const p = { top: w[0], bottom: w[5], layer: w[7], shoes: w[9] }; // chemise blanche, pantalon gris, blazer, derbies marron
+  const a = chooseAccessories(p, pool, OCCASION_BY_ID['important-meeting'], 'classic');
+  ok(a.includes(glasses), 'lunettes absentes'); ok(a.includes(watch), 'montre absente');
+  ok(a.includes(bandBrown) && !a.includes(bandBlack) && !a.includes(bandSport), 'mauvais bracelet');
+  ok(a.includes(tie), 'cravate absente en réunion');
+  const casual = chooseAccessories({ top: w[3], bottom: w[6], shoes: w[10] }, pool, OCCASION_BY_ID.walk, 'modern');
+  ok(!casual.includes(tie), 'cravate en promenade'); ok(casual.includes(bandSport), 'bracelet sport attendu en décontracté');
+});
+test('Requête courte boutique sans doublons', () => eq(shortQuery({ category: 'pantalon écru', color: 'ecru', material: 'coton' }), 'pantalon écru coton'));
 
 // ---------------- Synchronisation (faux serveur Supabase, deux appareils réels IndexedDB)
 test('Synchro : règles de sélection (profil enfant, réglages locaux, jetons)', () => {

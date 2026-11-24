@@ -3,7 +3,7 @@ import { html, raw, setHTML } from '../lib/html.js';
 import { icon, toast, options, emptyState, confirmDialog, fmtDate, todayISO, openModal, swatch } from '../components/ui.js';
 import { store, pid, garments as loadGarments, outfits as loadOutfits, wearlog as loadWearlog, hydratePhotos, prefs as loadPrefs } from '../state.js';
 import { OCCASIONS, OCCASION_BY_ID } from '../data/occasions.js';
-import { ROLE_LABELS } from '../data/taxonomy.js';
+import { ROLE_LABELS, isEveryday } from '../data/taxonomy.js';
 import { CAPSULE } from '../data/capsule.js';
 import { scoreOutfit } from '../domain/scoring.js';
 import { recommend, roleOf, isAvailable, comboKey } from '../domain/recommend.js';
@@ -82,7 +82,7 @@ async function renderDetail(main, id) {
 async function renderBuilder(main, head, query) {
   const all = await loadGarments();
   const avail = all.filter(isAvailable);
-  const sel = {}; ROLES.forEach((r) => { const q = query.get(r); if (q && avail.some((g) => g.id === q)) sel[r] = q; });
+  const sel = { acc: avail.filter((g) => roleOf(g) === 'accessory' && isEveryday(g)).map((g) => g.id) }; ROLES.forEach((r) => { const q = query.get(r); if (q && avail.some((g) => g.id === q)) sel[r] = q; });
   let occasionId = query.get('occasion') || 'daily';
   setHTML(main, html`${head}
     <p class="lede">Sélectionnez une pièce par rôle parmi vos vêtements disponibles ; la note se met à jour instantanément.</p>
@@ -90,6 +90,7 @@ async function renderBuilder(main, head, query) {
     <div class="grid-split">
       <div class="stack">
         <div class="field"><label for="bocc">Occasion</label><select id="bocc">${options(OCCASIONS.map((o) => [o.id, o.name]), occasionId)}</select></div>
+        ${(() => { const acc = avail.filter((g) => roleOf(g) === 'accessory'); return acc.length ? html`<fieldset><legend>Accessoires</legend><div class="chips">${acc.map((g) => html`<button type="button" class="chip" data-acc="${g.id}" aria-pressed="${!!sel.acc?.includes(g.id)}">${swatch(g.color?.hex)} ${g.name}</button>`)}</div></fieldset>` : ''; })()}
         ${ROLES.map((r) => { const list = avail.filter((g) => roleOf(g) === r); return html`<fieldset><legend>${ROLE_LABELS[r]}</legend>${list.length ? html`<div class="chips">${r !== 'top' && r !== 'bottom' ? html`<button type="button" class="chip" data-role="${r}" data-id="" aria-pressed="${!sel[r]}">Aucun</button>` : ''}${list.map((g) => html`<button type="button" class="chip" data-role="${r}" data-id="${g.id}" aria-pressed="${sel[r] === g.id}">${swatch(g.color?.hex)} ${g.name}</button>`)}</div>` : html`<p class="small muted">Aucune pièce disponible.</p>`}</fieldset>`; })}
       </div>
       <div class="stack split-aside"><div class="card card-accent" id="bprev"></div></div>
@@ -97,7 +98,7 @@ async function renderBuilder(main, head, query) {
   if (!avail.length) return;
   const by = Object.fromEntries(all.map((g) => [g.id, g]));
   const draw = async () => {
-    const p = { accessories: [] }; ROLES.forEach((r) => { if (sel[r]) p[r] = by[sel[r]]; });
+    const p = { accessories: (sel.acc || []).map((id) => by[id]).filter(Boolean) }; ROLES.forEach((r) => { if (sel[r]) p[r] = by[sel[r]]; });
     const sc = scoreOutfit(p, { occasion: OCCASION_BY_ID[occasionId], prefs: await loadPrefs(), targetStyles: null });
     const ready = p.top && p.bottom;
     setHTML(main.querySelector('#bprev'), html`<div class="row-between"><h3>Aperçu</h3>${ready ? scoreBadge(sc) : ''}</div>
@@ -109,6 +110,7 @@ async function renderBuilder(main, head, query) {
     main.querySelector('#bwear')?.addEventListener('click', () => wearOutfit(p, { occasionId }));
   };
   main.querySelectorAll('[data-role]').forEach((b) => b.onclick = () => { sel[b.dataset.role] = b.dataset.id || undefined; main.querySelectorAll(`[data-role="${b.dataset.role}"]`).forEach((x) => x.setAttribute('aria-pressed', x === b)); draw(); });
+  main.querySelectorAll('[data-acc]').forEach((b) => b.onclick = () => { sel.acc = sel.acc || []; const id = b.dataset.acc; sel.acc = sel.acc.includes(id) ? sel.acc.filter((x) => x !== id) : [...sel.acc, id]; b.setAttribute('aria-pressed', sel.acc.includes(id)); draw(); });
   main.querySelector('#bocc').onchange = (e) => { occasionId = e.target.value; draw(); };
   draw();
 }

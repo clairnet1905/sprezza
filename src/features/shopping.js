@@ -3,7 +3,7 @@ import { html, raw, setHTML, safeUrl } from '../lib/html.js';
 import { icon, toast, options, copyText, emptyState, confirmDialog, fmtEUR, fmtDate, openModal, readForm } from '../components/ui.js';
 import { store, pid, garments as loadGarments, wishlist as loadWishlist } from '../state.js';
 import { uid } from '../repositories/db.js';
-import { RETAILERS, TIER_NAMES, CAT_NAMES, RETAILERS_NOTE, hostOf } from '../data/retailers.js';
+import { RETAILERS, TIER_NAMES, CAT_NAMES, RETAILERS_NOTE, hostOf, priceCompareUrl, QUICK_SHOPS, SEARCH_VERIFIED_AT } from '../data/retailers.js';
 import { ALL_COLORS, COLOR_BY_ID } from '../data/colors.js';
 import { CATEGORIES, FITS } from '../data/taxonomy.js';
 import { buildQuery, siteSearchUrl, shoppingUtility, totalCost, capsuleProgress } from '../domain/wardrobe-logic.js';
@@ -22,6 +22,17 @@ export async function render(main, params, query) {
   return renderSearch(box, query);
 }
 
+const genderOf = () => (store.profile.kind === 'woman' ? 'femme' : store.profile.kind === 'child' ? 'enfant' : 'homme');
+/** Requête courte pour les moteurs internes des boutiques (pièce + couleur + matière) : les budgets et tailles y nuisent. */
+export function shortQuery({ category = '', color = '', material = '' }) {
+  const c = color && COLOR_BY_ID[color] ? COLOR_BY_ID[color].name.toLowerCase() : '';
+  const seen = new Set();
+  return [category, c, material].join(' ').split(/\s+/).filter((w) => w && !seen.has(w.toLowerCase()) && seen.add(w.toLowerCase())).join(' ');
+}
+export function shopSearchUrl(r, q, g) { return r.search ? r.search(q, g) : siteSearchUrl(r.url, q); }
+function quickShopButtons(sq, g, full) {
+  return html`<a class="btn btn-sm btn-gold" href="${priceCompareUrl(`${sq} ${g}`)}" target="_blank" rel="noopener noreferrer">${icon('search')} Comparer les prix</a>${QUICK_SHOPS.map((n) => RETAILERS.find((r) => r.name === n)).filter(Boolean).map((r) => html`<a class="btn btn-sm" href="${shopSearchUrl(r, sq, g)}" target="_blank" rel="noopener noreferrer">${r.name}</a>`)}`;
+}
 function relevantRetailers({ budgetMax, category = '', kind = 'main' }) {
   const cat = category.toLowerCase();
   const audience = kind === 'woman' ? 'f' : kind === 'child' ? 'e' : 'h';
@@ -65,7 +76,10 @@ async function renderSearch(box, query) {
     <div class="stack"><div class="card"><h3>Avant d'acheter</h3><ul class="ticks small"><li>Une retouche peut-elle suffire ? (ourlet, manches, taille)</li><li>Une pièce existante remplit-elle déjà ce rôle ?</li><li>Existe-t-elle en seconde main (Vinted, Vestiaire Collective) ?</li><li>Vérifier composition, coutures, tombé, poches qui ne tirent pas.</li></ul></div>
       ${missing.length ? html`<div class="card"><h3>Pièces capsule manquantes</h3><div class="chips">${missing.slice(0, 10).map((m) => html`<button class="chip" data-miss="${m.id}">${m.name}</button>`)}</div></div>` : ''}</div>
   </div>
-  <h2>Boutiques pertinentes</h2><p class="small muted">${RETAILERS_NOTE} Les formes d'URL de recherche interne des boutiques n'ont pas été vérifiées : l'application ouvre la page officielle, propose de copier la requête, ou lance une recherche web limitée au site (aucun scraping, aucune fausse page de résultats).</p>
+  <section class="card card-accent" style="margin-top:18px"><h2 style="margin-top:0">Chercher partout en un geste</h2>
+    <p class="small muted">Recherche courte <span id="shortq" class="mono"></span> ouverte directement dans chaque boutique. Le comparateur de prix montre les offres de plusieurs sites, triables par prix.</p>
+    <div class="btn-row" id="quickshops"></div></section>
+  <h2>Boutiques pertinentes</h2><p class="small muted">${RETAILERS_NOTE} Recherche directe pour les boutiques dont l'adresse de recherche a été vérifiée (${SEARCH_VERIFIED_AT}) ; pour les autres, recherche web limitée au site. Aucun scraping, aucune fausse page de résultats, aucun prix inventé.</p>
   <div class="grid-wide" id="rlist"></div>`);
   const $ = (s) => box.querySelector(s);
   const form = $('#qform');
@@ -73,10 +87,13 @@ async function renderSearch(box, query) {
   const draw = () => {
     const text = q();
     $('#qout').textContent = text ? `Requête : « ${text} »` : 'Décrivez la pièce : la requête se construit automatiquement.';
+    const g = genderOf(); const sq = shortQuery(f);
+    $('#shortq').textContent = sq ? `« ${sq} »` : '';
+    setHTML($('#quickshops'), sq ? quickShopButtons(sq, g, text) : html`<span class="small muted">Indiquez la pièce recherchée.</span>`);
     const list = relevantRetailers({ budgetMax: Number(f.budgetMax) || null, category: f.category, kind: store.profile.kind });
     const second = RETAILERS.filter((r) => r.cats.includes('o'));
     setHTML($('#rlist'), [...list, ...second].map((r) => html`<article class="card"><div class="row-between"><span class="eyebrow">${TIER_NAMES[r.tier]}</span>${r.cats.includes('o') ? html`<span class="tag tag-ok">Seconde main</span>` : ''}</div><h3>${r.name}</h3><p class="small muted">${r.why}</p>
-      <div class="btn-row"><a class="btn btn-sm" href="${safeUrl(r.url)}" target="_blank" rel="noopener noreferrer">${icon('external')} Site officiel</a>${text ? html`<a class="btn btn-sm" href="${siteSearchUrl(r.url, text)}" target="_blank" rel="noopener noreferrer">${icon('search')} Rechercher sur ${hostOf(r.url)}</a>` : ''}</div>
+      <div class="btn-row"><a class="btn btn-sm" href="${safeUrl(r.url)}" target="_blank" rel="noopener noreferrer">${icon('external')} Site officiel</a>${text ? html`<a class="btn btn-sm" href="${shopSearchUrl(r, shortQuery(f), genderOf())}" target="_blank" rel="noopener noreferrer">${icon('search')} ${r.search ? `Rechercher chez ${r.name}` : `Rechercher sur ${hostOf(r.url)}`}</a>` : ''}</div>
       <p class="small muted" style="margin-top:6px">Prix, stock et livraison : à vérifier sur le site.</p></article>`));
   };
   form.addEventListener('input', draw);
@@ -151,6 +168,7 @@ function wishCard(w, est, open) {
   return html`<article class="card" id="w-${w.id}"><div class="row-between"><div><span class="tag ${w.priority === 1 ? 'tag-gold' : ''}">Priorité ${w.priority}</span> ${w.utility ? html`<span class="tag">utilité ${w.utility.score ?? '—'}/100 · ${w.utility.unlocked} tenue(s)</span>` : ''}<h3 style="margin-top:6px">${w.name}</h3>
       <p class="small muted">${w.query || ''}${w.budgetMax ? ` · budget ${fmtEUR(w.budgetMax)}` : ''} · estimation ${est !== null ? fmtEUR(est) : 'inconnue'}</p></div></div>
     <div class="btn-row"><button class="btn btn-sm" data-wact="cand" data-id="${w.id}">${icon('plus')} Produit à comparer</button><button class="btn btn-sm" data-wact="util" data-id="${w.id}">Score d'utilité</button><button class="btn btn-sm" data-wact="prio" data-id="${w.id}">Changer priorité</button><button class="btn btn-sm" data-wact="edit" data-id="${w.id}">${icon('edit')}</button><button class="btn btn-sm btn-primary" data-wact="bought" data-id="${w.id}">Acheté</button><button class="btn btn-sm btn-ghost" data-wact="drop" data-id="${w.id}">Retirer</button></div>
+    <div class="row small" style="gap:6px;margin-top:8px"><span class="muted">Chercher :</span>${quickShopButtons(shortQuery({ category: w.name, color: w.color, material: w.material }), genderOf())}</div>
     <p class="small muted" data-uout="${w.id}"></p>
     ${w.utility ? html`<p class="small">Score d'utilité (distinct de l'élégance) calculé sur ${w.utility.assessedWeight}/100 points connus ; critères inconnus signalés, pas supposés.</p>` : ''}
     <details class="disclosure" ${open || cands.length ? raw('open') : ''}><summary>Comparaison (${cands.length})</summary>

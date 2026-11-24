@@ -1,10 +1,10 @@
 // Moteur de recommandations déterministe, testable sans LLM (A4).
 // Contraintes dures → candidats top-K par rôle → combinaisons → note B18 → classement (bonus/malus distincts) → diversité.
-import { AVAILABLE_STATES, SUB_INFO, ROLE_LABELS } from '../data/taxonomy.js';
+import { AVAILABLE_STATES, SUB_INFO, ROLE_LABELS, isEveryday } from '../data/taxonomy.js';
 import { OCCASION_BY_ID, OUTFIT_MODES } from '../data/occasions.js';
 import { COLOR_TRAITS } from '../data/colors.js';
 import { scoreOutfit, SUB_AFFINITY, garmentFormality, outfitFormality } from './scoring.js';
-import { classifyHarmony, colorName } from './colors.js';
+import { classifyHarmony, colorName, luminance, colorHex } from './colors.js';
 import { seasonFromDate } from './weather.js';
 
 const TOP_K = 6;
@@ -92,6 +92,67 @@ function pickBelt(belts, bottom, shoes) {
   });
   return sorted[0];
 }
+const fam = (g) => COLOR_TRAITS[g?.color?.id]?.family;
+const mat = (g) => String(g?.material || '').toLowerCase();
+/** Faut-il une cravate ? Codes habillés, ou classique avec veste. */
+export function tieExpected(occasion, mode, p) {
+  if (!p.top || !['chemise'].includes(p.top.sub)) return false;
+  return occasion.formality[0] >= 4 || (occasion.target >= 4 && mode === 'classic' && !!p.layer);
+}
+/**
+ * Accessoires : lunettes et montre connectée (portées tous les jours), montre classique pour le formel,
+ * bracelet de montre assorti (cuir comme les chaussures, métal pour le formel, sport pour le décontracté), cravate si attendue.
+ */
+export function chooseAccessories(p, pool = [], occasion, mode) {
+  const out = [];
+  const form = outfitFormality({ ...p, accessories: [] }) ?? 3;
+  // Lunettes et autres accessoires du quotidien (hors montres, gérées ci-dessous)
+  for (const a of pool) if (isEveryday(a) && !['montre-connectee', 'montre'].includes(a.sub)) out.push(a);
+  // Montre : classique si l'occasion est habillée et qu'on en possède une, sinon la montre connectée
+  const classic = pool.filter((a) => a.sub === 'montre').sort(byId)[0];
+  const smart = pool.filter((a) => a.sub === 'montre-connectee').sort(byId)[0];
+  const watch = (form >= 4 && classic) ? classic : smart || classic;
+  if (watch) out.push(watch);
+  if (watch?.sub === 'montre-connectee') {
+    const bands = pool.filter((a) => a.sub === 'bracelet-montre');
+    if (bands.length) {
+      const sf = fam(p.shoes);
+      const score = (b) => {
+        const m = mat(b); const leather = /cuir|daim/.test(m); const metal = /métal|metal|acier|milanais|titane|maillons/.test(m); const sport = /sport|silicone|fluoro|nylon|tissé|tisse|boucle/.test(m);
+        let s2 = 0;
+        if (form >= 3.5) s2 += metal ? 3 : leather ? 2.5 : sport ? -2 : 0;
+        else if (form >= 2.5) s2 += leather ? 3 : metal ? 1.5 : sport ? 0 : 0.5;
+        else s2 += sport ? 2 : leather ? 1 : 0.5;
+        if (leather && sf && ((fam(b) === 'black') === (sf === 'black'))) s2 += 1.5; // cuir assorti aux chaussures
+        if (leather && sf && ((fam(b) === 'black') !== (sf === 'black'))) s2 -= 1;
+        return s2;
+      };
+      out.push([...bands].sort((a, b) => score(b) - score(a) || byId(a, b))[0]);
+    }
+  }
+  // Cravate
+  if (tieExpected(occasion, mode, p)) {
+    const ties = pool.filter((a) => a.sub === 'cravate');
+    const topHex = colorHex(p.top.color?.id);
+    const score = (t) => (t.color?.id === p.top.color?.id ? -5 : 0) + (luminance(colorHex(t.color?.id)) < luminance(topHex) ? 2 : -1) + (['burgundy', 'navy', 'charcoal', 'chocolate'].includes(t.color?.id) ? 1 : 0) + (t.pattern && t.pattern !== 'Uni' && p.top.pattern && p.top.pattern !== 'Uni' ? -1 : 0);
+    const tie = [...ties].sort((a, b) => score(b) - score(a) || byId(a, b))[0];
+    if (tie) out.push(tie);
+  }
+  return out;
+}
+
+/** Explications des accessoires choisis. */
+export function accessoryNotes(p, occasion, mode) {
+  const notes = [];
+  for (const a of p.accessories || []) {
+    if (a.sub === 'bracelet-montre') notes.push(`Bracelet ${a.name.toLowerCase()} : ${/cuir|daim/.test(mat(a)) ? (fam(a) === 'black') === (fam(p.shoes) === 'black') ? 'cuir assorti aux chaussures' : 'cuir' : /métal|metal|acier|milanais|titane|maillons/.test(mat(a)) ? 'métal, sobre pour une tenue habillée' : 'adapté à une tenue décontractée'}.`);
+    if (a.sub === 'cravate') notes.push(`Cravate ${a.color?.name?.toLowerCase() || ''} : plus sombre que la chemise, elle structure la tenue sans la surcharger.`);
+    if (a.sub === 'lunettes-vue') notes.push(`Lunettes : monture ${a.color?.name?.toLowerCase() || ''}${fam(a) && fam(a) === fam(p.shoes) ? ', en écho au cuir des chaussures' : ''}.`);
+  }
+  if (tieExpected(occasion, mode, p) && !(p.accessories || []).some((a) => a.sub === 'cravate')) notes.push('Une cravate serait attendue pour cette occasion (aucune disponible dans le dressing).');
+  return notes;
+}
+
 export function comboKey(p) { return ['top', 'bottom', 'layer', 'outer', 'shoes'].map((r) => p[r]?.id || '-').join('|'); }
 
 function needsLayer(occasion) { return occasion?.strict && occasion.formality[0] >= 5; }
@@ -138,11 +199,7 @@ export function recommend(input) {
     for (const top of tops) for (const bottom of bottoms) for (const sh of shoes) for (const layer of (layerOpts.length ? layerOpts : [null])) for (const outer of outerOpts) {
       if (layer && top && layer.id === top.id) continue;
       const belt = forced.belt || pickBelt(pools.belt, bottom, sh);
-      const accessories = [];
-      if (occasion.formality[0] >= 5 || (occasion.target >= 5 && mode === 'classic')) {
-        const tie = pools.accessory.find((a) => a.sub === 'cravate');
-        if (tie && top?.sub === 'chemise') accessories.push(tie);
-      }
+      const accessories = chooseAccessories({ top, bottom, layer, outer, shoes: sh, belt }, pools.accessory, occasion, mode);
       const pieces = { top, bottom, layer, outer, shoes: sh, belt, accessories };
       const sc = scoreOutfit(pieces, { ...ctxBase, mode, weather: env });
       const base = sc.normalized ?? 50;
@@ -199,6 +256,7 @@ function decorate(pick, { occasion, env, pools, list, ctxBase }) {
   if (env.rain && p.outer && (p.outer.rainResistance ?? 0) < 2) warnings.push('Couche extérieure peu déperlante : prévoir un parapluie.');
   if (env.cold && !p.outer) warnings.push('Froid : aucune couche extérieure disponible dans le dressing.');
   if (occasion.strict) warnings.push('Dress code : les codes explicites de l\'événement priment sur cette proposition.');
+  reasons.push(...accessoryNotes(p, occasion, pick.mode));
   if (occasion.id === 'client') reasons.push('Tenue de représentation pour les rendez-vous clients ; elle ne remplace pas le vêtement de travail/protection lors d\'une intervention.');
   if (pick.duplicate) warnings.push('Combinaison proche d\'une autre proposition : le dressing compatible est limité.');
   if (needsLayer(occasion) && !p.layer) missing.push('Veste habillée (blazer ou costume)');

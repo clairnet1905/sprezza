@@ -127,7 +127,9 @@ export function scoreOutfit(p, ctx = {}) {
       if (sf && bf && (sf === 'black') !== (bf === 'black')) { s -= 1.5; notes.push('ceinture et chaussures de cuirs différents'); }
       else notes.push('ceinture harmonisée');
     }
-    if ((p.accessories || []).length > 3) { s -= 2; notes.push('accessoires nombreux'); }
+    const extra = (p.accessories || []).filter((a) => !['lunettes-vue', 'montre', 'montre-connectee', 'bracelet-montre'].includes(a.sub));
+    if (extra.length > 2) { s -= 2; notes.push('accessoires nombreux'); }
+    if ((p.accessories || []).some((a) => a.sub === 'montre-connectee') && (outfitFormality(p) ?? 3) >= 4.5) notes.push('montre connectée : un bracelet cuir ou métal la rend plus discrète');
     crit.shoes = clamp(s, 0, 10);
     reasons.shoes = notes.length ? `Chaussures ${notes.join(', ')}.` : 'Chaussures cohérentes avec la formalité.';
   } else { crit.shoes = null; reasons.shoes = 'Aucune paire disponible : critère non évaluable.'; }
