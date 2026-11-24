@@ -1,0 +1,231 @@
+// Mini-exécuteur de tests (navigateur, sans dépendance). Ouvrir /tests/ sur le serveur local.
+import { suggestPalette, isValidHex, paletteNote, classifyHarmony, nearestColor, BOTTOM_IDS } from '../src/domain/colors.js';
+import { MAIN_COLORS, ALL_COLORS, PALETTES_20, ORIGINAL_MATRIX } from '../src/data/colors.js';
+import { scoreOutfit, finalizeCriteria } from '../src/domain/scoring.js';
+import { recommend, outfitsUnlocked } from '../src/domain/recommend.js';
+import { manualWeather, parseOpenMeteo, isStale } from '../src/domain/weather.js';
+import { validateAnalysis, validateExport } from '../src/domain/validate.js';
+import { capsuleProgress, templateStatus, exportMissingText, costPerWear, buildICS, buildQuery, shoppingUtility, siteSearchUrl } from '../src/domain/wardrobe-logic.js';
+import { STYLES, SCHOOLS, TRADITIONS, CLOSE_STYLES } from '../src/data/styles.js';
+import { OCCASIONS } from '../src/data/occasions.js';
+import { ERRORS, SEASONS, GRID } from '../src/data/guide.js';
+import { CHAPTERS } from '../src/data/chapters.js';
+import { CAPSULE, TEMPLATES } from '../src/data/capsule.js';
+import { RETAILERS } from '../src/data/retailers.js';
+import { PHOTOS } from '../src/data/photos.js';
+import { Repository } from '../src/repositories/db.js';
+import { escapeHTML, html, safeUrl } from '../src/lib/html.js';
+import { resetForBase } from '../src/features/colors.js';
+import { mannequinSVG } from '../src/components/mannequin.js';
+import { evaluateManual } from '../src/features/analysis.js';
+
+const tests = [];
+const test = (name, fn) => tests.push({ name, fn });
+const eq = (a, b, msg = '') => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${msg} attendu ${JSON.stringify(b)}, obtenu ${JSON.stringify(a)}`); };
+const ok = (c, msg) => { if (!c) throw new Error(msg || 'assertion fausse'); };
+const throws = (fn, msg) => { try { fn(); } catch { return; } throw new Error(msg || 'exception attendue'); };
+
+// ---- Fabrique de vêtements de test
+let n = 0;
+const G = (sub, category, color, extra = {}) => ({ id: `t${++n}`, profileId: 'p', name: `${sub} ${color}`, sub, category, color: { id: color, hex: ALL_COLORS.find((c) => c.id === color).hex, name: color }, availability: 'clean', seasons: [], ...extra });
+function businessWardrobe() {
+  return [
+    G('chemise', 'haut', 'white', { fit: 'regular', material: 'Coton Oxford', condition: 'very-good' }), G('chemise', 'haut', 'sky', { fit: 'regular', material: 'Coton' }), G('polo', 'haut', 'navy', { material: 'Maille coton' }),
+    G('tee-shirt', 'haut', 'white'), G('chino', 'bas', 'beige', { fit: 'tapered' }), G('pantalon', 'bas', 'mid-gray', { fit: 'tapered', material: 'Laine' }), G('jean', 'bas', 'navy'),
+    G('blazer', 'veste', 'navy', { material: 'Laine' }), G('mocassins', 'chaussures', 'chocolate', { material: 'Daim', rainResistance: 0 }), G('derbies', 'chaussures', 'chocolate', { material: 'Cuir', rainResistance: 2 }),
+    G('baskets', 'chaussures', 'white', { rainResistance: 1 }), G('ceinture-cuir', 'ceinture', 'chocolate'), G('trench', 'manteau', 'beige', { rainResistance: 3, warmth: 3 }),
+  ];
+}
+
+// ---------------- Couleurs
+test('Pantalon beige → 5 hauts marine, blanc, olive, bleu ciel, chocolat ; veste marine ; chaussures marron foncé', () => {
+  const s = suggestPalette('beige', 'bottom');
+  eq(s.tops.map((t) => t.name), ['Marine', 'Blanc', 'Olive', 'Bleu ciel', 'Chocolat']);
+  eq([s.jacket.name, s.jacket.hex], ['Marine', '#22344E']);
+  eq([s.shoe.name, s.shoe.hex], ['Marron foncé', '#563B2E']);
+});
+test('Changement vers marine → haut écru par défaut et SVG actualisé', () => {
+  const st = { mode: 'bottom' }; resetForBase(st, 'beige'); eq(st.top, 'navy');
+  resetForBase(st, 'navy'); eq(st.top, 'ecru'); eq(st.shoe, 'cognac'); eq(st.jacket, 'taupe');
+  const svg = String(mannequinSVG({ top: '#EFE8D7', pants: '#22344E', shoe: '#995B36' }));
+  ok(svg.includes('fill="#EFE8D7"') && svg.includes('fill="#22344E"'), 'SVG non recoloré');
+});
+test('Tous les codes HEX sont valides (palette, auxiliaires, matrice, 20 palettes)', () => {
+  ALL_COLORS.forEach((c) => ok(isValidHex(c.hex), c.id));
+  ORIGINAL_MATRIX.forEach((m) => { ok(isValidHex(m.hex)); m.tops.forEach(([, h]) => ok(isValidHex(h))); });
+  PALETTES_20.forEach((p) => p.hex.forEach((h) => ok(isValidHex(h), `palette ${p.n}`)));
+});
+test('Au moins cinq hauts conseillés pour chaque bas, y compris les couleurs hors matrice', () => {
+  BOTTOM_IDS.forEach((id) => ok(suggestPalette(id, 'bottom').tops.length >= 5, id));
+  MAIN_COLORS.forEach((c) => ok(BOTTOM_IDS.includes(c.id), `couleur ${c.id} sélectionnable`));
+});
+test('Mode « partir de mon haut » : écru → bas compatibles', () => {
+  const s = suggestPalette('ecru', 'top'); ok(s.bottoms.length >= 3); ok(s.bottoms.some((b) => b.id === 'navy'));
+});
+test('20 palettes, ordre et notes conservés', () => { eq(PALETTES_20.length, 20); eq(PALETTES_20.map((p) => p.n), Array.from({ length: 20 }, (_, i) => i + 1)); eq(PALETTES_20[0].note, 9.8); });
+test('Harmonies : camaïeu, complémentaire atténuée, contraste', () => {
+  eq(classifyHarmony(['beige', 'ecru', 'taupe']).id, 'camaieu');
+  eq(classifyHarmony(['navy', 'cognac']).id, 'complementary');
+  eq(classifyHarmony(['black', 'white']).id, 'contrast');
+});
+test('Couleur personnalisée : proximité indiquée avec confiance', () => { const n2 = nearestColor('#23354F'); eq(n2.id, 'navy'); eq(n2.confidence, 'élevée'); });
+test('Note de palette indicative bornée et palette 1 reconnue', () => { const r = paletteNote({ bottom: 'ecru', top: 'navy', shoe: 'chocolate' }); ok(r.note <= 9.9 && r.note >= 5); ok(r.matched.includes(1)); });
+
+// ---------------- Score
+test('Score : aucun critère n\'excède son maximum ; non évaluable = null', () => {
+  const s = finalizeCriteria({ fit: 40, colors: 20, refinement: null, style: 10, occasion: 10, shoes: 10, presentation: null });
+  eq(s.criteria.find((c) => c.id === 'fit').score, 25);
+  eq(s.criteria.find((c) => c.id === 'refinement').score, null);
+  eq(s.assessedWeight, 75);
+});
+test('Couverture < 70 : pas de note précise, plage affichée', () => {
+  const s = finalizeCriteria({ colors: 18, style: 8, occasion: 9 });
+  eq(s.score100, null); ok(Array.isArray(s.scoreRange)); eq(s.assessedWeight, 40);
+});
+test('Coupe non saisie : non évaluée (pas de note arbitraire)', () => {
+  const w = businessWardrobe().map((g) => ({ ...g, fit: undefined }));
+  const s = scoreOutfit({ top: w[0], bottom: w[4], shoes: w[9] }, {});
+  eq(s.criteria.find((c) => c.id === 'fit').score, null);
+});
+
+// ---------------- Recommandations
+test('Dressing vide : aucune pièce inventée', () => { const r = recommend({ garments: [], occasionId: 'client' }); eq(r.options.length, 0); ok(r.info.missing.length > 0); });
+test('Rendez-vous client sans pluie : proposition business casual réaliste', () => {
+  const w = businessWardrobe();
+  const r = recommend({ garments: w, occasionId: 'client', weather: manualWeather({ temp: 17 }), season: 'spring', now: Date.parse('2026-11-24') });
+  ok(r.options.length >= 1, 'aucune option');
+  const best = r.options[0];
+  ok(['chemise', 'polo'].includes(best.pieces.top.sub), `haut ${best.pieces.top.sub}`);
+  ok(['chino', 'pantalon'].includes(best.pieces.bottom.sub), `bas ${best.pieces.bottom.sub}`);
+  ok(['derbies', 'mocassins'].includes(best.pieces.shoes.sub), `chaussures ${best.pieces.shoes.sub}`);
+  ok(r.options.every((o) => o.pieces.top.sub !== 'tee-shirt'), 'tee-shirt proposé pour un client');
+});
+test('Pièce indisponible exclue', () => {
+  const w = businessWardrobe(); w.forEach((g) => { if (g.sub === 'chemise') g.availability = 'to-wash'; });
+  const r = recommend({ garments: w, occasionId: 'client', weather: manualWeather({ temp: 17 }) });
+  ok(r.options.every((o) => o.pieces.top.sub !== 'chemise'), 'chemise à laver proposée');
+});
+test('Pluie : chaussures en daim exclues et couche déperlante ajoutée', () => {
+  const w = businessWardrobe();
+  const r = recommend({ garments: w, occasionId: 'client', weather: manualWeather({ temp: 13, rain: true }) });
+  ok(r.options.length, 'aucune option');
+  r.options.forEach((o) => { ok(o.pieces.shoes.sub !== 'mocassins', 'mocassins daim sous la pluie'); ok(o.pieces.outer?.sub === 'trench', 'pas de trench'); });
+});
+test('Trois modes distincts ou explication du nombre de combinaisons', () => {
+  const r = recommend({ garments: businessWardrobe(), occasionId: 'daily', weather: manualWeather({ temp: 18 }) });
+  const keys = new Set(r.options.map((o) => `${o.pieces.top.id}|${o.pieces.bottom.id}|${o.pieces.shoes.id}|${o.pieces.layer?.id}`));
+  ok(keys.size === r.options.length || r.info.note, 'doublons sans explication');
+  const small = recommend({ garments: businessWardrobe().slice(0, 1).concat(businessWardrobe().slice(4, 5), businessWardrobe().slice(9, 10)), occasionId: 'daily' });
+  ok(small.info.note, 'pas d\'explication pour un petit dressing');
+});
+test('Déterministe pour les mêmes entrées', () => {
+  const w = businessWardrobe(); const a = recommend({ garments: w, occasionId: 'office', now: 1 }); const b = recommend({ garments: w, occasionId: 'office', now: 1 });
+  eq(a.options.map((o) => o.pieces.top.id + o.pieces.bottom.id), b.options.map((o) => o.pieces.top.id + o.pieces.bottom.id));
+});
+test('Mariage (dress code) : pas de casual incompatible', () => {
+  const w = businessWardrobe(); const r = recommend({ garments: w, occasionId: 'wedding' });
+  r.options.forEach((o) => ok(!['tee-shirt', 'jean', 'baskets'].includes(o.pieces.top.sub) && o.pieces.shoes.sub !== 'baskets', 'casual au mariage'));
+  ok(r.info.missing.length || r.options.every((o) => o.pieces.layer), 'veste habillée non signalée');
+});
+test('Pièce imposée respectée', () => { const w = businessWardrobe(); const r = recommend({ garments: w, occasionId: 'daily', imposed: { bottom: w[6].id } }); r.options.forEach((o) => eq(o.pieces.bottom.id, w[6].id)); });
+test('Utilité d\'achat : nombre de tenues supplémentaires calculé', () => { const nb = outfitsUnlocked({ name: 'Polo écru', category: 'haut', sub: 'polo', color: { id: 'ecru', hex: '#EFE8D7' } }, businessWardrobe()); ok(nb >= 1); });
+
+// ---------------- Météo
+test('Météo Open-Meteo parsée ; ancienne non affichée comme actuelle', () => {
+  const w = parseOpenMeteo({ daily: { time: ['2026-11-24'], temperature_2m_min: [6], temperature_2m_max: [12], apparent_temperature_min: [3], apparent_temperature_max: [10], precipitation_sum: [4.2], precipitation_probability_max: [80], wind_speed_10m_max: [30] } }, { place: 'Bordeaux', fetchedAt: '2026-11-24T06:00:00Z' });
+  ok(w.rain); ok(w.cold); ok(isStale(w, Date.parse('2026-11-24T20:00:00Z')));
+});
+
+// ---------------- IA
+test('IA : JSON invalide intercepté', () => throws(() => validateAnalysis('{oops')));
+test('IA : score hors limites intercepté', () => throws(() => validateAnalysis({ criteria: [{ id: 'fit', max: 25, score: 30 }] })));
+test('IA : vêtement inexistant intercepté', () => throws(() => validateAnalysis({ criteria: [], ownedItemIds: ['inconnu'] }, { ownedIds: ['a'] })));
+test('IA : score précis refusé sous le seuil de couverture', () => throws(() => validateAnalysis({ criteria: [{ id: 'colors', max: 20, score: 15 }], score100: 75 })));
+test('IA : réponse valide normalisée avec critères non évalués à null', () => {
+  const r = validateAnalysis({ criteria: [{ id: 'fit', max: 25, score: null, reason: 'Longueur non visible', confidence: 'low' }, { id: 'colors', max: 20, score: 18 }], score100: null, ownedItemIds: ['a'] }, { ownedIds: ['a'] });
+  eq(r.criteria.length, 7); eq(r.score100, null); eq(r.assessedWeight, 20);
+});
+test('Aucune clé API dans le code client', async () => {
+  for (const f of ['../src/services/ai.js', '../src/app.js', '../src/state.js', '../src/features/analysis.js']) {
+    const t = await (await fetch(f)).text(); ok(!/sk-ant-|x-api-key|ANTHROPIC_API_KEY/.test(t), f);
+  }
+});
+test('Questionnaire manuel : critères inconnus non pénalisés', () => {
+  const r = evaluateManual({ top: 'navy', bottom: 'ecru', shoe: 'chocolate', shoulders: 'yes', ease: 'yes' }, null);
+  eq(r.score.criteria.find((c) => c.id === 'refinement').score, null); ok(r.uncertainties.length > 0);
+});
+
+// ---------------- Données éditoriales
+test('15 styles, 5 écoles notées, 8 traditions, 20 occasions × 3, 20 erreurs, 4 saisons, 20 chapitres', () => {
+  eq(STYLES.length, 15); eq(SCHOOLS.length, 5); eq(TRADITIONS.length, 8); eq(OCCASIONS.length, 20);
+  OCCASIONS.forEach((o) => eq(o.outfits.length, 3, o.id)); eq(ERRORS.length, 20); eq(SEASONS.length, 4); eq(CHAPTERS.length, 20); eq(GRID.reduce((a, c) => a + c.max, 0), 100);
+});
+test('Notes historiques des écoles = somme des critères', () => SCHOOLS.forEach((s) => eq(Object.values(s.scores).reduce((a, b) => a + b, 0), s.total, s.name)));
+test('Styles proches référencent des styles existants', () => CLOSE_STYLES.forEach((c) => ok(STYLES.find((s) => s.id === c.a) && STYLES.find((s) => s.id === c.b))));
+test('Photos : droits inconnus jamais transformés en autorisation', () => PHOTOS.forEach((p) => { eq(p.rights, 'unknown'); eq(p.displayMode, 'link_only'); ok(p.sourcePageUrl.startsWith('https://')); }));
+test('32 boutiques avec URL https', () => { eq(RETAILERS.length, 32); RETAILERS.forEach((r) => ok(r.url.startsWith('https://'))); });
+
+// ---------------- Capsule
+test('30 pièces capsule et 30 modèles ; références valides', () => { eq(CAPSULE.length, 30); eq(TEMPLATES.length, 30); TEMPLATES.forEach((t) => t.ids.forEach((i) => ok(CAPSULE.find((c) => c.id === i)))); });
+test('Progression par niveau et export des manquants', () => {
+  const st = { 1: { owned: true }, 2: { owned: true } };
+  eq(capsuleProgress(1, st).owned, 2); eq(capsuleProgress(2, st).total, 20);
+  const txt = exportMissingText(1, st); ok(!txt.includes('1. Blazer marine')); ok(txt.includes('3. Chemise ciel'));
+});
+test('Modèle portable seulement si toutes les pièces existent et sont disponibles', () => {
+  const tpl = TEMPLATES[3]; // Naples 4, 6, 9
+  const gs = [{ id: 'a', availability: 'clean' }, { id: 'b', availability: 'clean' }, { id: 'c', availability: 'to-wash' }];
+  const st = { 4: { owned: true, garmentId: 'a' }, 6: { owned: true, garmentId: 'b' }, 9: { owned: true, garmentId: 'c' } };
+  eq(templateStatus(tpl, st, gs).portable, false); gs[2].availability = 'clean'; eq(templateStatus(tpl, st, gs).portable, true);
+  eq(templateStatus(tpl, {}, gs).label, 'Inspiration');
+});
+
+// ---------------- Shopping, stats, calendrier
+test('Requête produit construite depuis la pièce manquante', () => eq(buildQuery({ category: 'pantalon', color: 'ecru', fit: 'taille mi-haute coupe droite légèrement fuselée', material: 'coton', budgetMin: 60, budgetMax: 100 }), 'pantalon homme écru taille mi-haute coupe droite légèrement fuselée coton 60–100 €'));
+test('Recherche web restreinte au domaine', () => ok(siteSearchUrl('https://www.uniqlo.com/', 'chino beige').includes('site%3Auniqlo.com')));
+test('Score d\'utilité : critères inconnus signalés', () => { const u = shoppingUtility({ unlocked: 4 }); ok(u.unknown.includes('budget')); eq(u.assessedWeight, 35); });
+test('Coût par port sans division par zéro', () => { eq(costPerWear({ price: 100, wearCount: 0 }), null); eq(costPerWear({ price: 100, wearCount: 4 }), 25); eq(costPerWear({ wearCount: 4 }), null); });
+test('Export ICS valide', () => { const ics = buildICS([{ id: 'x', date: '2026-11-30', title: 'Client' }]); ok(ics.includes('DTSTART;VALUE=DATE:20261130') && ics.includes('DTEND;VALUE=DATE:20261201')); });
+
+// ---------------- Sécurité
+test('Échappement HTML (XSS) et URLs externes http(s) seulement', () => {
+  eq(escapeHTML('<img src=x onerror=1>'), '&lt;img src=x onerror=1&gt;');
+  ok(!String(html`<p>${'<script>'}</p>`).includes('<script>'));
+  eq(safeUrl('javascript:alert(1)'), '#');
+});
+
+// ---------------- Persistance (IndexedDB réelle, base de test isolée)
+test('Persistance : ajout, relecture après réouverture, modification, suppression', async () => {
+  const name = 'style-studio-test-' + Date.now();
+  let repo = await Repository.create(name);
+  ok(!repo.isMemory, 'IndexedDB indisponible');
+  await repo.put('garments', { id: 'g1', profileId: 'p', name: 'Pantalon écru', category: 'bas' });
+  await repo.put('photos', { id: 'ph1', ownerId: 'g1', blob: new Blob(['x'], { type: 'image/jpeg' }) });
+  repo.close();
+  repo = await Repository.create(name); // « rechargement »
+  eq((await repo.get('garments', 'g1')).name, 'Pantalon écru');
+  ok((await repo.get('photos', 'ph1')).blob instanceof Blob, 'photo perdue');
+  const g = await repo.get('garments', 'g1'); await repo.put('garments', { ...g, name: 'Pantalon écru modifié' });
+  eq((await repo.get('garments', 'g1')).rev, 2);
+  await repo.remove('garments', 'g1'); await repo.remove('photos', 'ph1');
+  eq(await repo.get('garments', 'g1'), undefined);
+  repo.close(); indexedDB.deleteDatabase(name);
+});
+test('Export/import : validation, conflits et doublons', () => {
+  const data = { app: 'style-studio', schemaVersion: 1, stores: { garments: [{ id: 'a' }, { id: 'b' }, { id: 'b' }] } };
+  const p = validateExport(data, { garments: [{ id: 'a' }] }).find((x) => x.store === 'garments');
+  eq([p.conflicts, p.dupes, p.newRows], [1, 1, 1]);
+  throws(() => validateExport({ app: 'autre', schemaVersion: 1, stores: {} }));
+  throws(() => validateExport({ app: 'style-studio', schemaVersion: 99, stores: {} }));
+});
+
+// ---------------- Exécution
+const out = document.getElementById('out'); let pass = 0; const fails = [];
+for (const t of tests) {
+  const li = document.createElement('li');
+  try { await t.fn(); li.className = 'ok'; li.textContent = `✓ ${t.name}`; pass++; }
+  catch (e) { li.className = 'ko'; li.textContent = `✗ ${t.name} — ${e.message}`; fails.push(t.name); }
+  out.appendChild(li);
+}
+document.getElementById('summary').textContent = `${pass}/${tests.length} tests réussis${fails.length ? ` — échecs : ${fails.join(' | ')}` : ''}`;
+window.__TEST_RESULT__ = { pass, total: tests.length, fails };

@@ -1,0 +1,447 @@
+// Dressing numérique : liste filtrable, fiche, ajout/édition avec photo, import multiple, statistiques.
+import { html, raw, setHTML } from '../lib/html.js';
+import { icon, toast, confirmDialog, swatch, emptyState, readForm, options, fmtDate, fmtEUR, openModal } from '../components/ui.js';
+import { store, pid, garments as loadGarments, hydratePhotos, forgetPhotoURL, wearlog as loadWearlog, outfits as loadOutfits } from '../state.js';
+import { uid } from '../repositories/db.js';
+import { CATEGORIES, CATEGORY_BY_ID, SUB_INFO, PATTERNS, FITS, SEASON_OPTS, CONDITIONS, AVAILABILITY, PHOTO_KINDS, MATERIALS, STYLE_OPTS, MEASURE_FIELDS } from '../data/taxonomy.js';
+import { ALL_COLORS, COLOR_BY_ID } from '../data/colors.js';
+import { CAPSULE } from '../data/capsule.js';
+import { nearestColor, colorIdFromHex } from '../domain/colors.js';
+import { isAvailable, pairingsFor } from '../domain/recommend.js';
+import { costPerWear, wardrobeStats } from '../domain/wardrobe-logic.js';
+import { checkImageFile, loadBitmap, processImage, renderToCanvas } from '../services/image.js';
+import { aiStatus } from '../services/ai.js';
+import { garmentCard, AVAIL_LABEL, deleteGarment, proposalCard, saveOutfit, wearOutfit } from './shared.js';
+import { navigate } from '../app.js';
+
+const filters = { q: '', cat: '', color: '', material: '', season: '', availableOnly: false, fav: false, sort: 'recent' };
+
+export async function render(main, params, query) {
+  const [a, b] = params;
+  if (!a) return renderList(main);
+  if (a === 'new') return renderEditor(main, null, presetFromQuery(query));
+  if (a === 'import') return renderImport(main);
+  if (a === 'stats') return renderStats(main);
+  if (b === 'edit') { const g = await store.repo.get('garments', a); return g ? renderEditor(main, g) : notFound(main); }
+  const g = await store.repo.get('garments', a);
+  return g && g.profileId === pid() ? renderDetail(main, g) : notFound(main);
+}
+/** Préremplissage depuis la capsule ou la liste d'envies (#/wardrobe/new?capsule=6 ou ?name=…&category=…). */
+function presetFromQuery(query) {
+  if (!query) return {};
+  const cid = Number(query.get('capsule'));
+  if (cid) {
+    const c = CAPSULE.find((x) => x.id === cid);
+    if (c) {
+      const subMap = { blazer: 'blazer', chemise: c.material === 'Lin' ? 'chemise-lin' : 'chemise', polo: 'polo', pull: 'pull', 'col roulé': 'col-roule', chino: 'chino', pantalon: 'pantalon', jean: 'jean', mocassins: 'mocassins', baskets: 'baskets', manteau: 'manteau', 'tee-shirt': 'tee-shirt', surchemise: 'surchemise', derbies: 'derbies', ceinture: 'ceinture-cuir', costume: 'veste-costume', richelieus: 'richelieus', cravate: 'cravate', chelsea: 'chelsea', bermuda: 'bermuda', trench: 'trench' };
+      const col = COLOR_BY_ID[c.color];
+      return { name: c.name, category: c.category, sub: subMap[c.sub] || CATEGORY_BY_ID[c.category].subs[0][0], material: c.material, color: { id: col.id, name: col.name, hex: col.hex }, capsuleId: cid };
+    }
+  }
+  const out = {};
+  if (query.get('name')) out.name = query.get('name').slice(0, 80);
+  if (query.get('category') && CATEGORY_BY_ID[query.get('category')]) { out.category = query.get('category'); out.sub = CATEGORY_BY_ID[out.category].subs[0][0]; }
+  if (query.get('price')) out.price = Number(query.get('price')) || null;
+  if (query.get('wish')) out.wishId = query.get('wish');
+  return out;
+}
+function notFound(main) { setHTML(main, emptyState('Pièce introuvable', 'Elle a peut-être été supprimée.', html`<a class="btn" href="#/wardrobe">Retour au dressing</a>`)); }
+
+// ---------------------------------------------------------------- Liste
+async function renderList(main) {
+  const all = await loadGarments();
+  const materials = [...new Set(all.map((g) => g.material).filter(Boolean))].sort();
+  const usedColors = ALL_COLORS.filter((c) => all.some((g) => g.color?.id === c.id));
+  setHTML(main, html`
+    <div class="page-head row-between"><div><div class="eyebrow">Dressing numérique</div><h1>Mon dressing</h1>
+      <p class="lede">${all.length} pièce${all.length > 1 ? 's' : ''} · ${all.filter(isAvailable).length} disponible${all.filter(isAvailable).length > 1 ? 's' : ''} immédiatement. Vos photos restent privées sur cet appareil.</p></div>
+      <div class="btn-row"><a class="btn btn-primary" href="#/wardrobe/new">${icon('plus')} Ajouter</a><a class="btn" href="#/wardrobe/import">${icon('upload')} Import multiple</a><a class="btn" href="#/wardrobe/stats">Statistiques</a></div></div>
+    ${all.length ? html`
+    <div class="card" style="margin-bottom:16px">
+      <div class="field"><label for="wq">Rechercher</label><input id="wq" type="search" placeholder="Nom, marque, matière, tag…" value="${filters.q}"></div>
+      <div class="chips" role="group" aria-label="Catégorie" style="margin-bottom:10px"><button class="chip" data-cat="" aria-pressed="${!filters.cat}">Tout</button>${CATEGORIES.map((c) => html`<button class="chip" data-cat="${c.id}" aria-pressed="${filters.cat === c.id}">${c.name}</button>`)}</div>
+      ${usedColors.length ? html`<div class="chips" role="group" aria-label="Couleur" style="margin-bottom:10px"><button class="chip" data-color="" aria-pressed="${!filters.color}">Toutes couleurs</button>${usedColors.map((c) => html`<button class="chip" data-color="${c.id}" aria-pressed="${filters.color === c.id}">${swatch(c.hex)} ${c.name}</button>`)}</div>` : ''}
+      <div class="form-grid">
+        <div class="field"><label for="wmat">Matière</label><select id="wmat">${options(materials, filters.material, { empty: 'Toutes' })}</select></div>
+        <div class="field"><label for="wseason">Saison</label><select id="wseason">${options(SEASON_OPTS, filters.season, { empty: 'Toutes' })}</select></div>
+        <div class="field"><label for="wsort">Trier</label><select id="wsort">${options([['recent', 'Ajout récent'], ['name', 'Nom'], ['worn', 'Moins porté récemment'], ['category', 'Catégorie']], filters.sort)}</select></div>
+        <div class="field" style="display:flex;flex-direction:column;justify-content:flex-end"><label class="check"><input type="checkbox" id="wavail" ${filters.availableOnly ? raw('checked') : ''}> Disponibles uniquement</label><label class="check"><input type="checkbox" id="wfav" ${filters.fav ? raw('checked') : ''}> Favoris</label></div>
+      </div>
+    </div>
+    <p class="small muted" id="wcount" aria-live="polite"></p>
+    <div class="grid-cards" id="wgrid"></div>` : emptyState('Votre dressing est vide', 'Ajoutez vos vêtements (photo ou saisie manuelle) : le styliste ne proposera que des pièces réellement possédées.', html`<a class="btn btn-primary" href="#/wardrobe/new">${icon('plus')} Ajouter une pièce</a><a class="btn" href="#/wardrobe/import">Import multiple</a><a class="btn" href="#/capsule">Partir de la capsule</a>`)}`);
+  if (!all.length) return;
+  const grid = main.querySelector('#wgrid');
+  const apply = () => {
+    const q = filters.q.toLowerCase();
+    let list = all.filter((g) => (!filters.cat || g.category === filters.cat) && (!filters.color || g.color?.id === filters.color || g.color2?.id === filters.color)
+      && (!filters.material || g.material === filters.material) && (!filters.season || !g.seasons?.length || g.seasons.includes(filters.season))
+      && (!filters.availableOnly || isAvailable(g)) && (!filters.fav || g.favorite)
+      && (!q || [g.name, g.brand, g.material, g.composition, g.notes, ...(g.tags || []), g.color?.name, SUB_INFO[g.sub]?.name].join(' ').toLowerCase().includes(q)));
+    const sorters = { recent: (x, y) => (y.createdAt || '').localeCompare(x.createdAt || ''), name: (x, y) => x.name.localeCompare(y.name), worn: (x, y) => (x.lastWornAt || '').localeCompare(y.lastWornAt || ''), category: (x, y) => x.category.localeCompare(y.category) || x.name.localeCompare(y.name) };
+    list = list.sort(sorters[filters.sort]);
+    main.querySelector('#wcount').textContent = `${list.length} résultat${list.length > 1 ? 's' : ''}`;
+    setHTML(grid, list.length ? list.map(garmentCard) : html`<div class="empty" style="grid-column:1/-1">Aucune pièce ne correspond à ces filtres.</div>`);
+    hydratePhotos(grid);
+  };
+  main.querySelector('#wq').addEventListener('input', (e) => { filters.q = e.target.value; apply(); });
+  main.querySelectorAll('[data-cat]').forEach((b) => b.addEventListener('click', () => { filters.cat = b.dataset.cat; main.querySelectorAll('[data-cat]').forEach((x) => x.setAttribute('aria-pressed', x === b)); apply(); }));
+  main.querySelectorAll('[data-color]').forEach((b) => b.addEventListener('click', () => { filters.color = b.dataset.color; main.querySelectorAll('[data-color]').forEach((x) => x.setAttribute('aria-pressed', x === b)); apply(); }));
+  main.querySelector('#wmat').onchange = (e) => { filters.material = e.target.value; apply(); };
+  main.querySelector('#wseason').onchange = (e) => { filters.season = e.target.value; apply(); };
+  main.querySelector('#wsort').onchange = (e) => { filters.sort = e.target.value; apply(); };
+  main.querySelector('#wavail').onchange = (e) => { filters.availableOnly = e.target.checked; apply(); };
+  main.querySelector('#wfav').onchange = (e) => { filters.fav = e.target.checked; apply(); };
+  apply();
+}
+
+// ---------------------------------------------------------------- Fiche
+async function renderDetail(main, g) {
+  const sub = SUB_INFO[g.sub];
+  const cpw = costPerWear(g);
+  setHTML(main, html`
+    <a href="#/wardrobe" class="small">← Dressing</a>
+    <div class="page-head row-between" style="margin-top:8px"><div><div class="eyebrow">${CATEGORY_BY_ID[g.category]?.name} · ${sub?.name || ''}</div><h1>${g.name}</h1>
+      <div class="row"><span class="tag ${isAvailable(g) ? 'tag-ok' : 'tag-warn'}">${AVAIL_LABEL[g.availability] || 'Propre'}</span>${g.favorite ? html`<span class="tag tag-gold">Favori</span>` : ''}</div></div>
+      <div class="btn-row"><button class="btn" id="fav">${icon('heart', { filled: g.favorite })} ${g.favorite ? 'Retirer des favoris' : 'Favori'}</button><a class="btn" href="#/wardrobe/${g.id}/edit">${icon('edit')} Modifier</a><button class="btn btn-danger" id="del">${icon('trash')} Supprimer</button></div></div>
+    <div class="grid-2" style="align-items:start">
+      <div class="stack">
+        ${g.photoIds?.length ? html`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr))">${g.photoIds.map((ph) => html`<div class="g-thumb" style="border-radius:12px"><img data-photo="${ph}" data-full alt="${g.name}"></div>`)}</div>` : html`<div class="card-flat small muted">Aucune photo. Ajoutez-en une depuis « Modifier ».</div>`}
+        <div class="card"><h3>Disponibilité</h3><div class="chips">${AVAILABILITY.map(([id, label]) => html`<button class="chip" data-avail="${id}" aria-pressed="${(g.availability || 'clean') === id}">${label}</button>`)}</div>
+          <p class="small muted" style="margin-top:8px">Une pièce « à laver », « indisponible » ou « en retouche » n'est jamais proposée comme immédiatement portable.</p></div>
+      </div>
+      <div class="card"><h3>Fiche</h3><dl class="small" style="display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:0">
+        ${row('Couleur principale', g.color ? html`${swatch(g.color.hex)} ${g.color.name} <span class="mono muted">${g.color.hex}</span>` : null)}
+        ${row('Couleur secondaire', g.color2 ? html`${swatch(g.color2.hex)} ${g.color2.name}` : null)}
+        ${row('Motif', g.pattern)}${row('Matière', g.material)}${row('Composition', g.composition)}${row('Coupe', FITS.find((f) => f[0] === g.fit)?.[1])}
+        ${row('Taille', g.size)}${row('Marque', g.brand)}${row('Saisons', g.seasons?.length ? g.seasons.map((s) => SEASON_OPTS.find((x) => x[0] === s)?.[1]).join(', ') : 'Toutes')}
+        ${row('Formalité', g.formality ? `${g.formality}/5` : null)}${row('Chaleur', g.warmth ? `${g.warmth}/5` : null)}${row('Confort', g.comfort ? `${g.comfort}/5` : null)}
+        ${row('Pluie / vent', `${g.rainResistance ?? 0}/3 · ${g.windResistance ?? 0}/3`)}${row('État', CONDITIONS.find((c) => c[0] === g.condition)?.[1])}
+        ${row('Mesures', Object.entries(g.measures || {}).filter(([, v]) => v).map(([k, v]) => `${MEASURE_FIELDS.find((m) => m[0] === k)?.[1]} ${v} cm`).join(', ') || null)}
+        ${row('Achat', g.purchaseDate ? fmtDate(g.purchaseDate) : null)}${row('Prix', g.price ? fmtEUR(g.price) : null)}
+        ${row('Port', `${g.wearCount || 0} fois${g.lastWornAt ? ` · dernier le ${fmtDate(g.lastWornAt)}` : ''}`)}
+        ${row('Coût par port', cpw !== null ? fmtEUR(cpw) : g.price ? 'Pas encore porté' : 'Prix inconnu')}
+        ${row('Tags', g.tags?.length ? g.tags.join(', ') : null)}${row('Notes', g.notes)}
+        ${row('Lien d\'origine', g.sourceUrl ? html`<a href="${g.sourceUrl}" target="_blank" rel="noopener noreferrer">Ouvrir ${icon('external')}</a>` : null)}
+      </dl></div>
+    </div>
+    <h2>Avec quoi le porter ?</h2>
+    <p class="lede">Combinaisons issues de votre dressing avant toute suggestion d'achat.</p>
+    <div class="grid-2" id="pairings"><p class="muted"><span class="loader"></span> Calcul…</p></div>`);
+  function row(label, value) { return value === null || value === undefined || value === '' ? '' : html`<dt class="muted">${label}</dt><dd style="margin:0">${value}</dd>`; }
+  hydratePhotos(main);
+  main.querySelector('#fav').onclick = async () => { await store.repo.put('garments', { ...g, favorite: !g.favorite }); navigate(`#/wardrobe/${g.id}`); };
+  main.querySelectorAll('[data-avail]').forEach((b) => b.onclick = async () => { await store.repo.put('garments', { ...g, availability: b.dataset.avail }); toast(`Disponibilité : ${AVAIL_LABEL[b.dataset.avail]}`); navigate(`#/wardrobe/${g.id}`); });
+  main.querySelector('#del').onclick = async () => {
+    if (await confirmDialog({ title: 'Supprimer cette pièce ?', message: `« ${g.name} » et ses photos seront supprimées de cet appareil. Les tenues qui l'utilisent la signaleront comme pièce supprimée. Cette action est irréversible.`, confirmLabel: 'Supprimer', danger: true })) {
+      (g.photoIds || []).forEach(forgetPhotoURL);
+      await deleteGarment(g); toast('Pièce supprimée'); navigate('#/wardrobe');
+    }
+  };
+  const all = await loadGarments();
+  const box = main.querySelector('#pairings');
+  if (!isAvailable(g)) { setHTML(box, html`<div class="callout callout-warn" style="grid-column:1/-1">Cette pièce est actuellement « ${AVAIL_LABEL[g.availability]} » : marquez-la disponible pour calculer des combinaisons portables.</div>`); return; }
+  const res = pairingsFor(g, all, { profileId: pid() });
+  if (!res.options.length) {
+    setHTML(box, html`<div class="callout" style="grid-column:1/-1">${(res.info.missing || []).map((m) => html`<div>${m.text}</div>`)}<div style="margin-top:6px">Ajoutez les pièces manquantes au dressing, ou consultez les <a href="#/outfits/templates">modèles de tenues</a> en mode inspiration.</div></div>`);
+    return;
+  }
+  setHTML(box, res.options.slice(0, 2).map((o, i) => proposalCard(o, i, { actions: false })));
+  hydratePhotos(box);
+  setHTML(box, html`${raw(box.innerHTML)}<div class="btn-row" style="grid-column:1/-1">${res.options.slice(0, 2).map((o, i) => html`<button class="btn btn-sm" data-save="${i}">Sauvegarder l'option ${i + 1}</button><button class="btn btn-sm" data-wear="${i}">Porter l'option ${i + 1}</button>`)}</div>`);
+  hydratePhotos(box);
+  box.querySelectorAll('[data-save]').forEach((b) => b.onclick = () => { const o = res.options[+b.dataset.save]; saveOutfit(o.pieces, { mode: o.mode, occasionId: res.info.occasion.id, score: o.score }); });
+  box.querySelectorAll('[data-wear]').forEach((b) => b.onclick = () => { const o = res.options[+b.dataset.wear]; wearOutfit(o.pieces, { occasionId: res.info.occasion.id }); });
+}
+
+// ---------------------------------------------------------------- Éditeur
+let pendingSource = null; // photo de dressing conservée pour découper plusieurs pièces
+
+async function renderEditor(main, existing, preset = {}) {
+  const g = existing || { id: null, category: preset.category || 'haut', sub: preset.sub || 'chemise', seasons: [], styles: [], tags: [], measures: {}, availability: 'clean', condition: 'good', photoIds: [], rainResistance: 0, windResistance: 0, ...preset };
+  const state = { source: null, rotation: 0, crop: { x: 0, y: 0, w: 1, h: 1 }, aspect: 'free', dominant: [], photoKind: preset.photoKind || 'single', removePhotos: new Set() };
+  const ai = await aiStatus();
+  const consentAI = store.profile.consents?.ai && store.profile.kind !== 'child';
+  const colorOpts = ALL_COLORS.map((c) => [c.id, `${c.name}${c.aux ? ' (aux.)' : ''}`]).concat([['custom', 'Personnalisée…']]);
+  const subOpts = (cat) => CATEGORY_BY_ID[cat].subs.map(([id, name]) => [id, name]);
+  setHTML(main, html`
+    <a href="${existing ? `#/wardrobe/${existing.id}` : '#/wardrobe'}" class="small">← Annuler</a>
+    <div class="page-head"><div class="eyebrow">${existing ? 'Modifier la fiche' : 'Nouvelle pièce'}</div><h1>${existing ? existing.name : 'Ajouter un vêtement'}</h1>
+      <p class="lede">Photo facultative. Rien n'est déduit sans votre validation : composition et taille ne sont jamais supposées.</p></div>
+    <form id="gform" novalidate>
+    <fieldset><legend>Photo</legend>
+      <div class="field"><label for="pkind">Ce que montre la photo</label><select id="pkind" name="photoKind">${options(PHOTO_KINDS, state.photoKind)}</select>
+        <p class="hint" id="pkind-hint"></p></div>
+      <div class="btn-row">
+        <label class="btn" for="pcam">${icon('camera')} Prendre une photo</label><input id="pcam" type="file" accept="image/*" capture="environment" class="sr-only">
+        <label class="btn" for="pfile">${icon('upload')} Galerie ou fichier</label><input id="pfile" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" class="sr-only">
+        ${pendingSource && !existing ? html`<button class="btn" type="button" id="reuse">Reprendre la photo de dressing précédente</button>` : ''}
+      </div>
+      <div id="cropper" class="hidden" style="margin-top:14px">
+        <div class="crop-stage"><canvas id="cropcanvas" aria-label="Aperçu de la photo recadrée"></canvas></div>
+        <div class="form-grid" style="margin-top:12px">
+          <div class="field"><label for="aspect">Cadrage</label><select id="aspect">${options([['free', 'Image entière'], ['3:4', 'Vertical 3:4'], ['1:1', 'Carré']], 'free')}</select></div>
+          <div class="field"><label for="zoom">Zoom</label><input id="zoom" type="range" min="1" max="3" step="0.05" value="1"></div>
+          <div class="field"><label for="panx">Position horizontale</label><input id="panx" type="range" min="0" max="1" step="0.01" value="0.5"></div>
+          <div class="field"><label for="pany">Position verticale</label><input id="pany" type="range" min="0" max="1" step="0.01" value="0.5"></div>
+        </div>
+        <div class="btn-row"><button class="btn btn-sm" type="button" id="rot">${icon('rotate')} Pivoter 90°</button><button class="btn btn-sm btn-ghost" type="button" id="clearphoto">Retirer cette photo</button></div>
+        <div id="domcolors" style="margin-top:10px"></div>
+      </div>
+      ${existing?.photoIds?.length ? html`<div style="margin-top:12px"><p class="small muted">Photos enregistrées (cocher pour supprimer à l'enregistrement) :</p><div class="row">${existing.photoIds.map((ph) => html`<label class="check" style="flex-direction:column;align-items:flex-start"><span class="mini-thumb" style="width:70px"><img data-photo="${ph}" alt="Photo enregistrée"></span><span><input type="checkbox" data-rmphoto="${ph}"> Supprimer</span></label>`)}</div></div>` : ''}
+      ${ai.ai && consentAI ? html`<button class="btn btn-sm" type="button" id="airecog" style="margin-top:10px">Suggérer les champs (IA)</button><p class="hint">La photo est envoyée au serveur IA configuré ; chaque champ suggéré reste à confirmer.</p>` : html`<p class="hint">Reconnaissance IA facultative : ${ai.ai ? 'activez le consentement IA dans Paramètres' : 'non configurée'} — couleurs estimées localement, sans envoi.</p>`}
+      <div id="aiout"></div>
+    </fieldset>
+    <fieldset><legend>Identification</legend><div class="form-grid">
+      <div class="field span-2"><label for="name">Nom *</label><input id="name" name="name" type="text" required value="${g.name || ''}" placeholder="ex. Pantalon écru taille mi-haute"></div>
+      <div class="field"><label for="category">Catégorie *</label><select id="category" name="category">${options(CATEGORIES.map((c) => [c.id, c.name]), g.category)}</select></div>
+      <div class="field"><label for="sub">Type *</label><select id="sub" name="sub">${options(subOpts(g.category), g.sub)}</select></div>
+      <div class="field"><label for="color">Couleur principale *</label><div class="row" style="flex-wrap:nowrap"><select id="color" name="color">${options(colorOpts, g.color?.custom ? 'custom' : g.color?.id || 'navy')}</select><input type="color" id="colorhex" value="${g.color?.hex || '#22344E'}" aria-label="Couleur personnalisée"></div><p class="hint" id="colorhint">Couleur représentative, pas une mesure sous éclairage contrôlé.</p></div>
+      <div class="field"><label for="color2">Couleur secondaire</label><select id="color2" name="color2">${options(ALL_COLORS.map((c) => [c.id, c.name]), g.color2?.id || '', { empty: 'Aucune' })}</select></div>
+      <div class="field"><label for="pattern">Motif</label><select id="pattern" name="pattern">${options(PATTERNS, g.pattern || 'Uni')}</select></div>
+      <div class="field"><label for="brand">Marque</label><input id="brand" name="brand" type="text" value="${g.brand || ''}"></div>
+    </div></fieldset>
+    <fieldset><legend>Matière, coupe et taille</legend><div class="form-grid">
+      <div class="field"><label for="material">Matière principale</label><input id="material" name="material" list="materials" type="text" value="${g.material || ''}"><datalist id="materials">${MATERIALS.map((m) => html`<option value="${m}">`)}</datalist></div>
+      <div class="field"><label for="composition">Composition (si lue sur l'étiquette)</label><input id="composition" name="composition" type="text" value="${g.composition || ''}" placeholder="ex. 100 % laine"></div>
+      <div class="field"><label for="fit">Coupe</label><select id="fit" name="fit">${options(FITS, g.fit || '', { empty: 'Non renseignée' })}</select></div>
+      <div class="field"><label for="size">Taille (FR/EU)</label><input id="size" name="size" type="text" value="${g.size || ''}" placeholder="ex. 40, M, 48"></div>
+    </div>
+    <details class="disclosure"><summary>Mesures réelles (facultatif, cm)</summary><div class="form-grid" style="margin-top:10px">${MEASURE_FIELDS.map(([k, l]) => html`<div class="field"><label for="m-${k}">${l}</label><input id="m-${k}" name="m_${k}" type="number" min="0" step="0.5" inputmode="decimal" value="${g.measures?.[k] ?? ''}"></div>`)}</div></details>
+    </fieldset>
+    <fieldset><legend>Usage</legend>
+      <div class="field"><span class="small muted">Saisons (aucune = toutes)</span><div class="chips">${SEASON_OPTS.map(([id, l]) => html`<label class="chip"><input type="checkbox" name="seasons" data-multi value="${id}" ${g.seasons?.includes(id) ? raw('checked') : ''}> ${l}</label>`)}</div></div>
+      <div class="form-grid">
+        <div class="field"><label for="formality">Formalité <output id="o-formality"></output>/5</label><input id="formality" name="formality" type="range" min="1" max="5" step="1" value="${g.formality || SUB_INFO[g.sub]?.formality || 3}"><p class="hint">1 détente · 3 smart casual · 5 costume/cravate</p></div>
+        <div class="field"><label for="warmth">Chaleur <output id="o-warmth"></output>/5</label><input id="warmth" name="warmth" type="range" min="1" max="5" step="1" value="${g.warmth || Math.max(1, SUB_INFO[g.sub]?.warmth || 2)}"></div>
+        <div class="field"><label for="comfort">Confort <output id="o-comfort"></output>/5</label><input id="comfort" name="comfort" type="range" min="1" max="5" step="1" value="${g.comfort || 3}"></div>
+        <div class="field"><label for="rainResistance">Résistance pluie <output id="o-rainResistance"></output>/3</label><input id="rainResistance" name="rainResistance" type="range" min="0" max="3" step="1" value="${g.rainResistance ?? 0}"></div>
+        <div class="field"><label for="windResistance">Résistance vent <output id="o-windResistance"></output>/3</label><input id="windResistance" name="windResistance" type="range" min="0" max="3" step="1" value="${g.windResistance ?? 0}"></div>
+        <div class="field"><label for="condition">État</label><select id="condition" name="condition">${options(CONDITIONS.map(([id, l]) => [id, l]), g.condition || 'good')}</select></div>
+        <div class="field"><label for="availability">Disponibilité</label><select id="availability" name="availability">${options(AVAILABILITY.map(([id, l]) => [id, l]), g.availability || 'clean')}</select></div>
+      </div>
+      <details class="disclosure"><summary>Styles compatibles</summary><div class="chips" style="margin-top:8px">${STYLE_OPTS.map(([id, l]) => html`<label class="chip"><input type="checkbox" name="styles" data-multi value="${id}" ${g.styles?.includes(id) ? raw('checked') : ''}> ${l}</label>`)}</div><p class="hint">Sans sélection, le styliste déduit la compatibilité du type de pièce.</p></details>
+    </fieldset>
+    <fieldset><legend>Achat et notes</legend><div class="form-grid">
+      <div class="field"><label for="purchaseDate">Date d'achat</label><input id="purchaseDate" name="purchaseDate" type="date" value="${g.purchaseDate || ''}"></div>
+      <div class="field"><label for="price">Prix (€, facultatif)</label><input id="price" name="price" type="number" min="0" step="0.01" inputmode="decimal" value="${g.price ?? ''}"></div>
+      <div class="field span-2"><label for="sourceUrl">Lien d'origine</label><input id="sourceUrl" name="sourceUrl" type="url" value="${g.sourceUrl || ''}" placeholder="https://…"></div>
+      <div class="field span-2"><label for="tags">Tags (séparés par des virgules)</label><input id="tags" name="tags" type="text" value="${(g.tags || []).join(', ')}"></div>
+      <div class="field span-2"><label for="notes">Notes</label><textarea id="notes" name="notes">${g.notes || ''}</textarea></div>
+      <label class="check"><input type="checkbox" name="favorite" ${g.favorite ? raw('checked') : ''}> Favori</label>
+    </div></fieldset>
+    <div class="callout callout-danger hidden" id="ferr" role="alert"></div>
+    <div class="btn-row" style="position:sticky;bottom:calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 8px);background:var(--ivory);padding:10px 0">
+      <button class="btn btn-primary" type="submit" id="savebtn">${icon('check')} Enregistrer</button>
+      <a class="btn" href="${existing ? `#/wardrobe/${existing.id}` : '#/wardrobe'}">Annuler</a></div>
+    </form>`);
+  hydratePhotos(main);
+  const $ = (s) => main.querySelector(s);
+  const form = $('#gform');
+  const kindHint = () => { $('#pkind-hint').textContent = ({ single: 'Une seule pièce : recadrez-la au plus près.', wardrobe: 'Photo de plusieurs pièces : recadrez une pièce à la fois ; après l\'enregistrement vous pourrez en découper une autre. Rien n\'est ajouté automatiquement.', worn: 'Tenue portée : recadrez la pièce concernée. Pour noter la tenue complète, utilisez l\'Analyse.' })[$('#pkind').value]; };
+  $('#pkind').onchange = kindHint; kindHint();
+  ['formality', 'warmth', 'comfort', 'rainResistance', 'windResistance'].forEach((id) => { const upd = () => { $(`#o-${id}`).textContent = $(`#${id}`).value; }; $(`#${id}`).addEventListener('input', upd); upd(); });
+  $('#category').onchange = () => { setHTML($('#sub'), options(subOpts($('#category').value), '')); syncSub(); };
+  const syncSub = () => { const s = SUB_INFO[$('#sub').value]; if (s && !existing) { $('#formality').value = s.formality; $('#warmth').value = Math.max(1, s.warmth); $('#formality').dispatchEvent(new Event('input')); $('#warmth').dispatchEvent(new Event('input')); } };
+  $('#sub').onchange = syncSub;
+  const syncColor = () => { const v = $('#color').value; if (v !== 'custom') $('#colorhex').value = COLOR_BY_ID[v].hex; $('#colorhint').textContent = v === 'custom' ? colorHint($('#colorhex').value) : 'Couleur représentative, pas une mesure sous éclairage contrôlé.'; };
+  $('#color').onchange = syncColor;
+  $('#colorhex').oninput = () => { $('#color').value = 'custom'; $('#colorhint').textContent = colorHint($('#colorhex').value); };
+  if (g.color?.custom) $('#colorhint').textContent = colorHint(g.color.hex);
+
+  // --- Photo pipeline
+  const canvas = $('#cropcanvas');
+  const draw = () => {
+    if (!state.source) return;
+    const z = +$('#zoom').value; const asp = $('#aspect').value;
+    const rotated = state.rotation % 180 !== 0;
+    const rw = rotated ? state.source.height : state.source.width; const rh = rotated ? state.source.width : state.source.height;
+    let w = 1, h = 1;
+    if (asp !== 'free') { const [ax, ay] = asp.split(':').map(Number); const target = ax / ay; if (rw / rh > target) w = (rh * target) / rw; else h = (rw / target) / rh; }
+    w /= z; h /= z;
+    state.crop = { w, h, x: (1 - w) * +$('#panx').value, y: (1 - h) * +$('#pany').value };
+    const c = renderToCanvas(state.source, { rotation: state.rotation, crop: state.crop, maxSide: 900 });
+    canvas.width = c.width; canvas.height = c.height; canvas.getContext('2d').drawImage(c, 0, 0);
+  };
+  const loadFile = async (file) => {
+    try {
+      await checkImageFile(file);
+      state.source = await loadBitmap(file); state.rotation = 0;
+      if (state.photoKind === 'wardrobe' || $('#pkind').value === 'wardrobe') pendingSource = state.source;
+      $('#cropper').classList.remove('hidden'); draw(); await showDominant();
+    } catch (e) { toast(e.message); }
+  };
+  const showDominant = async () => {
+    const thumb = renderToCanvas(state.source, { rotation: state.rotation, crop: state.crop, maxSide: 240 });
+    const { dominantColors } = await import('../services/image.js');
+    state.dominant = dominantColors(thumb);
+    setHTML($('#domcolors'), html`<p class="small muted">Couleurs estimées sur la zone centrale (à confirmer — l'éclairage modifie la couleur perçue) :</p><div class="chips">${state.dominant.map((d, i) => html`<button type="button" class="chip" data-dom="${i}">${swatch(d.hex)} ≈ ${d.nearestName} (${Math.round(d.share * 100)} %, proximité ${d.confidence})</button>`)}</div>`);
+    $('#domcolors').querySelectorAll('[data-dom]').forEach((b) => b.onclick = () => { const d = state.dominant[+b.dataset.dom]; $('#color').value = d.nearestId; syncColor(); toast(`Couleur principale : ${d.nearestName}`); });
+  };
+  $('#pcam').onchange = (e) => e.target.files[0] && loadFile(e.target.files[0]);
+  $('#pfile').onchange = (e) => e.target.files[0] && loadFile(e.target.files[0]);
+  $('#reuse')?.addEventListener('click', () => { state.source = pendingSource; $('#pkind').value = 'wardrobe'; kindHint(); $('#cropper').classList.remove('hidden'); draw(); showDominant(); });
+  ['#zoom', '#panx', '#pany', '#aspect'].forEach((s) => $(s).addEventListener('input', draw));
+  $('#aspect').addEventListener('change', draw);
+  $('#rot').onclick = () => { state.rotation = (state.rotation + 90) % 360; draw(); };
+  $('#clearphoto').onclick = () => { state.source = null; $('#cropper').classList.add('hidden'); };
+  main.querySelectorAll('[data-rmphoto]').forEach((cb) => cb.onchange = () => { if (cb.checked) state.removePhotos.add(cb.dataset.rmphoto); else state.removePhotos.delete(cb.dataset.rmphoto); });
+  $('#airecog')?.addEventListener('click', () => aiRecognize(main, state));
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const v = readForm(form);
+    const err = $('#ferr');
+    if (!v.name) { err.textContent = 'Le nom est obligatoire.'; err.classList.remove('hidden'); $('#name').focus(); return; }
+    if (v.sourceUrl && !/^https?:\/\//i.test(v.sourceUrl)) { err.textContent = 'Le lien doit commencer par http:// ou https://'; err.classList.remove('hidden'); return; }
+    err.classList.add('hidden');
+    $('#savebtn').disabled = true;
+    try {
+      const colorVal = v.color === 'custom' ? (() => { const hex = $('#colorhex').value.toUpperCase(); const n = nearestColor(hex); return { id: n.id, name: `Personnalisée (≈ ${n.name})`, hex, custom: true }; })() : { id: v.color, name: COLOR_BY_ID[v.color].name, hex: COLOR_BY_ID[v.color].hex };
+      const measures = Object.fromEntries(MEASURE_FIELDS.map(([k]) => [k, v[`m_${k}`] ?? null]));
+      let photoIds = (existing?.photoIds || []).filter((p) => !state.removePhotos.has(p));
+      for (const ph of state.removePhotos) { await store.repo.remove('photos', ph); forgetPhotoURL(ph); }
+      const id = existing?.id || uid('g');
+      if (state.source) {
+        const out = await processImage(state.source, { rotation: state.rotation, crop: state.crop });
+        const phId = uid('ph');
+        await store.repo.put('photos', { id: phId, ownerId: id, profileId: pid(), blob: out.blob, thumb: out.thumbBlob, mime: 'image/jpeg', width: out.width, height: out.height, kind: v.photoKind, private: true, rights: 'user_owned', alt: v.name });
+        photoIds = [...photoIds, phId];
+      }
+      const rec = {
+        ...(existing || {}), id, profileId: existing?.profileId || pid(), name: v.name, category: v.category, sub: v.sub,
+        color: colorVal, color2: v.color2 ? { id: v.color2, name: COLOR_BY_ID[v.color2].name, hex: COLOR_BY_ID[v.color2].hex } : null,
+        pattern: v.pattern, material: v.material, composition: v.composition, fit: v.fit || null, size: v.size, measures, brand: v.brand,
+        seasons: v.seasons || [], formality: v.formality, warmth: v.warmth, comfort: v.comfort, rainResistance: v.rainResistance, windResistance: v.windResistance,
+        styles: v.styles || [], condition: v.condition, availability: v.availability, purchaseDate: v.purchaseDate || null, price: v.price,
+        sourceUrl: v.sourceUrl || null, tags: v.tags ? v.tags.split(',').map((t) => t.trim()).filter(Boolean) : [], notes: v.notes, favorite: !!v.favorite,
+        photoIds, photoKind: v.photoKind,
+      };
+      delete rec.capsuleId; delete rec.wishId;
+      await store.repo.put('garments', rec);
+      if (!existing && g.capsuleId) { const key = `capsule:${pid()}`; const cap = await store.repo.kvGet(key, { level: 1, items: {} }); cap.items[g.capsuleId] = { owned: true, garmentId: id }; await store.repo.kvSet(key, cap); }
+      if (!existing && g.wishId) { const w = await store.repo.get('wishlist', g.wishId); if (w) await store.repo.put('wishlist', { ...w, linkedGarmentId: id }); }
+      toast(existing ? 'Fiche mise à jour' : 'Pièce ajoutée au dressing');
+      if (!existing && v.photoKind === 'wardrobe' && pendingSource) {
+        openModal({ title: 'Découper une autre pièce ?', body: html`<p>Cette photo montre plusieurs pièces. Voulez-vous en découper une autre ? Rien n'est ajouté sans votre validation.</p><div class="btn-row"><button class="btn btn-primary" data-yes>Découper une autre pièce</button><button class="btn" data-no>Terminer</button></div>`,
+          onMount(body, close) { body.querySelector('[data-yes]').onclick = () => { close(); navigate('#/wardrobe/new'); }; body.querySelector('[data-no]').onclick = () => { pendingSource = null; close(); navigate(`#/wardrobe/${id}`); }; } });
+      } else navigate(`#/wardrobe/${id}`);
+    } catch (e2) { err.textContent = `Enregistrement impossible : ${e2.message}`; err.classList.remove('hidden'); $('#savebtn').disabled = false; }
+  };
+}
+function colorHint(hex) { const n = nearestColor(hex); return n ? `Couleur la plus proche : ${n.name} (proximité ${n.confidence}). La proximité numérique n'est pas une certitude stylistique.` : ''; }
+
+async function aiRecognize(main, state) {
+  const out = main.querySelector('#aiout');
+  if (!state.source) { toast('Ajoutez d\'abord une photo'); return; }
+  setHTML(out, html`<p class="small"><span class="loader"></span> Analyse en cours…</p>`);
+  try {
+    const { canvasToBlob, blobToDataURL } = await import('../services/image.js');
+    const c = renderToCanvas(state.source, { rotation: state.rotation, crop: state.crop, maxSide: 1024 });
+    const dataUrl = await blobToDataURL(await canvasToBlob(c, 0.82));
+    const r = await fetch('/api/recognize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: dataUrl }) });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || 'Erreur IA');
+    const s = body.result || {};
+    const rows = [];
+    if (s.category && CATEGORY_BY_ID[s.category.value]) rows.push(['category', 'Catégorie', CATEGORY_BY_ID[s.category.value].name, s.category.confidence, s.category.value]);
+    if (s.sub && SUB_INFO[s.sub.value]) rows.push(['sub', 'Type', SUB_INFO[s.sub.value].name, s.sub.confidence, s.sub.value]);
+    if (s.color?.hex && /^#[0-9A-F]{6}$/i.test(s.color.hex)) rows.push(['color', 'Couleur', `${s.color.name || ''} ${s.color.hex}`, s.color.confidence, colorIdFromHex(s.color.hex)]);
+    if (s.pattern && PATTERNS.includes(s.pattern.value)) rows.push(['pattern', 'Motif', s.pattern.value, s.pattern.confidence, s.pattern.value]);
+    if (s.compositionLabel?.value) rows.push(['composition', 'Étiquette lue', s.compositionLabel.value, s.compositionLabel.confidence, s.compositionLabel.value]);
+    setHTML(out, rows.length ? html`<div class="card-flat"><p class="small"><strong>Suggestions IA — à confirmer champ par champ</strong></p>${rows.map(([f, l, v, c, raw2]) => html`<label class="check"><input type="checkbox" data-ai="${f}" data-val="${raw2}"> ${l} : ${v} <span class="tag">confiance ${Math.round((c ?? 0) * 100)} %</span></label>`)}<button class="btn btn-sm" type="button" id="aiapply">Appliquer la sélection</button></div>` : html`<p class="small muted">Aucune suggestion exploitable.</p>`);
+    out.querySelector('#aiapply')?.addEventListener('click', () => {
+      out.querySelectorAll('[data-ai]:checked').forEach((cb) => {
+        const f = cb.dataset.ai; const el = main.querySelector(`#${f}`);
+        if (f === 'category') { el.value = cb.dataset.val; el.dispatchEvent(new Event('change')); }
+        else if (el) { el.value = cb.dataset.val; el.dispatchEvent(new Event('change')); }
+      });
+      toast('Suggestions appliquées — vérifiez avant d\'enregistrer');
+    });
+  } catch (e) { setHTML(out, html`<p class="small callout callout-warn">IA indisponible (${e.message}). Les champs restent à saisir manuellement.</p>`); }
+}
+
+// ---------------------------------------------------------------- Import multiple
+async function renderImport(main) {
+  setHTML(main, html`<a href="#/wardrobe" class="small">← Dressing</a>
+    <div class="page-head"><div class="eyebrow">Import multiple</div><h1>Importer plusieurs photos</h1>
+    <p class="lede">Une photo par pièce. Chaque fiche est vérifiée avant l'enregistrement ; décochez celles à ignorer. Photos compressées et sans métadonnées EXIF.</p></div>
+    <label class="btn btn-primary" for="multi">${icon('upload')} Choisir des photos</label><input id="multi" type="file" multiple accept="image/jpeg,image/png,image/webp,image/heic,image/heif" class="sr-only">
+    <div id="batch" class="stack" style="margin-top:16px"></div>`);
+  const batch = main.querySelector('#batch');
+  const items = [];
+  main.querySelector('#multi').onchange = async (e) => {
+    const files = [...e.target.files].slice(0, 40);
+    setHTML(batch, html`<p><span class="loader"></span> Préparation de ${files.length} photo(s)…</p>`);
+    items.length = 0;
+    for (const f of files) {
+      try {
+        await checkImageFile(f);
+        const bmp = await loadBitmap(f);
+        const out = await processImage(bmp);
+        items.push({ file: f, out, url: URL.createObjectURL(out.thumbBlob), name: f.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').slice(0, 60), color: out.dominant[0]?.nearestId || 'navy' });
+      } catch (err) { items.push({ file: f, error: err.message }); }
+    }
+    setHTML(batch, html`${items.map((it, i) => it.error ? html`<div class="callout callout-warn">${it.file.name} : ${it.error}</div>` : html`<div class="card" data-i="${i}"><div class="row" style="align-items:flex-start;flex-wrap:nowrap">
+        <div class="mini-thumb" style="width:90px"><img src="${it.url}" alt="Photo importée ${i + 1}"></div>
+        <div style="flex:1;min-width:0" class="form-grid">
+          <label class="check span-2"><input type="checkbox" data-keep checked> Ajouter cette pièce</label>
+          <div class="field"><label>Nom</label><input type="text" data-f="name" value="${it.name}"></div>
+          <div class="field"><label>Catégorie</label><select data-f="category">${options(CATEGORIES.map((c) => [c.id, c.name]), 'haut')}</select></div>
+          <div class="field"><label>Type</label><select data-f="sub">${options(CATEGORY_BY_ID.haut.subs.map(([id, n]) => [id, n]), '')}</select></div>
+          <div class="field"><label>Couleur (estimée, à confirmer)</label><select data-f="color">${options(ALL_COLORS.map((c) => [c.id, c.name]), it.color)}</select></div>
+        </div></div></div>`)}
+      ${items.some((x) => !x.error) ? html`<button class="btn btn-primary" id="saveall">${icon('check')} Enregistrer les pièces cochées</button>` : ''}`);
+    batch.querySelectorAll('[data-f="category"]').forEach((sel) => sel.onchange = () => { const s = sel.closest('.card').querySelector('[data-f="sub"]'); setHTML(s, options(CATEGORY_BY_ID[sel.value].subs.map(([id, n]) => [id, n]), '')); });
+    batch.querySelector('#saveall')?.addEventListener('click', async () => {
+      let n = 0;
+      for (const card of batch.querySelectorAll('.card[data-i]')) {
+        if (!card.querySelector('[data-keep]').checked) continue;
+        const it = items[+card.dataset.i];
+        const val = (f) => card.querySelector(`[data-f="${f}"]`).value;
+        const id = uid('g'); const phId = uid('ph');
+        const sub = SUB_INFO[val('sub')];
+        await store.repo.put('photos', { id: phId, ownerId: id, profileId: pid(), blob: it.out.blob, thumb: it.out.thumbBlob, mime: 'image/jpeg', width: it.out.width, height: it.out.height, kind: 'single', private: true, rights: 'user_owned' }, { silent: true });
+        const c = COLOR_BY_ID[val('color')];
+        await store.repo.put('garments', { id, profileId: pid(), name: val('name') || 'Pièce importée', category: val('category'), sub: val('sub'), color: { id: c.id, name: c.name, hex: c.hex }, color2: null, pattern: 'Uni', seasons: [], styles: [], tags: ['import'], measures: {}, formality: sub?.formality || 3, warmth: Math.max(1, sub?.warmth || 2), comfort: 3, rainResistance: 0, windResistance: 0, condition: 'good', availability: 'clean', photoIds: [phId], photoKind: 'single' }, { silent: true });
+        n++;
+      }
+      items.forEach((it) => it.url && URL.revokeObjectURL(it.url));
+      toast(`${n} pièce${n > 1 ? 's' : ''} ajoutée${n > 1 ? 's' : ''} — complétez les fiches si besoin`);
+      navigate('#/wardrobe');
+    });
+  };
+}
+
+// ---------------------------------------------------------------- Statistiques
+async function renderStats(main) {
+  const [all, wl, outs] = await Promise.all([loadGarments(), loadWearlog(), loadOutfits()]);
+  const s = wardrobeStats(all, wl);
+  const maxCat = Math.max(1, ...Object.values(s.byCat));
+  const unusedOutfits = outs.filter((o) => !wl.some((w) => w.outfitId === o.id));
+  const withCpw = all.map((g) => ({ g, cpw: costPerWear(g) })).filter((x) => x.g.price);
+  setHTML(main, html`<a href="#/wardrobe" class="small">← Dressing</a>
+    <div class="page-head"><div class="eyebrow">Statistiques utiles</div><h1>Usage du dressing</h1></div>
+    <div class="grid-3">
+      <div class="card"><div class="stat">${s.total}</div><div class="stat-label">pièces</div></div>
+      <div class="card"><div class="stat">${s.available}</div><div class="stat-label">disponibles maintenant</div></div>
+      <div class="card"><div class="stat">${s.wearDays}</div><div class="stat-label">jours de port enregistrés</div></div>
+    </div>
+    <h2>Répartition par catégorie</h2>
+    <div class="card">${Object.entries(s.byCat).map(([cat, n]) => html`<div class="bar-row"><span>${CATEGORY_BY_ID[cat]?.name || cat}</span><div class="bar-track" aria-hidden="true"><span style="width:${raw(Math.round((n / maxCat) * 100))}%"></span></div><span class="num">${n}</span></div>`)}${!s.total ? html`<p class="muted">Aucune donnée.</p>` : ''}</div>
+    ${s.toWash ? html`<div class="callout callout-warn" style="margin-top:16px">${s.toWash} pièce(s) à laver. <button class="btn btn-sm" id="allclean">Tout marquer propre</button></div>` : ''}
+    <div class="grid-2" style="margin-top:8px">
+      <div><h2>Les plus portées</h2><div class="card">${s.top.filter((r) => r.wears).length ? html`<ul class="clean">${s.top.filter((r) => r.wears).map((r) => html`<li class="row-between" style="padding:6px 0;border-bottom:1px solid var(--line)"><a href="#/wardrobe/${r.g.id}">${r.g.name}</a><span class="tag">${r.wears} port(s)</span></li>`)}</ul>` : html`<p class="muted small">Utilisez « Je porte cette tenue » pour alimenter l'historique.</p>`}</div></div>
+      <div><h2>Peu ou pas utilisées</h2><div class="card">${s.unused.length ? html`<ul class="clean">${s.unused.slice(0, 12).map((r) => html`<li class="row-between" style="padding:6px 0;border-bottom:1px solid var(--line)"><a href="#/wardrobe/${r.g.id}">${r.g.name}</a><span class="small muted">${r.days === null ? 'jamais portée' : `il y a ${r.days} j`}</span></li>`)}</ul><p class="small muted" style="margin-top:8px">Ouvrez une fiche puis « Avec quoi le porter ? » pour la remettre en rotation.</p>` : html`<p class="muted small">Tout est utilisé.</p>`}</div></div>
+    </div>
+    <h2>Coût par port</h2>
+    <div class="table-wrap"><table><thead><tr><th>Pièce</th><th class="num">Prix</th><th class="num">Ports</th><th class="num">Coût/port</th></tr></thead><tbody>
+      ${withCpw.length ? withCpw.map(({ g, cpw }) => html`<tr><td>${g.name}</td><td class="num">${fmtEUR(g.price)}</td><td class="num">${g.wearCount || 0}</td><td class="num">${cpw === null ? '—' : fmtEUR(cpw)}</td></tr>`) : html`<tr><td colspan="4" class="muted">Renseignez un prix sur vos fiches pour calculer le coût par port.</td></tr>`}
+    </tbody></table></div>
+    <h2>Tenues sauvegardées jamais portées</h2>
+    <div class="card">${unusedOutfits.length ? html`<ul class="clean">${unusedOutfits.map((o) => html`<li style="padding:5px 0"><a href="#/outfits/${o.id}">${o.name}</a></li>`)}</ul>` : html`<p class="muted small">Aucune.</p>`}</div>`);
+  main.querySelector('#allclean')?.addEventListener('click', async () => {
+    for (const g of all.filter((x) => x.availability === 'to-wash')) await store.repo.put('garments', { ...g, availability: 'clean' }, { silent: true });
+    toast('Pièces marquées propres'); navigate('#/wardrobe/stats');
+  });
+}

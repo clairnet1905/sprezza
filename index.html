@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' blob: data:; connect-src 'self' https://api.open-meteo.com https://geocoding-api.open-meteo.com; worker-src 'self'; manifest-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Style Studio — Mon styliste personnel</title>
+  <meta name="description" content="Style Studio — L'élégance devient naturelle. Dressing numérique, styliste du jour, couleurs et académie de l'élégance.">
+  <meta name="theme-color" content="#1F3D2F">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Style Studio">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="src/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Aller au contenu</a>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Navigation principale">
+      <a class="brand" href="#/today">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <span class="brand-text"><span class="brand-name">Style Studio</span><span class="brand-tag">L'élégance devient naturelle.</span></span>
+      </a>
+      <nav id="side-nav"></nav>
+      <div class="sidebar-foot" id="profile-switch"></div>
+    </aside>
+    <div class="main-col">
+      <header class="topbar">
+        <a class="brand brand-compact" href="#/today"><span class="brand-mark" aria-hidden="true">S</span><span class="brand-name">Style Studio</span></a>
+        <div class="topbar-actions" id="topbar-actions"></div>
+      </header>
+      <main id="main" tabindex="-1"></main>
+    </div>
+    <nav class="tabbar" id="tab-nav" aria-label="Navigation principale (mobile)"></nav>
+  </div>
+  <div id="modal-root"></div>
+  <div id="toast-root" role="status" aria-live="polite"></div>
+  <noscript><p class="noscript">Style Studio nécessite JavaScript.</p></noscript>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>

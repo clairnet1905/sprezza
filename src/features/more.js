@@ -1,0 +1,22 @@
+// « Plus » : accès immédiat aux écrans secondaires sur mobile.
+import { html, setHTML } from '../lib/html.js';
+import { icon } from '../components/ui.js';
+import { COMMANDMENTS } from '../data/guide.js';
+
+const ITEMS = [
+  ['outfits', 'Tenues', 'outfits', 'Mes tenues, créer, 30 modèles, valise, historique'],
+  ['analysis', 'Analyse IA', 'analysis', 'Noter une tenue sur 100, avec ou sans IA'],
+  ['shopping', 'Shopping', 'shopping', 'Pièces utiles, boutiques, liste d\'envies, budget'],
+  ['capsule', 'Capsule', 'capsule', '30 pièces, 3 niveaux, pièces manquantes'],
+  ['favorites', 'Favoris', 'heart', 'Pièces, tenues et chapitres favoris'],
+  ['calendar', 'Calendrier', 'calendar', 'Planifier, historique, plusieurs jours'],
+  ['profile', 'Profil', 'profile', 'Mesures, tailles, identité, profils familiaux'],
+  ['settings', 'Paramètres', 'settings', 'Export, confidentialité, thème, données'],
+];
+
+export function render(main) {
+  const day = Math.floor(Date.now() / 864e5) % COMMANDMENTS.length;
+  setHTML(main, html`<div class="page-head"><div class="eyebrow">Style Studio</div><h1>Plus</h1></div>
+    <div class="grid-2">${ITEMS.map(([id, label, ic, desc]) => html`<a class="card card-link row" href="#/${id}" style="flex-wrap:nowrap"><span style="width:40px;height:40px;display:grid;place-items:center;border-radius:50%;background:var(--forest-soft);color:var(--forest);flex:none">${icon(ic)}</span><span><strong>${label}</strong><br><span class="small muted">${desc}</span></span></a>`)}</div>
+    <section class="hero" style="margin-top:22px"><div class="eyebrow">Commandement du jour</div><p class="serif-italic" style="font-size:24px;margin:0">${COMMANDMENTS[day]}</p></section>`);
+}
