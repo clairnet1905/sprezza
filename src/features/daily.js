@@ -8,6 +8,7 @@ import { recommend, comboKey } from '../domain/recommend.js';
 import { manualWeather, weatherSummary, isStale, seasonFromDate } from '../domain/weather.js';
 import { MODE_STYLES } from '../domain/scoring.js';
 import { forecast } from '../services/weather.js';
+import { PERIODS, periodAt, nextChange, daysSinceChange, seasonalPlan } from '../domain/seasonal.js';
 import { outfitMannequin, piecesList, pieceRow, scoreBadge, idsToPieces, wearOutfit, addToCalendar, MODE_NAME } from './shared.js';
 
 const QUICK_OCCASIONS = ['daily', 'client', 'office', 'restaurant', 'walk', 'elegant-dinner'];
@@ -59,6 +60,15 @@ export async function renderDaily(box, { onShowAll } = {}) {
     return opts.find((o) => o.mode === mode && comboKey(o.pieces) !== avoidKey) || opts.find((o) => comboKey(o.pieces) !== avoidKey) || opts[0] || null;
   };
 
+  // Rappel de changement de garde-robe : 14 jours avant, jusqu'à 3 semaines après le début de la période.
+  const nc = nextChange(now); const sinceStart = daysSinceChange(now);
+  const seasonTarget = nc.days <= 14 ? nc.period : sinceStart <= 21 ? periodAt(now) : null;
+  let seasonBanner = '';
+  if (seasonTarget && !(await store.repo.kvGet(`season:done:${seasonTarget}:${now.getFullYear()}`, false))) {
+    const plan = seasonalPlan(all, seasonTarget);
+    const n = plan.toStore.length + plan.toBringOut.length;
+    if (n) seasonBanner = html`<section class="card" style="margin-top:14px;border-left:3px solid var(--champagne)"><div class="eyebrow">Changement de saison</div><p style="margin:4px 0 8px">Garde-robe <strong>${PERIODS[seasonTarget].name.toLowerCase()}</strong> : ${plan.toStore.length} pièce${plan.toStore.length > 1 ? 's' : ''} à ranger, ${plan.toBringOut.length} à ressortir.</p><a class="btn btn-sm" href="#/wardrobe/season">Préparer ma garde-robe</a></section>`;
+  }
   const draw = () => {
     const occ = OCCASION_BY_ID[st.occasionId];
     const res = recommend({ garments: all, occasionId: st.occasionId, weather: w0.w, prefs, offsets: { italian: st.offset, classic: st.offset, modern: st.offset }, profileId: pid(), date: now });
@@ -98,6 +108,7 @@ export async function renderDaily(box, { onShowAll } = {}) {
           ${best && !wornToday && !plannedToday || (best && st.showProposal) ? html`<p class="small" style="margin-top:10px">${best.reasons.slice(0, 2).join(' ')}</p>${best.warnings.length ? html`<div class="callout callout-warn small">${best.warnings[0]}</div>` : ''}${res.backup?.changes?.length ? html`<p class="small"><strong>Plan B :</strong> ${res.backup.changes.join(' ; ')}.</p>` : ''}` : ''}
           <div class="btn-row" style="margin-top:12px">${footer}</div>`}
     </section>
+    ${seasonBanner}
     ${all.length ? html`<section class="card" style="margin-top:14px"><div class="row-between"><div><div class="eyebrow">Pour demain · ${fmtDate(tomorrow, { weekday: 'long', day: 'numeric' })}</div><p class="small" style="margin:4px 0 0">${wxLine(w1)}</p></div>
       ${plannedTomorrow ? html`<span class="tag tag-ok">Déjà prévue</span>` : bestT ? html`<button class="btn btn-sm" data-d="plan-tomorrow">${icon('calendar')} Préparer pour demain</button>` : ''}</div>
       ${plannedTomorrow && outBy[plannedTomorrow.outfitId] ? html`<p class="small" style="margin-top:8px">${piecesList(idsToPieces(outBy[plannedTomorrow.outfitId].garmentIds, all)).map(([, g]) => g.name).join(' · ')}</p>`

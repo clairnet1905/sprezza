@@ -27,7 +27,7 @@ src/
   repositories/ IndexedDB (+ repli mémoire)
   services/     image (EXIF supprimé, compression, recadrage), weather (Open-Meteo), ai (client → /api)
 server/         server.py (statique + /api/health, /api/analyze, /api/recognize), requirements.txt
-tests/          index.html + run.js (58 tests)
+tests/          index.html + run.js (60 tests)
 supabase/       setup.sql (table + stockage photo + règles RLS)
 ```
 
@@ -37,7 +37,7 @@ supabase/       setup.sql (table + stockage photo + règles RLS)
 python3 server/server.py
 ```
 
-Puis ouvrir http://localhost:8000. Tests : http://localhost:8000/tests/ (résultat attendu : 58/58).
+Puis ouvrir http://localhost:8000. Tests : http://localhost:8000/tests/ (résultat attendu : 60/60).
 
 ### Activer l'IA (facultatif)
 

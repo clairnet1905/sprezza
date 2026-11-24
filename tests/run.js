@@ -26,6 +26,7 @@ import { shortQuery } from '../src/features/shopping.js';
 import { inspirationQuery, colorsQuery, searchPhotos } from '../src/services/pexels.js';
 import { alphaBounds } from '../src/services/cutout.js';
 import { careStatus, afterWear, afterWash, afterCare } from '../src/domain/care.js';
+import { periodAt, nextChange, seasonClass, seasonalPlan } from '../src/domain/seasonal.js';
 import { OCCASION_BY_ID } from '../src/data/occasions.js';
 
 const tests = [];
@@ -319,6 +320,21 @@ test('Entretien : cirage dû après 8 ports de chaussures en cuir, remis à zér
   ok(careStatus(sh).dueTasks.some((t) => t.id === 'polish'), 'cirage non signalé');
   ok(!careStatus(afterCare(sh, 'polish')).dueTasks.some((t) => t.id === 'polish'), 'cirage non remis à zéro');
   ok(careStatus(G('mocassins', 'chaussures', 'chocolate', { material: 'Daim', wearCount: 12 })).dueTasks.some((t) => t.id === 'suede'));
+});
+test('Saisons bordelaises : périodes et prochain changement', () => {
+  eq(periodAt(new Date('2026-11-24T12:00:00')), 'cold'); eq(periodAt(new Date('2026-06-01T12:00:00')), 'warm');
+  const n = nextChange(new Date('2026-11-24T12:00:00')); eq(n.period, 'warm'); eq(n.at.getMonth(), 3); eq(n.at.getFullYear(), 2027);
+});
+test('Rangement : manteau rangé l\'été, bermuda rangé l\'hiver, pièces toutes saisons jamais', () => {
+  const coat = G('manteau', 'manteau', 'navy'); const shorts = G('bermuda', 'bas', 'beige'); const chino = G('chino', 'bas', 'beige'); const linen = G('chemise', 'haut', 'white', { material: 'Lin' });
+  const winterKnit = G('pull', 'haut', 'ecru', { seasons: ['autumn', 'winter'] });
+  eq([seasonClass(coat), seasonClass(shorts), seasonClass(chino), seasonClass(linen), seasonClass(winterKnit)], ['cold', 'warm', 'all', 'warm', 'cold']);
+  const summer = seasonalPlan([coat, shorts, chino, winterKnit], 'warm');
+  eq(summer.toStore.map((x) => x.g.id).sort(), [coat.id, winterKnit.id].sort());
+  const stored = { ...shorts, availability: 'stored' };
+  eq(seasonalPlan([stored, coat], 'warm').toBringOut.map((g) => g.id), [shorts.id]);
+  eq(seasonalPlan([stored, coat], 'cold').toBringOut.length, 0);
+  ok(seasonalPlan([{ ...coat, availability: 'to-wash' }], 'warm').toStore[0].washFirst, 'lavage avant rangement non signalé');
 });
 test('Requête courte boutique sans doublons', () => eq(shortQuery({ category: 'pantalon écru', color: 'ecru', material: 'coton' }), 'pantalon écru coton'));
 

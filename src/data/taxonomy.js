@@ -35,7 +35,7 @@ export const FITS = [['slim', 'Ajustée/slim'], ['regular', 'Droite/regular'], [
 export const SEASON_OPTS = [['spring', 'Printemps'], ['summer', 'Été'], ['autumn', 'Automne'], ['winter', 'Hiver']];
 export const CONDITIONS = [['new', 'Neuf', 5], ['very-good', 'Très bon', 5], ['good', 'Bon', 4], ['worn', 'Usé', 2], ['damaged', 'Abîmé', 1]];
 export const AVAILABILITY = [
-  ['clean', 'Propre', true], ['worn', 'Porté (encore mettable)', true], ['to-wash', 'À laver', false], ['unavailable', 'Indisponible', false], ['alteration', 'En retouche', false],
+  ['clean', 'Propre', true], ['worn', 'Porté (encore mettable)', true], ['to-wash', 'À laver', false], ['unavailable', 'Indisponible', false], ['alteration', 'En retouche', false], ['stored', 'Rangé (hors saison)', false],
 ];
 export const AVAILABLE_STATES = AVAILABILITY.filter((a) => a[2]).map((a) => a[0]);
 export const PHOTO_KINDS = [['single', 'Vêtement seul'], ['wardrobe', 'Plusieurs pièces (dressing)'], ['worn', 'Tenue portée']];

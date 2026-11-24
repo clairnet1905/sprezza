@@ -11,6 +11,7 @@ import { isAvailable, pairingsFor } from '../domain/recommend.js';
 import { costPerWear, wardrobeStats } from '../domain/wardrobe-logic.js';
 import { versatility, reviewGarment, keyThresholdOf, VERDICTS } from '../domain/review.js';
 import { careStatus, afterWash, afterCare } from '../domain/care.js';
+import { PERIODS, periodAt, nextChange, seasonalPlan, storageTip } from '../domain/seasonal.js';
 import { prefs as loadPrefs } from '../state.js';
 import { checkImageFile, loadBitmap, processImage, renderToCanvas } from '../services/image.js';
 import { aiStatus } from '../services/ai.js';
@@ -29,6 +30,7 @@ export async function render(main, params, query) {
   if (a === 'review') return renderReview(main);
   if (a === 'quick') return renderQuick(main);
   if (a === 'care') return renderCare(main);
+  if (a === 'season') return renderSeason(main);
   if (b === 'edit') { const g = await store.repo.get('garments', a); return g ? renderEditor(main, g) : notFound(main); }
   const g = await store.repo.get('garments', a);
   return g && g.profileId === pid() ? renderDetail(main, g) : notFound(main);
@@ -62,7 +64,7 @@ async function renderList(main) {
   setHTML(main, html`
     <div class="page-head row-between"><div><div class="eyebrow">Dressing numérique</div><h1>Mon dressing</h1>
       <p class="lede">${all.length} pièce${all.length > 1 ? 's' : ''} · ${all.filter(isAvailable).length} disponible${all.filter(isAvailable).length > 1 ? 's' : ''} immédiatement. Vos photos restent privées sur cet appareil.</p></div>
-      <div class="btn-row"><a class="btn btn-primary" href="#/wardrobe/quick">${icon('camera')} Ajout rapide</a><a class="btn" href="#/wardrobe/new">${icon('plus')} Fiche complète</a><a class="btn" href="#/wardrobe/import">${icon('upload')} Import multiple</a><a class="btn" href="#/wardrobe/care">${icon('rotate')} Lessive & entretien${all.filter((g) => g.availability === 'to-wash').length ? ` (${all.filter((g) => g.availability === 'to-wash').length})` : ''}</a><a class="btn" href="#/wardrobe/review">Revue du dressing</a><a class="btn" href="#/wardrobe/stats">Statistiques</a></div></div>
+      <div class="btn-row"><a class="btn btn-primary" href="#/wardrobe/quick">${icon('camera')} Ajout rapide</a><a class="btn" href="#/wardrobe/new">${icon('plus')} Fiche complète</a><a class="btn" href="#/wardrobe/import">${icon('upload')} Import multiple</a><a class="btn" href="#/wardrobe/care">${icon('rotate')} Lessive & entretien${all.filter((g) => g.availability === 'to-wash').length ? ` (${all.filter((g) => g.availability === 'to-wash').length})` : ''}</a><a class="btn" href="#/wardrobe/season">Rangement saisonnier</a><a class="btn" href="#/wardrobe/review">Revue du dressing</a><a class="btn" href="#/wardrobe/stats">Statistiques</a></div></div>
     ${all.length ? html`
     <div class="card" style="margin-bottom:16px">
       <div class="field"><label for="wq">Rechercher</label><input id="wq" type="search" placeholder="Nom, marque, matière, tag…" value="${filters.q}"></div>
@@ -610,4 +612,47 @@ async function renderCare(main) {
   main.querySelector('#allwashed')?.addEventListener('click', async () => { for (const { g } of basket) await store.repo.put('garments', afterWash(g), { silent: true }); store.repo.emit('garments', 'bulk', null); toast(`${basket.length} pièce(s) remise(s) au propre`); renderCare(main); });
   main.querySelectorAll('[data-wash]').forEach((b) => b.onclick = async () => { const g = all.find((x) => x.id === b.dataset.wash); await store.repo.put('garments', afterWash(g)); toast(`${g.name} : propre`); renderCare(main); });
   main.querySelectorAll('[data-care]').forEach((b) => b.onclick = async () => { const g = all.find((x) => x.id === b.dataset.care); await store.repo.put('garments', afterCare(g, b.dataset.task)); toast('Soin noté'); renderCare(main); });
+}
+
+// ---------------------------------------------------------------- Rangement saisonnier
+async function renderSeason(main, forced) {
+  const all = await loadGarments();
+  const now = new Date();
+  const current = periodAt(now); const nxt = nextChange(now);
+  const target = forced || current;
+  const plan = seasonalPlan(all, target);
+  const opposite = target === 'warm' ? 'cold' : 'warm';
+  const row = (g, attr, extra = '') => html`<label class="card row" style="flex-wrap:nowrap;cursor:pointer"><input type="checkbox" ${raw(attr)}="${g.id}" checked>
+    <span class="mini-thumb">${g.photoIds?.length ? html`<img data-photo="${g.photoIds[0]}" alt="">` : html`<span class="small muted">—</span>`}</span>
+    <span style="flex:1;min-width:0"><strong>${g.name}</strong>${extra}<br><span class="small muted">${storageTip(g)}</span></span></label>`;
+  setHTML(main, html`<a href="#/wardrobe" class="small">← Dressing</a>
+    <div class="page-head" style="margin-top:8px"><div class="eyebrow">Rangement saisonnier</div><h1>Garde-robe ${PERIODS[target].name.toLowerCase()}</h1>
+    <p class="lede">Période actuelle : <strong>${PERIODS[current].name}</strong>. Prochain changement : ${PERIODS[nxt.period].name.toLowerCase()} à partir du ${nxt.at.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} (dans ${nxt.days} jour${nxt.days > 1 ? 's' : ''}). Une pièce rangée n'est plus proposée dans vos tenues ; elle reste dans le dressing.</p></div>
+    <div class="chips" role="group" aria-label="Préparer la garde-robe" style="margin-bottom:14px">${['warm', 'cold'].map((id) => html`<button class="chip" data-target="${id}" aria-pressed="${target === id}">Préparer ${PERIODS[id].name.toLowerCase()}</button>`)}</div>
+    <div class="callout small" style="margin-bottom:14px">Climat bordelais : gardez accessibles une couche intermédiaire et un trench toute l'année (pluie et fraîcheur possibles en toute saison). Une pièce « toutes saisons » n'est jamais proposée au rangement ; précisez les saisons sur sa fiche pour affiner.</div>
+    <h2>À ranger (${plan.toStore.length})</h2>
+    ${plan.toStore.length ? html`<div class="stack" id="tostore">${plan.toStore.map(({ g, washFirst }) => row(g, 'data-store', washFirst ? html` <span class="tag tag-warn">à laver d'abord</span>` : ''))}</div>
+      <div class="btn-row" style="margin-top:10px"><button class="btn btn-primary" id="dostore">Ranger la sélection</button></div>`
+      : html`<p class="muted">Rien à ranger : aucune pièce réservée à ${PERIODS[opposite].name.toLowerCase()} n'est sortie.</p>`}
+    <h2>À ressortir (${plan.toBringOut.length})</h2>
+    ${plan.toBringOut.length ? html`<div class="stack">${plan.toBringOut.map((g) => row(g, 'data-out'))}</div>
+      <div class="btn-row" style="margin-top:10px"><button class="btn btn-primary" id="doout">Ressortir la sélection</button></div>`
+      : html`<p class="muted">Rien à ressortir pour cette période.</p>`}
+    ${plan.stored.length ? html`<details class="disclosure" style="margin-top:18px"><summary>Actuellement rangé (${plan.stored.length})</summary><div class="chips" style="margin-top:8px">${plan.stored.map((g) => html`<a class="chip" href="#/wardrobe/${g.id}">${g.name}</a>`)}</div></details>` : ''}`);
+  hydratePhotos(main);
+  main.querySelectorAll('[data-target]').forEach((b) => b.onclick = () => renderSeason(main, b.dataset.target));
+  main.querySelector('#dostore')?.addEventListener('click', async () => {
+    const ids = [...main.querySelectorAll('[data-store]:checked')].map((c) => c.dataset.store);
+    for (const id of ids) { const g = all.find((x) => x.id === id); await store.repo.put('garments', { ...g, availability: 'stored', storedAt: new Date().toISOString(), wearsSinceWash: 0 }, { silent: true }); }
+    store.repo.emit('garments', 'bulk', null);
+    await store.repo.kvSet(`season:done:${target}:${new Date().getFullYear()}`, true);
+    toast(`${ids.length} pièce${ids.length > 1 ? 's' : ''} rangée${ids.length > 1 ? 's' : ''}`); renderSeason(main, target);
+  });
+  main.querySelector('#doout')?.addEventListener('click', async () => {
+    const ids = [...main.querySelectorAll('[data-out]:checked')].map((c) => c.dataset.out);
+    for (const id of ids) { const g = all.find((x) => x.id === id); await store.repo.put('garments', { ...g, availability: 'clean', storedAt: null }, { silent: true }); }
+    store.repo.emit('garments', 'bulk', null);
+    await store.repo.kvSet(`season:done:${target}:${new Date().getFullYear()}`, true);
+    toast(`${ids.length} pièce${ids.length > 1 ? 's' : ''} ressortie${ids.length > 1 ? 's' : ''} : pensez à les aérer`); renderSeason(main, target);
+  });
 }
