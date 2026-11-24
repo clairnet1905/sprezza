@@ -83,6 +83,7 @@ async function boot() {
   try { await initStore(); }
   catch (e) { setHTML(document.getElementById('main'), html`<div class="callout callout-danger">Stockage local indisponible : ${e.message}</div>`); return; }
   if (store.repo.isMemory) toast('Stockage du navigateur indisponible : vos données ne seront pas conservées après fermeture.', { timeout: 9000 });
+  await handleAuthRedirect();
   window.addEventListener('hashchange', route);
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => import('./state.js').then((m) => m.applyTheme()));
   route();
@@ -90,6 +91,20 @@ async function boot() {
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch((e) => console.warn('Service worker non enregistré', e));
   }
+}
+
+/** Retour depuis l'e-mail de confirmation Supabase (#access_token=… ou #error=…). */
+async function handleAuthRedirect() {
+  const h = location.hash.replace(/^#/, '');
+  if (!/(^|&)(access_token|error)=/.test(h)) return;
+  const p = new URLSearchParams(h);
+  history.replaceState(null, '', location.pathname + '#/settings');
+  if (p.get('error')) { toast(`Lien de confirmation invalide ou expiré : ${p.get('error_description') || p.get('error')}. Reconnectez-vous ou recréez le lien.`, { timeout: 9000 }); return; }
+  try {
+    const claims = JSON.parse(atob(p.get('access_token').split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    await store.sync.storeSession({ access_token: p.get('access_token'), refresh_token: p.get('refresh_token'), expires_in: Number(p.get('expires_in')) || 3600, user: { id: claims.sub, email: claims.email } });
+    toast('E-mail confirmé : vous êtes connecté. Sur l\'app installée de l\'iPhone, connectez-vous aussi avec le même compte.', { timeout: 9000 });
+  } catch { toast('E-mail confirmé. Connectez-vous dans Paramètres › Synchronisation.', { timeout: 9000 }); }
 }
 
 /** Indicateur discret dans l'en-tête et rafraîchissement de l'écran après réception de données. */
