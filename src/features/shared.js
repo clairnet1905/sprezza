@@ -11,7 +11,7 @@ import { colorHex, colorName } from '../domain/colors.js';
 import { inspirationQuery, genderWord } from '../services/pexels.js';
 
 /** Bloc « Inspiration : photos réelles » (chargé à la demande, voir app.js). */
-export function inspireBlock(query, label = 'Inspiration : photos réelles similaires (Pexels)') {
+export function inspireBlock(query, label = 'Inspiration : photos réelles similaires') {
   return html`<details class="disclosure"><summary>${label}</summary><div style="margin-top:8px"><button type="button" class="btn btn-sm" data-inspire="${query}">${icon('search')} Afficher des photos</button> <span class="small muted">Recherche : « ${query} »</span><div class="inspire-out" aria-live="polite"></div></div></details>`;
 }
 

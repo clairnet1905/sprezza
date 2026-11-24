@@ -23,7 +23,7 @@ import { versatility, reviewGarment, keyThresholdOf } from '../src/domain/review
 import { defaultOccasion, preferredMode } from '../src/features/daily.js';
 import { chooseAccessories } from '../src/domain/recommend.js';
 import { shortQuery } from '../src/features/shopping.js';
-import { inspirationQuery, colorsQuery } from '../src/services/pexels.js';
+import { inspirationQuery, colorsQuery, searchPhotos } from '../src/services/pexels.js';
 import { OCCASION_BY_ID } from '../src/data/occasions.js';
 
 const tests = [];
@@ -282,6 +282,21 @@ test('Pexels : requêtes anglaises construites depuis la tenue et les couleurs',
   const w = businessWardrobe();
   eq(inspirationQuery({ layer: w[7], top: w[0], bottom: w[4] }), 'men navy blazer white shirt beige chinos');
   eq(colorsQuery({ top: 'navy', bottom: 'ecru' }), 'men navy top cream trousers outfit');
+});
+test('Unsplash : réponse normalisée, crédit UTM, images non Unsplash rejetées', async () => {
+  const realFetch = window.fetch;
+  window.fetch = async (u, init) => {
+    if (!String(u).startsWith('https://api.unsplash.com/')) return realFetch(u, init);
+    ok(init.headers.Authorization === 'Client-ID test-key', 'en-tête Client-ID');
+    return new Response(JSON.stringify({ results: [
+      { id: 'a', alt_description: 'man in navy blazer', color: '#223', urls: { small: 'https://images.unsplash.com/a?w=400', regular: 'https://images.unsplash.com/a' }, links: { html: 'https://unsplash.com/photos/a' }, user: { name: 'Ana', links: { html: 'https://unsplash.com/@ana' } } },
+      { id: 'b', urls: { small: 'https://evil.example/x.jpg' }, links: { html: 'x' }, user: {} },
+    ] }), { status: 200 });
+  };
+  try {
+    const r = await searchPhotos('men navy blazer', { key: 'test-key', provider: 'unsplash' });
+    eq(r.length, 1); eq(r[0].provider, 'unsplash'); ok(r[0].page.includes('utm_source=sprezza'), 'UTM manquant'); eq(r[0].photographer, 'Ana');
+  } finally { window.fetch = realFetch; }
 });
 test('Requête courte boutique sans doublons', () => eq(shortQuery({ category: 'pantalon écru', color: 'ecru', material: 'coton' }), 'pantalon écru coton'));
 

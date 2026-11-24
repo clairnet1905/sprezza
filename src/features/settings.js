@@ -215,24 +215,25 @@ function atobSafe(jwt) { try { return atob(jwt.split('.')[1].replace(/-/g, '+').
 
 // ------------------------------------------------------------ Services gratuits (clés personnelles)
 async function renderApis(box) {
-  const { getKey, setKey, searchPhotos } = await import('../services/pexels.js');
-  const key = await getKey();
+  const { getKey, setKey, searchPhotos, PROVIDERS } = await import('../services/pexels.js');
+  const keys = { unsplash: await getKey('unsplash'), pexels: await getKey('pexels') };
+  const mask = (k) => (k ? `${k.slice(0, 4)}…${k.slice(-4)}` : '');
   setHTML(box, html`<div class="table-wrap"><table><tbody>
       <tr><td><strong>Open-Meteo</strong><br><span class="small muted">Météo et recherche de ville</span></td><td>${store.profile.consents?.weather ? html`<span class="tag tag-ok">actif</span>` : html`<span class="tag">consentement requis</span>`}</td></tr>
       <tr><td><strong>Supabase</strong><br><span class="small muted">Synchronisation iPhone ↔ ordinateur</span></td><td>${(await store.sync.session()) ? html`<span class="tag tag-ok">connecté</span>` : html`<span class="tag">non connecté</span>`}</td></tr>
-      <tr><td><strong>Pexels</strong><br><span class="small muted">Photos réelles d'inspiration pour chaque tenue (licence libre)</span></td><td>${key ? html`<span class="tag tag-ok">clé enregistrée</span>` : html`<span class="tag">clé à ajouter</span>`}</td></tr>
+      ${['unsplash', 'pexels'].map((pv) => html`<tr><td><strong>${PROVIDERS[pv].name}</strong><br><span class="small muted">Photos réelles d'inspiration (licence libre)${pv === 'unsplash' ? ' — utilisé en priorité' : ''}</span></td><td>${keys[pv] ? html`<span class="tag tag-ok">clé enregistrée</span>` : html`<span class="tag">clé à ajouter</span>`}</td></tr>`)}
     </tbody></table></div>
-    <form id="pxf" class="form-grid"><div class="field span-2"><label for="pxkey">Clé API Pexels (gratuite)</label><input id="pxkey" type="text" autocomplete="off" spellcheck="false" placeholder="Collez votre clé ici" value="${key ? `${key.slice(0, 4)}…${key.slice(-4)}` : ''}"></div>
-      <div class="btn-row span-2"><button class="btn btn-primary" type="submit">Enregistrer et tester</button>${key ? html`<button class="btn btn-ghost" type="button" id="pxdel">Retirer la clé</button>` : ''}<a class="btn" href="https://www.pexels.com/api/" target="_blank" rel="noopener noreferrer">${icon('external')} Obtenir une clé gratuite</a></div></form>
-    <p class="small" id="pxmsg" aria-live="polite"></p>
-    <p class="hint">La clé est privée : elle reste dans vos données (synchronisées entre vos appareils, protégées par votre compte), jamais dans le code publié ni dans les exports.</p>`);
-  box.querySelector('#pxf').onsubmit = async (e) => {
+    ${['unsplash', 'pexels'].map((pv) => html`<form class="form-grid" data-pv="${pv}" style="margin-top:12px"><div class="field span-2"><label for="k-${pv}">Clé ${PROVIDERS[pv].name} ${pv === 'unsplash' ? '(« Access Key »)' : ''}</label><input id="k-${pv}" type="text" autocomplete="off" spellcheck="false" placeholder="Collez votre clé ici" value="${mask(keys[pv])}"></div>
+      <div class="btn-row span-2"><button class="btn btn-primary" type="submit">Enregistrer et tester</button>${keys[pv] ? html`<button class="btn btn-ghost" type="button" data-del="${pv}">Retirer</button>` : ''}<a class="btn" href="${PROVIDERS[pv].signup}" target="_blank" rel="noopener noreferrer">${icon('external')} Obtenir une clé gratuite</a></div>
+      <p class="small span-2" data-msg aria-live="polite"></p></form>`)}
+    <p class="hint">Une seule clé suffit. Les clés sont privées : elles restent dans vos données (synchronisées entre vos appareils via votre compte), jamais dans le code publié ni dans les exports.</p>`);
+  box.querySelectorAll('form[data-pv]').forEach((f) => f.onsubmit = async (e) => {
     e.preventDefault();
-    const v = box.querySelector('#pxkey').value.trim(); const msg = box.querySelector('#pxmsg');
+    const pv = f.dataset.pv; const v = f.querySelector('input').value.trim(); const msg = f.querySelector('[data-msg]');
     if (!v || v.includes('…')) { msg.textContent = 'Collez la clé complète.'; return; }
     msg.textContent = 'Test en cours…';
-    try { const photos = await searchPhotos('men navy blazer', { perPage: 1, key: v }); await setKey(v); msg.textContent = `Clé valide (${photos.length ? 'photos reçues' : 'aucune photo'}) : l'inspiration photo est active.`; renderApis(box); }
+    try { const photos = await searchPhotos('men navy blazer', { perPage: 1, key: v, provider: pv }); await setKey(v, pv); msg.textContent = `Clé valide (${photos.length ? 'photos reçues' : 'aucune photo'}).`; renderApis(box); }
     catch (err) { msg.textContent = err.message; }
-  };
-  box.querySelector('#pxdel')?.addEventListener('click', async () => { await setKey(''); renderApis(box); });
+  });
+  box.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => { await setKey('', b.dataset.del); renderApis(box); });
 }

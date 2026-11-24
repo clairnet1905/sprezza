@@ -103,7 +103,7 @@ async function renderGenerator(box) {
             ${!inMatrixTop ? html`<p class="small callout callout-warn">Association hors des conseils prioritaires : possible, mais moins adaptée à l'objectif classique.</p>` : ''}
             <div class="btn-row" style="margin-top:12px"><button class="btn btn-sm btn-primary" id="savep">${icon('heart')} Sauvegarder cette palette</button><button class="btn btn-sm" id="copyp">${icon('copy')} Copier les couleurs</button><button class="btn btn-sm" id="sharep">${icon('share')} Partager la palette</button></div>
             <p class="hint">Partage du texte des couleurs uniquement, sans photos personnelles.</p>
-            ${inspireBlock(colorsQuery({ top: topId, bottom: bottomId, jacket }, { gender: genderWord() }), 'Photos réelles de cette association (Pexels)')}
+            ${inspireBlock(colorsQuery({ top: topId, bottom: bottomId, jacket }, { gender: genderWord() }), 'Photos réelles de cette association')}
           </section>
           ${gen.withWardrobe ? html`<section class="card" id="mine"></section>` : ''}
         </div>

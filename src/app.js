@@ -101,12 +101,12 @@ async function onInspireClick(e) {
   const out = btn.parentElement.querySelector('.inspire-out');
   setHTML(out, html`<p class="small"><span class="loader"></span> Recherche…</p>`);
   try {
-    const { searchPhotos } = await import('./services/pexels.js');
+    const { searchPhotos, PROVIDERS } = await import('./services/pexels.js');
     const photos = await searchPhotos(btn.dataset.inspire);
-    setHTML(out, photos.length ? html`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(110px,1fr));margin-top:10px">${photos.map((ph) => html`<figure style="margin:0"><a href="${ph.page}" target="_blank" rel="noopener noreferrer" class="g-thumb" style="border-radius:10px;display:block" title="Voir sur Pexels"><img src="${ph.thumb}" alt="${ph.alt || 'Photo d\'inspiration'}" loading="lazy" referrerpolicy="no-referrer"></a><figcaption class="small muted" style="margin-top:4px">Photo : <a href="${ph.photographerUrl}" target="_blank" rel="noopener noreferrer">${ph.photographer}</a> / Pexels</figcaption></figure>`)}</div><p class="small muted">Photos réelles sous licence Pexels : des pistes d'association, à adapter à vos proportions.</p>` : html`<p class="small muted">Aucune photo trouvée pour cette association.</p>`);
+    setHTML(out, photos.length ? html`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(110px,1fr));margin-top:10px">${photos.map((ph) => html`<figure style="margin:0"><a href="${ph.page}" target="_blank" rel="noopener noreferrer" class="g-thumb" style="border-radius:10px;display:block" title="Voir la photo originale"><img src="${ph.thumb}" alt="${ph.alt || 'Photo d\'inspiration'}" loading="lazy" referrerpolicy="no-referrer"></a><figcaption class="small muted" style="margin-top:4px">Photo : <a href="${ph.photographerUrl}" target="_blank" rel="noopener noreferrer">${ph.photographer}</a> sur <a href="${PROVIDERS[ph.provider || 'pexels'].site}" target="_blank" rel="noopener noreferrer">${PROVIDERS[ph.provider || 'pexels'].name}</a></figcaption></figure>`)}</div><p class="small muted">Photos réelles sous licence libre (Unsplash ou Pexels) : des pistes d'association, à adapter à vos proportions.</p>` : html`<p class="small muted">Aucune photo trouvée pour cette association.</p>`);
     btn.textContent = 'Actualiser';
   } catch (err) {
-    setHTML(out, html`<p class="small callout ${err.code ? '' : 'callout-warn'}">${err.message}${err.code ? html` — <a href="#/settings">ajouter ma clé Pexels gratuite</a>` : ''}</p>`);
+    setHTML(out, html`<p class="small callout ${err.code ? '' : 'callout-warn'}">${err.message}${err.code ? html` — <a href="#/settings">ajouter ma clé gratuite</a>` : ''}</p>`);
   }
 }
 
