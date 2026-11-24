@@ -23,6 +23,10 @@ drop trigger if exists sprezza_touch on public.sprezza_records;
 create trigger sprezza_touch before insert or update on public.sprezza_records
   for each row execute function public.sprezza_touch();
 
+-- Accès via l'API (nécessaire si « Grant API access to new tables automatically » est décoché) ; RLS reste le garde-fou.
+revoke all on public.sprezza_records from anon;
+grant select, insert, update, delete on public.sprezza_records to authenticated;
+
 alter table public.sprezza_records enable row level security;
 drop policy if exists "sprezza: lecture de mes données" on public.sprezza_records;
 drop policy if exists "sprezza: ajout de mes données" on public.sprezza_records;
