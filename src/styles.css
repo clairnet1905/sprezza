@@ -358,3 +358,6 @@ th button.sort { background: none; border: 0; font-weight: 600; cursor: pointer;
 .ref-photo { padding: 0; text-decoration: none; color: inherit; position: relative; }
 .ref-photo img { width: 100%; height: 100%; object-fit: cover; }
 .ref-fallback { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px; text-align: center; }
+
+/* Icônes dans le texte : taille par défaut (les boutons, onglets et menus gardent leurs tailles propres) */
+svg[aria-hidden="true"] { width: 1.1em; height: 1.1em; flex: none; vertical-align: -0.18em; }
