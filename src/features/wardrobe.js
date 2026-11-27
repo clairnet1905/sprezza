@@ -12,7 +12,7 @@ import { costPerWear, wardrobeStats } from '../domain/wardrobe-logic.js';
 import { versatility, reviewGarment, keyThresholdOf, VERDICTS } from '../domain/review.js';
 import { careStatus, afterWash, afterCare } from '../domain/care.js';
 import { PERIODS, periodAt, nextChange, seasonalPlan, storageTip } from '../domain/seasonal.js';
-import { parseProduct, identifyQuery, readerToText, assistantPrompt, parseStructured } from '../domain/product-parse.js';
+import { parseProduct, identifyQuery, readerToText, assistantPrompt, parseStructured, extractJSON } from '../domain/product-parse.js';
 import { readLabel, OCR_DOWNLOAD_MB } from '../services/ocr.js';
 import { RETAILERS, QUICK_SHOPS, priceCompareUrl } from '../data/retailers.js';
 import { shopSearchUrl } from './shopping.js';
@@ -262,14 +262,16 @@ async function renderEditor(main, existing, preset = {}) {
       <p class="hint" id="lenshint"></p>
       <div class="card-flat" style="margin-top:10px"><p class="small" style="margin-top:0"><strong>Avec ChatGPT</strong> (ou Claude, Gemini…) — gratuit avec votre compte, aucune clé à configurer :</p>
         <div class="btn-row"><button class="btn btn-sm" type="button" id="gptcopy">1. Copier la consigne</button><button class="btn btn-sm" type="button" id="gptsend">2. Envoyer la photo à ChatGPT</button></div>
-        <p class="hint">3. Dans ChatGPT : collez la consigne, joignez la photo (et celle de l'étiquette si vous l'avez), envoyez. 4. Copiez toute sa réponse, revenez ici et collez-la ci-dessous : la fiche se remplit seule.</p></div>
+        <p class="hint">3. Dans ChatGPT : collez la consigne, joignez la photo (et celle de l'étiquette si vous l'avez), envoyez. 4. Dans ChatGPT, touchez « Copier le code » sur son bloc JSON, revenez ici et collez-le (ci-dessous ou via « { } Coller un JSON ») : la fiche se remplit seule.</p></div>
       <div id="textshops" class="btn-row"></div>
-      <div class="field" style="margin-top:10px"><label for="webpaste">Lien ou description du produit trouvé</label>
+      <div class="field" style="margin-top:10px"><label for="webpaste">Lien de l'article, description, réponse ou JSON de ChatGPT</label>
         <textarea id="webpaste" rows="3" placeholder="Collez ici le lien de l'article : https://…"></textarea></div>
       <div class="btn-row"><button class="btn btn-sm" type="button" id="pastebtn">Coller</button><button class="btn btn-sm btn-primary" type="button" id="parsebtn">${icon('check')} Remplir la fiche</button></div>
       <div id="webout"></div>
     </fieldset>
-    <fieldset><legend>Identification</legend><div class="form-grid">
+    <fieldset><legend>Identification</legend>
+      <div class="btn-row" style="margin:-4px 0 12px"><button class="btn btn-sm btn-gold" type="button" id="jsonbtn">{ } Coller un JSON</button><span class="small muted">Réponse de ChatGPT (ou autre) : tous les champs se remplissent d'un coup.</span></div>
+      <div class="form-grid">
       <div class="field span-2"><label for="name">Nom *</label><input id="name" name="name" type="text" required value="${g.name || ''}" placeholder="ex. Pantalon écru taille mi-haute"></div>
       <div class="field"><label for="category">Catégorie *</label><select id="category" name="category">${options(CATEGORIES.map((c) => [c.id, c.name]), g.category)}</select></div>
       <div class="field"><label for="sub">Type *</label><select id="sub" name="sub">${options(subOpts(g.category), g.sub)}</select></div>
@@ -610,16 +612,17 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
     if (p.origin) rows.push(['origin', 'Fabrication', p.origin, p.origin]);
     if (p.seasons) rows.push(['seasons', 'Saisons', p.seasons.length ? p.seasons.map((x) => SEASON_OPTS.find(([id]) => id === x)?.[1]).join(', ') : 'Toutes', p.seasons]);
     if (p.formality) rows.push(['formality', 'Formalité', `${p.formality}/5`, p.formality]);
+    if (p.warmth) rows.push(['warmth', 'Chaleur', `${p.warmth}/5`, p.warmth]);
     if (p.sourceUrl) rows.push(['sourceUrl', 'Lien d\'origine', p.sourceUrl.replace(/^https?:\/\/(www\d?\.)?/, '').slice(0, 48), p.sourceUrl]);
     // Remplissage immédiat, avec retour arrière possible.
     const before = Object.fromEntries(FIELDS.map((f) => [f, $(`#${f}`)?.value]));
-    before.formality = $('#formality').value; before.seasons = [...main.querySelectorAll('input[name=seasons]')].filter((c) => c.checked).map((c) => c.value);
+    before.formality = $('#formality').value; before.warmth = $('#warmth').value; before.seasons = [...main.querySelectorAll('input[name=seasons]')].filter((c) => c.checked).map((c) => c.value);
     const setSeasons = (list) => main.querySelectorAll('input[name=seasons]').forEach((c) => { c.checked = list.includes(c.value); });
     for (const [f, , , val] of rows) {
       if (f === 'sub') { $('#category').value = p.category; setHTML($('#sub'), options(subOpts(p.category), p.sub)); syncSub(); }
       else if (f === 'color') { $('#color').value = val; syncColor(); }
       else if (f === 'seasons') setSeasons(val);
-      else if (f === 'formality') { $('#formality').value = val; $('#formality').dispatchEvent(new Event('input')); }
+      else if (f === 'formality' || f === 'warmth') { $(`#${f}`).value = val; $(`#${f}`).dispatchEvent(new Event('input')); }
       else { const el = $(`#${f}`); if (el) el.value = val; }
     }
     if (p.name && rows.some(([f]) => f === 'name')) state.autoName = p.name;
@@ -632,13 +635,34 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
     out.querySelector('#webundo').onclick = () => {
       $('#category').value = before.category; setHTML($('#sub'), options(subOpts(before.category), before.sub));
       for (const f of FIELDS) if (!['category', 'sub'].includes(f) && $(`#${f}`)) $(`#${f}`).value = before[f] ?? '';
-      setSeasons(before.seasons); $('#formality').value = before.formality; $('#formality').dispatchEvent(new Event('input'));
+      setSeasons(before.seasons); for (const f of ['formality', 'warmth']) { $(`#${f}`).value = before[f]; $(`#${f}`).dispatchEvent(new Event('input')); }
       syncColor(); setHTML(out, html`<p class="small muted">Remplissage annulé.</p>`);
     };
     toast(`${rows.length} champ(s) rempli(s) — vérifiez puis enregistrez`);
     if ($('#ref').value && $('#brand').value) $('#textsearch').click();
   };
   $('#parsebtn').onclick = run;
+  // Bouton « Coller un JSON » à côté des informations.
+  $('#jsonbtn').onclick = () => {
+    const current = () => JSON.stringify({ nom: $('#name').value, marque: $('#brand').value || 'inconnue', type: SUB_INFO[$('#sub').value]?.name || '', couleur: COLOR_BY_ID[$('#color').value]?.name || '', matiere: $('#material').value || 'inconnue', composition: $('#composition').value || 'inconnue', coupe: FITS.find(([id]) => id === $('#fit').value)?.[1] || 'inconnue', motif: $('#pattern').value, taille: $('#size').value || 'inconnue', prix: $('#price').value || null }, null, 2);
+    openModal({ title: 'Remplir la fiche avec un JSON', body: html`<p class="small">Collez le JSON donné par ChatGPT (avec ou sans le bloc \`\`\`json). Clés en français ou en anglais : nom, marque, type, couleur, matiere, composition, coupe, motif, saisons, formalite, taille, prix…</p>
+      <div class="field"><label for="jsontext">JSON</label><textarea id="jsontext" rows="10" class="mono" placeholder='{ "nom": "Blazer en laine anthracite", "type": "Blazer", "couleur": "Anthracite", "matiere": "Laine" }'></textarea></div>
+      <p class="small callout callout-warn hidden" id="jsonerr"></p>
+      <div class="btn-row"><button class="btn btn-sm" type="button" data-paste>Coller</button><button class="btn btn-primary btn-sm" type="button" data-apply>${icon('check')} Remplir la fiche</button><button class="btn btn-sm btn-ghost" type="button" data-copy>Copier la fiche actuelle en JSON</button><button class="btn btn-sm btn-ghost" type="button" data-prompt>Copier la consigne ChatGPT</button></div>`,
+      onMount(body, close) {
+        const ta = body.querySelector('#jsontext'); const err = body.querySelector('#jsonerr');
+        const apply = () => {
+          if (!parseStructured(ta.value)) { err.textContent = extractJSON(ta.value) ? 'JSON lu, mais aucun champ reconnu (nom, type, couleur, matière…).' : 'Ce texte n\'est pas un JSON valide : copiez tout le bloc donné par ChatGPT, accolades comprises.'; err.classList.remove('hidden'); return; }
+          close(); state.pasteLabel = false; $('#webpaste').value = ta.value; run(); $('#webid').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+        body.querySelector('[data-apply]').onclick = apply;
+        body.querySelector('[data-paste]').onclick = async () => { try { ta.value = await navigator.clipboard.readText(); apply(); } catch { toast('Collez avec un appui long dans le champ'); ta.focus(); } };
+        ta.addEventListener('paste', () => setTimeout(() => { if (parseStructured(ta.value)) apply(); }, 0));
+        body.querySelector('[data-copy]').onclick = async () => { try { await navigator.clipboard.writeText(current()); toast('Fiche copiée en JSON'); } catch { ta.value = current(); ta.select(); } };
+        body.querySelector('[data-prompt]').onclick = () => $('#gptcopy').click();
+        setTimeout(() => ta.focus(), 50);
+      } });
+  };
   // Coller un lien dans la zone ou dans « Lien d'origine » suffit : la lecture démarre seule.
   $('#webpaste').addEventListener('paste', () => setTimeout(() => { state.pasteLabel = false; if (/^\s*https?:\/\/\S+\s*$/.test($('#webpaste').value) || parseStructured($('#webpaste').value)) run(); }, 0));
   $('#sourceUrl').addEventListener('change', () => {

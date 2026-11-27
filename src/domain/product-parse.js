@@ -195,14 +195,17 @@ export function parseProduct(input, opts = {}) {
   // Réponse structurée d'un assistant (ChatGPT, Claude…) : ses champs priment sur la lecture libre.
   const st = parseStructured(raw);
   if (st) {
+    // Réponse d'assistant : on ne garde que ses champs (la lecture libre du texte risquerait de mal interpréter la remarque).
+    for (const k of Object.keys(out)) if (!['found', 'sourceUrl'].includes(k)) delete out[k];
+    if (fromUrl.brand) out.brand = fromUrl.brand;
     out.fromAssistant = true;
-    for (const k of ['name', 'brand', 'sub', 'category', 'color', 'color2', 'material', 'composition', 'pattern', 'fit', 'seasons', 'formality', 'confidence', 'remark']) if (st[k] !== undefined) out[k] = st[k];
+    for (const k of ['name', 'brand', 'sub', 'category', 'color', 'color2', 'material', 'composition', 'pattern', 'fit', 'seasons', 'formality', 'warmth', 'size', 'price', 'ref', 'origin', 'sourceUrl', 'confidence', 'remark']) if (st[k] !== undefined) out[k] = st[k];
     if (st.noBrand && !fromUrl.brand) delete out.brand;
     if (st.noColor2) delete out.color2;
     if (st.noComposition) delete out.composition;
   }
 
-  out.found = ['name', 'brand', 'sub', 'color', 'color2', 'material', 'composition', 'pattern', 'fit', 'price', 'size', 'ref', 'origin', 'seasons', 'formality', 'sourceUrl'].filter((k) => out[k] !== undefined && out[k] !== null && out[k] !== '');
+  out.found = ['name', 'brand', 'sub', 'color', 'color2', 'material', 'composition', 'pattern', 'fit', 'price', 'size', 'ref', 'origin', 'seasons', 'formality', 'warmth', 'sourceUrl'].filter((k) => out[k] !== undefined && out[k] !== null && out[k] !== '');
   return out;
 }
 
@@ -256,46 +259,86 @@ export function readerToText({ title = '', description = '', content = '' }) {
 // ------------------------------------------------------------ Assistant IA par copier-coller
 const ALL_SUBS = CATEGORIES.flatMap((c) => c.subs.map(([id, name]) => ({ id, name, category: c.id })));
 const UNKNOWN = /^(inconnu|inconnue|non visible|aucun|aucune|n\/?a|-|—|\?|incertain|indetermine|non precise|pas visible|none|unknown)\b/;
-const SEASONS_FR = { printemps: 'spring', ete: 'summer', automne: 'autumn', hiver: 'winter' };
+const SEASONS_FR = { printemps: 'spring', ete: 'summer', automne: 'autumn', hiver: 'winter', spring: 'spring', summer: 'summer', autumn: 'autumn', fall: 'autumn', winter: 'winter' };
 
 /** Consigne à donner à ChatGPT (ou tout assistant) avec la photo : réponse au format que SPREZZA sait relire. */
 export function assistantPrompt() {
   const types = CATEGORIES.map((c) => `${c.name} : ${c.subs.map(([, n]) => n).join(', ')}`).join(' | ');
+  const tpl = {
+    nom: 'nom court et descriptif, ex. Blazer en laine anthracite',
+    marque: 'seulement si lisible ou certaine, sinon inconnue',
+    type: 'un seul choix exact parmi la liste des types',
+    couleur: 'un seul choix exact parmi la liste des couleurs',
+    couleur_secondaire: 'même liste, ou aucune',
+    motif: `parmi : ${PATTERNS.join(', ')}`,
+    matiere: `parmi : ${MATERIALS.join(', ')}`,
+    composition: 'uniquement si une étiquette est lisible, ex. 80 % laine, 20 % polyamide, sinon inconnue',
+    coupe: `parmi : ${FITS.map(([, n]) => n).join(', ')}, ou inconnue`,
+    saisons: ['printemps, été, automne et/ou hiver — ou toutes'],
+    formalite: '1 à 5 (1 détente, 3 smart casual, 5 costume-cravate)',
+    chaleur: '1 à 5 (1 très léger, 5 très chaud)',
+    confiance: 'faible, moyenne ou élevée',
+    remarque: 'une phrase : ce qui reste incertain et quelle autre photo prendre (étiquette, détail du tissu, dos…)',
+  };
   return [
     'Tu es un expert en vêtements et en style masculin classique. Identifie la pièce principale visible sur la ou les photos jointes (une seule pièce ; une photo d\'étiquette peut accompagner la photo du vêtement).',
-    'Réponds UNIQUEMENT avec les lignes ci-dessous, en français, sans autre texte ni mise en forme :',
-    'Nom : (nom court et descriptif, ex. « Blazer en laine anthracite »)',
-    'Marque : (seulement si elle est lisible ou certaine, sinon « inconnue »)',
-    `Type : (un seul choix exact parmi : ${types})`,
-    `Couleur : (un seul choix exact parmi : ${ALL_COLORS.map((c) => c.name).join(', ')})`,
-    'Couleur secondaire : (même liste, ou « aucune »)',
-    `Motif : (parmi : ${PATTERNS.join(', ')})`,
-    `Matière : (parmi : ${MATERIALS.join(', ')})`,
-    'Composition : (uniquement si une étiquette est lisible, ex. « 80 % laine, 20 % polyamide », sinon « inconnue »)',
-    `Coupe : (parmi : ${FITS.map(([, n]) => n).join(', ')}, ou « inconnue »)`,
-    'Saisons : (parmi printemps, été, automne, hiver, ou « toutes »)',
-    'Formalité : (1 à 5 : 1 détente, 3 smart casual, 5 costume-cravate)',
-    'Confiance : (faible, moyenne ou élevée)',
-    'Remarque : (une phrase : ce qui reste incertain, et quelle autre photo prendre si besoin — étiquette, détail du tissu, dos…)',
+    'Réponds UNIQUEMENT avec un bloc de code JSON valide, en français, sans aucun texte avant ou après, avec exactement ces clés (remplace chaque description par la valeur) :',
+    '```json', JSON.stringify(tpl, null, 2), '```',
+    `Types possibles : ${types}`,
+    `Couleurs possibles : ${ALL_COLORS.map((c) => c.name).join(', ')}`,
+    'N\'invente jamais la marque, la composition ni la taille : écris « inconnue » si ce n\'est pas visible.',
   ].join('\n');
 }
 
 /** Relit la réponse « Clé : valeur » d'un assistant. Renvoie null si le texte n'a pas ce format. */
+/** Clés JSON acceptées (français ou anglais, avec ou sans accents/majuscules) → clés internes. */
+const JSON_KEYS = {
+  nom: 'nom', name: 'nom', titre: 'nom', title: 'nom', marque: 'marque', brand: 'marque',
+  type: 'type', sous_type: 'type', soustype: 'type', piece: 'type', categorie: 'type', category: 'type', sub: 'type', garment: 'type', item: 'type',
+  couleur: 'couleur', color: 'couleur', colour: 'couleur', couleur_principale: 'couleur', main_color: 'couleur', primary_color: 'couleur',
+  couleur_secondaire: 'couleur secondaire', color2: 'couleur secondaire', secondary_color: 'couleur secondaire',
+  motif: 'motif', pattern: 'motif', matiere: 'matiere', material: 'matiere', fabric: 'matiere', tissu: 'matiere', composition: 'composition',
+  coupe: 'coupe', fit: 'coupe', saisons: 'saisons', saison: 'saisons', seasons: 'saisons', season: 'saisons', formalite: 'formalite', formality: 'formalite',
+  chaleur: 'chaleur', warmth: 'chaleur', taille: 'taille', size: 'taille', prix: 'prix', price: 'prix', reference: 'reference', ref: 'reference', sku: 'reference',
+  fabrication: 'fabrication', origine: 'fabrication', origin: 'fabrication', made_in: 'fabrication', lien: 'lien', url: 'lien', link: 'lien', sourceurl: 'lien',
+  confiance: 'confiance', confidence: 'confiance', remarque: 'remarque', remark: 'remarque', notes: 'remarque', note: 'remarque', commentaire: 'remarque',
+};
+/** Extrait un objet JSON d'un texte (bloc ```json, ou du premier « { » au dernier « } »). */
+export function extractJSON(text) {
+  const t = String(text || '');
+  const fenced = t.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
+  const cands = [fenced, t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1)].filter((x) => x && x.trim().startsWith('{'));
+  for (const c of cands) {
+    try { const v = JSON.parse(c.replace(/[“”]/g, '"').replace(/,\s*([}\]])/g, '$1')); const o = Array.isArray(v) ? v[0] : v; if (o && typeof o === 'object') return o; } catch { /* essai suivant */ }
+  }
+  return null;
+}
+
 export function parseStructured(text) {
+  if (/remplace chaque description/i.test(String(text))) return null; // la consigne elle-même, collée par erreur
   const map = {};
-  for (const line of String(text || '').split(/\n/)) {
+  const json = extractJSON(text);
+  if (json) {
+    const flat = { ...json, ...(json.vetement || json.garment || json.piece || json.item || {}) };
+    for (const [k, v] of Object.entries(flat)) {
+      const key = JSON_KEYS[norm(k).replace(/[\s-]+/g, '_')];
+      if (!key || v === null || v === undefined || typeof v === 'object' && !Array.isArray(v)) continue;
+      map[key] = Array.isArray(v) ? v.join(', ') : String(v);
+    }
+  }
+  for (const line of json ? [] : String(text || '').split(/\n/)) {
     const m = line.replace(/[*_`#>]/g, '').replace(/^\s*[-•]\s*/, '').match(/^\s*([A-Za-zÀ-ÿ ]{3,22}?)\s*:\s*(.+?)\s*$/);
     if (m) map[norm(m[1]).trim()] = m[2].replace(/^[«"“]\s*|\s*[»"”]$/g, '').trim();
   }
   const KEYS = ['nom', 'marque', 'type', 'couleur', 'matiere', 'composition', 'coupe', 'motif', 'saisons', 'formalite'];
-  if (KEYS.filter((k) => map[k] !== undefined).length < 3) return null;
+  if (KEYS.filter((k) => map[k] !== undefined).length < (json ? 2 : 3)) return null;
   const out = {};
   const known = (v) => v !== undefined && !UNKNOWN.test(norm(v));
   if (known(map.nom)) out.name = map.nom.slice(0, 70);
   if (map.marque !== undefined) { if (known(map.marque)) out.brand = map.marque.replace(/\s*\(.*\)\s*$/, '').trim(); else out.noBrand = true; }
   if (known(map.type)) {
     const v = norm(map.type).replace(/^.*[›>:]\s*/, '').trim();
-    const sub = ALL_SUBS.find((x) => norm(x.name) === v) || ALL_SUBS.find((x) => v.includes(norm(x.name)) || norm(x.name).includes(v)) || (() => { const id = firstMatch(SUB_RULES, v); return id && ALL_SUBS.find((x) => x.id === id); })();
+    const sub = ALL_SUBS.find((x) => norm(x.name) === v) || [...ALL_SUBS].sort((a, b) => b.name.length - a.name.length).find((x) => v.includes(norm(x.name))) || ALL_SUBS.find((x) => norm(x.name).includes(v)) || (() => { const id = firstMatch(SUB_RULES, v); return id && ALL_SUBS.find((x) => x.id === id); })();
     if (sub) { out.sub = sub.id; out.category = sub.category; }
   }
   const color = (v) => { const n = norm(v); return ALL_COLORS.find((c) => norm(c.name) === n)?.id || COLOR_RULES.find(([, re]) => re.test(n))?.[0] || null; };
@@ -305,7 +348,13 @@ export function parseStructured(text) {
   if (known(map.matiere)) out.material = MATERIALS.find((x) => norm(x) === norm(map.matiere)) || firstMatch(MATERIAL_RULES, norm(map.matiere)) || undefined;
   if (map.composition !== undefined) { const c = known(map.composition) ? parseComposition(map.composition) : null; if (c) out.composition = c.text; else out.noComposition = true; }
   if (known(map.coupe)) out.fit = FITS.find(([, n]) => norm(n) === norm(map.coupe))?.[0] || firstMatch(FIT_RULES, norm(map.coupe)) || undefined;
-  if (known(map.saisons)) { const v = norm(map.saisons); out.seasons = /toutes|all/.test(v) ? [] : Object.entries(SEASONS_FR).filter(([k]) => v.includes(k)).map(([, id]) => id); }
+  if (known(map.saisons)) { const v = norm(map.saisons); out.seasons = /toutes|all|4 saisons|toute l'annee|year/.test(v) ? [] : [...new Set(Object.entries(SEASONS_FR).filter(([k]) => v.includes(k)).map(([, id]) => id))]; }
+  const w = Number(String(map.chaleur || '').match(/[1-5]/)?.[0]); if (w) out.warmth = w;
+  if (known(map.taille)) out.size = map.taille.slice(0, 12);
+  const pr = Number(String(map.prix || '').replace(',', '.').match(/\d+(?:\.\d+)?/)?.[0]); if (pr > 0 && pr < 10000) out.price = pr;
+  if (known(map.reference)) out.ref = map.reference.slice(0, 30);
+  if (known(map.fabrication)) out.origin = map.fabrication.slice(0, 30);
+  if (map.lien && /^https?:\/\//.test(map.lien)) out.sourceUrl = map.lien;
   const f = Number(String(map.formalite || '').match(/[1-5]/)?.[0]); if (f) out.formality = f;
   if (map.confiance) out.confidence = norm(map.confiance).match(/faible|moyenne|elevee|haute/)?.[0]?.replace('haute', 'elevee') || undefined;
   if (known(map.remarque)) out.remark = map.remarque.slice(0, 240);

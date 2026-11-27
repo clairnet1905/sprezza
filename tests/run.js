@@ -28,7 +28,7 @@ import { alphaBounds } from '../src/services/cutout.js';
 import { careStatus, afterWear, afterWash, afterCare } from '../src/domain/care.js';
 import { periodAt, nextChange, seasonClass, seasonalPlan } from '../src/domain/seasonal.js';
 import { OCCASION_BY_ID } from '../src/data/occasions.js';
-import { parseProduct, urlWords, parseComposition, readerToText, assistantPrompt, parseStructured } from '../src/domain/product-parse.js';
+import { parseProduct, urlWords, parseComposition, readerToText, assistantPrompt, parseStructured, extractJSON } from '../src/domain/product-parse.js';
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -441,6 +441,19 @@ test('Réponse ChatGPT copiée : relue champ par champ, incertitudes ignorées',
   eq(q.sub, 'chino'); eq(q.color, 'beige'); eq(q.composition, '98 % coton, 2 % élasthanne'); eq(q.seasons.length, 0);
   eq(parseStructured('Chemise Oxford bleu ciel 29,90 €'), null);
   ok(/Blazer/.test(assistantPrompt()) && /Anthracite/.test(assistantPrompt()), 'consigne incomplète');
+});
+
+test('JSON collé (ChatGPT) : clés françaises ou anglaises, bloc de code, valeurs inconnues ignorées', () => {
+  const fr = 'Voici le résultat :\n```json\n{\n  "nom": "Pantalon flanelle gris moyen",\n  "marque": "inconnue",\n  "type": "Pantalon flanelle",\n  "couleur": "Gris moyen",\n  "couleur_secondaire": "aucune",\n  "motif": "Uni",\n  "matiere": "Flanelle",\n  "composition": "100 % laine",\n  "coupe": "Droite légèrement fuselée",\n  "saisons": ["automne", "hiver"],\n  "formalite": 4,\n  "chaleur": 4,\n  "confiance": "élevée",\n  "remarque": "Vérifier la composition sur l\'étiquette."\n}\n```';
+  const a = parseProduct(fr);
+  eq(a.name, 'Pantalon flanelle gris moyen'); eq(a.brand, undefined); eq(a.sub, 'flanelle'); eq(a.category, 'bas'); eq(a.color, 'mid-gray'); eq(a.color2, undefined);
+  eq(a.material, 'Flanelle'); eq(a.composition, '100 % laine'); eq(a.fit, 'tapered'); eq(a.seasons.join(','), 'autumn,winter'); eq(a.formality, 4); eq(a.warmth, 4); eq(a.confidence, 'elevee');
+  const en = parseProduct('{"name":"Navy cotton chinos","brand":"Uniqlo","type":"chinos","color":"navy","material":"cotton","fit":"slim","seasons":"all","price":"39.90","size":"32"}');
+  eq(en.brand, 'Uniqlo'); eq(en.sub, 'chino'); eq(en.color, 'navy'); eq(en.material, 'Coton'); eq(en.fit, 'slim'); eq(en.seasons.length, 0); eq(en.price, 39.9); eq(en.size, '32');
+  eq(extractJSON('pas de json'), null); eq(extractJSON('{"nom": "x",}').nom, 'x');
+  ok(/```json/.test(assistantPrompt()), 'la consigne doit demander du JSON');
+  eq(parseStructured(assistantPrompt()), null);
+  eq(parseStructured('{"type": "pull col roulé", "couleur": "écru"}').sub, 'col-roule');
 });
 
 // ---------------- Exécution
