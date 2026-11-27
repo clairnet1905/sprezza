@@ -128,9 +128,9 @@ const firstMatch = (rules, t) => rules.find(([, re]) => re.test(t))?.[0] ?? null
 
 /**
  * @param {string} input titre, description copiée et/ou lien produit
- * @returns {{name?:string, brand?:string, category?:string, sub?:string, color?:string, color2?:string, material?:string, composition?:string, pattern?:string, fit?:string, price?:number, sourceUrl?:string, found:string[]}}
+ * @returns {{name?:string, brand?:string, category?:string, sub?:string, color?:string, color2?:string, material?:string, composition?:string, pattern?:string, fit?:string, price?:number, size?:string, ref?:string, origin?:string, sourceUrl?:string, found:string[]}}
  */
-export function parseProduct(input) {
+export function parseProduct(input, opts = {}) {
   const raw = String(input || '').trim();
   const urlMatch = raw.match(/https?:\/\/[^\s"'<>]+/);
   const url = urlMatch ? urlMatch[0].replace(/[).,;]+$/, '') : '';
@@ -156,10 +156,10 @@ export function parseProduct(input) {
   if (hits.length) { out.color = hits[0].id; const second = hits.find((h) => h.id !== hits[0].id && Math.abs(h.at - hits[0].at) > 3); if (second && /et|and|&|\/|bicolore|two-tone/.test(colorScope.slice(hits[0].at, second.at + 1))) out.color2 = second.id; }
   else if (out.sub === 'jean') out.color = 'mid-blue';
 
-  // Composition lue telle quelle (ex. « 100 % coton », « 80% laine 20% polyamide »).
-  const comp = text.match(/(\d{1,3}\s?%\s?[A-Za-zÀ-ÿ]+(?:[\s,/-]+\d{1,3}\s?%\s?[A-Za-zÀ-ÿ]+)*)/);
-  if (comp) out.composition = comp[1].replace(/\s+/g, ' ').replace(/(\d)\s?%\s?/g, '$1 % ').trim();
-  const matScope = norm(`${comp ? comp[1] : ''} ${text} ${fromUrl.text}`);
+  // Composition (ex. « 100 % coton », « 80% laine 20% polyamide », étiquette multilingue ou abréviations CO/WO/PL).
+  const comp = parseComposition(text);
+  if (comp) out.composition = comp.text;
+  const matScope = norm(`${comp ? comp.text : ''} ${text} ${fromUrl.text}`);
   const mat = firstMatch(MATERIAL_RULES, matScope.replace(/chemise oxford|oxford shirt/, 'oxford'));
   if (mat) out.material = mat;
   if (out.sub === 'jean' && !out.material) out.material = 'Denim';
@@ -181,8 +181,47 @@ export function parseProduct(input) {
     if (name.length > 70) name = `${name.slice(0, 67).replace(/\s\S*$/, '')}…`;
     if (name.length >= 3) out.name = name;
   }
-  out.found = ['name', 'brand', 'sub', 'color', 'color2', 'material', 'composition', 'pattern', 'fit', 'price', 'sourceUrl'].filter((k) => out[k] !== undefined && out[k] !== null && out[k] !== '');
+  // Étiquette : taille, référence, origine.
+  const size = text.match(/(?:taille|size|talla|taglia|gr(?:ö|o)(?:ß|ss)e|tg)\s*[:.]?\s*(XXS|XS|S|M|L|XL|XXL|XXXL|\d{2}(?:[/-]\d{2})?)\b/i) || text.match(/\b(?:EUR?|FR|IT)\s?[:.]?\s?(\d{2}|XXS|XS|S|M|L|XL|XXL|XXXL)\b/);
+  if (size) out.size = size[1].toUpperCase();
+  const ref = text.match(/\b(\d{4}\/\d{3}\/\d{3})\b/) || text.match(/(?:r[ée]f(?:[ée]rence)?|art(?:icle)?\.?\s*(?:no|n°|nr|num)?|style|mod[èe]le|item)\s*[.:#°]*\s*([A-Z0-9][A-Z0-9/.-]{4,19})/i);
+  if (ref && /\d{3}/.test(ref[1])) out.ref = ref[1];
+  const origin = text.match(/(?:fabriqu[ée] (?:en|au|aux)|made in|hecho en|fabricado en|fatto in|prodotto in)\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ -]{2,20})/i);
+  if (origin) out.origin = ORIGINS[norm(origin[1].trim().split(/\s{2,}|\n/)[0])] || origin[1].trim().replace(/\b\w/g, (c) => c.toUpperCase());
+  if (opts.label) { delete out.name; }
+
+  out.found = ['name', 'brand', 'sub', 'color', 'color2', 'material', 'composition', 'pattern', 'fit', 'price', 'size', 'ref', 'origin', 'sourceUrl'].filter((k) => out[k] !== undefined && out[k] !== null && out[k] !== '');
   return out;
+}
+
+/** Fibres : toutes langues d'étiquette et abréviations européennes → libellé français. */
+const FIBERS = [
+  ['coton', /^(coton|cotton|algodon|cotone|baumwolle|katoen|co)$/], ['laine', /^(laine|wool|lana|wolle|wo|wv|lainage)$/], ['laine vierge', /^(vierge|virgin)$/],
+  ['cachemire', /^(cachemire|cashmere|cachemira|kaschmir|wk)$/], ['lin', /^(lin|linen|lino|leinen|li)$/], ['soie', /^(soie|silk|seda|seta|seide|se)$/],
+  ['polyester', /^(polyester|poliester|poliestere|pes|pl|pe)$/], ['polyamide', /^(polyamide|poliamida|poliammide|nylon|pa)$/], ['élasthanne', /^(elasthanne|elastane|elastano|elasthan|spandex|ea|el)$/],
+  ['viscose', /^(viscose|viscosa|vi|cv)$/], ['acrylique', /^(acrylique|acrylic|acrilico|pc)$/], ['lyocell', /^(lyocell|tencel|cly)$/], ['modal', /^(modal|cmd|md)$/],
+  ['mohair', /^(mohair|wm)$/], ['alpaga', /^(alpaga|alpaca|wp)$/], ['mérinos', /^(merinos|merino)$/], ['cuir', /^(cuir|leather|piel|pelle|leder)$/], ['chanvre', /^(chanvre|hemp|canamo|ha)$/],
+];
+const fiberOf = (w) => FIBERS.find(([, re]) => re.test(norm(w)))?.[0] || null;
+const ORIGINS = { italie: 'Italie', italy: 'Italie', italia: 'Italie', portugal: 'Portugal', france: 'France', espagne: 'Espagne', spain: 'Espagne', espana: 'Espagne', china: 'Chine', chine: 'Chine', turkey: 'Turquie', turquie: 'Turquie', turkiye: 'Turquie', bangladesh: 'Bangladesh', india: 'Inde', inde: 'Inde', vietnam: 'Vietnam', 'viet nam': 'Vietnam', morocco: 'Maroc', maroc: 'Maroc', tunisia: 'Tunisie', tunisie: 'Tunisie', romania: 'Roumanie', roumanie: 'Roumanie', cambodia: 'Cambodge', cambodge: 'Cambodge', pakistan: 'Pakistan', 'united kingdom': 'Royaume-Uni', uk: 'Royaume-Uni', england: 'Angleterre', japan: 'Japon', japon: 'Japon' };
+
+/**
+ * Composition depuis un texte libre ou une étiquette lue (multilingue, abréviations, répétitions par langue).
+ * On garde le premier ensemble complet (≈ 100 %), c'est-à-dire le tissu principal.
+ */
+export function parseComposition(text) {
+  const pairs = [...String(text || '').matchAll(/(\d{1,3})\s?%\s?([A-Za-zÀ-ÿ]+)(?:\s+(vierge|virgin|merinos|mérinos))?/gi)]
+    .map((m) => ({ pct: +m[1], fiber: m[3] && /vierge|virgin/i.test(m[3]) && fiberOf(m[2]) === 'laine' ? 'laine vierge' : m[3] && /m[ée]rinos/i.test(m[3]) ? 'laine mérinos' : fiberOf(m[2]) }))
+    .filter((p) => p.fiber && p.pct > 0 && p.pct <= 100);
+  if (!pairs.length) return null;
+  const set = []; let total = 0;
+  for (const p of pairs) {
+    if (set.some((x) => x.fiber === p.fiber)) { if (total >= 95) break; continue; }
+    set.push(p); total += p.pct;
+    if (total >= 99) break;
+  }
+  set.sort((a, b) => b.pct - a.pct);
+  return { text: set.map((p) => `${p.pct} % ${p.fiber}`).join(', '), main: set[0].fiber, total };
 }
 
 /** Requête courte pour retrouver la pièce par texte (moteurs et boutiques). */

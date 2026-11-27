@@ -186,7 +186,7 @@ class Handler(SimpleHTTPRequestHandler):
     def end_headers(self):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Frame-Options", "SAMEORIGIN" if self.path.startswith("/tools/") else "DENY")
         self.send_header("Permissions-Policy", "geolocation=(self), camera=(self)")
         if self.path.endswith((".js", ".html", ".css", "/")) or self.path.startswith("/api"):
             self.send_header("Cache-Control", "no-cache")

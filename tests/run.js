@@ -28,7 +28,7 @@ import { alphaBounds } from '../src/services/cutout.js';
 import { careStatus, afterWear, afterWash, afterCare } from '../src/domain/care.js';
 import { periodAt, nextChange, seasonClass, seasonalPlan } from '../src/domain/seasonal.js';
 import { OCCASION_BY_ID } from '../src/data/occasions.js';
-import { parseProduct, urlWords } from '../src/domain/product-parse.js';
+import { parseProduct, urlWords, parseComposition } from '../src/domain/product-parse.js';
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -403,12 +403,23 @@ test('Fiche produit web : titre, composition, prix et lien lus', () => {
   const c = parseProduct('Mocassins en daim marron foncé Massimo Dutti 119 €');
   eq(c.sub, 'mocassins'); eq(c.category, 'chaussures'); eq(c.color, 'dark-brown'); eq(c.material, 'Daim'); eq(c.brand, 'Massimo Dutti'); eq(c.price, 119);
   const d = parseProduct('Manteau en laine mélangée gris anthracite 70% laine 30% polyamide');
-  eq(d.sub, 'manteau'); eq(d.color, 'charcoal'); eq(d.material, 'Laine'); eq(d.composition, '70 % laine 30 % polyamide');
+  eq(d.sub, 'manteau'); eq(d.color, 'charcoal'); eq(d.material, 'Laine'); eq(d.composition, '70 % laine, 30 % polyamide');
   const e = parseProduct('Bracelet Apple Watch boucle unique tressée bleu marine');
   eq(e.sub, 'bracelet-montre'); eq(e.color, 'navy'); eq(e.brand, 'Apple');
   eq(parseProduct('Jean Levi\'s 501 Original').color, 'mid-blue');
   eq(urlWords('https://www2.hm.com/fr_fr/productpage.1234567001.html').brand, 'H&M');
   eq(parseProduct('').found.length, 0);
+});
+
+test('Étiquette lue : composition multilingue, taille, référence, origine', () => {
+  const label = 'ZARA MAN\nEUR M  USA M  MEX 40\n0706/310/401\n100% COTON\n100% COTTON\n100% ALGODÓN\nMADE IN PORTUGAL\nFABRIQUÉ AU PORTUGAL';
+  const a = parseProduct(label, { label: true });
+  eq(a.composition, '100 % coton'); eq(a.material, 'Coton'); eq(a.size, 'M'); eq(a.ref, '0706/310/401'); eq(a.origin, 'Portugal'); eq(a.brand, 'Zara'); eq(a.name, undefined);
+  eq(parseComposition('EXTÉRIEUR 80% LAINE VIERGE 20% POLYAMIDE / OUTER 80% VIRGIN WOOL 20% POLYAMIDE / DOUBLURE 100% VISCOSE').text, '80 % laine vierge, 20 % polyamide');
+  eq(parseComposition('97% CO 3% EA').text, '97 % coton, 3 % élasthanne');
+  eq(parseProduct('Taille: 48 Made in Italy', { label: true }).size, '48');
+  eq(parseProduct('Taille: 48 Made in Italy', { label: true }).origin, 'Italie');
+  eq(parseComposition('aucune fibre'), null);
 });
 
 // ---------------- Exécution

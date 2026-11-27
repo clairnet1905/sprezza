@@ -13,6 +13,7 @@ import { versatility, reviewGarment, keyThresholdOf, VERDICTS } from '../domain/
 import { careStatus, afterWash, afterCare } from '../domain/care.js';
 import { PERIODS, periodAt, nextChange, seasonalPlan, storageTip } from '../domain/seasonal.js';
 import { parseProduct, identifyQuery } from '../domain/product-parse.js';
+import { readLabel, OCR_DOWNLOAD_MB } from '../services/ocr.js';
 import { RETAILERS, QUICK_SHOPS, priceCompareUrl } from '../data/retailers.js';
 import { shopSearchUrl } from './shopping.js';
 import { prefs as loadPrefs } from '../state.js';
@@ -41,6 +42,7 @@ export async function render(main, params, query) {
 /** Préremplissage depuis la capsule ou la liste d'envies (#/wardrobe/new?capsule=6 ou ?name=…&category=…). */
 function presetFromQuery(query) {
   if (!query) return {};
+  if (query.get('set') && pendingPreset) { const p = pendingPreset; pendingPreset = null; return p; }
   const cid = Number(query.get('capsule'));
   if (cid) {
     const c = CAPSULE.find((x) => x.id === cid);
@@ -111,7 +113,9 @@ async function renderList(main) {
 // ---------------------------------------------------------------- Fiche
 async function renderDetail(main, g) {
   const sub = SUB_INFO[g.sub];
-  const vers = versatility(await loadGarments())[g.id] ?? null;
+  const allG = await loadGarments();
+  const vers = versatility(allG)[g.id] ?? null;
+  const mates = g.setId ? allG.filter((x) => x.setId === g.setId && x.id !== g.id) : [];
   const ph0 = g.photoIds?.[0] ? await store.repo.get('photos', g.photoIds[0]) : null;
   const cpw = costPerWear(g);
   setHTML(main, html`
@@ -124,6 +128,8 @@ async function renderDetail(main, g) {
         ${g.photoIds?.length ? html`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr))">${g.photoIds.map((ph) => html`<div class="g-thumb" style="border-radius:12px"><img data-photo="${ph}" data-full alt="${g.name}"></div>`)}</div>` : html`<div class="card-flat small muted">Aucune photo. Ajoutez-en une depuis « Modifier ».</div>`}
         ${ph0 ? html`<div class="card-flat"><div class="btn-row"><button class="btn btn-sm" id="cutbtn">${ph0.cutout ? 'Refaire le détourage' : 'Détourer la photo (fond ivoire)'}</button>${ph0.originalBlob ? html`<button class="btn btn-sm btn-ghost" id="uncut">Revenir à la photo originale</button>` : ''}</div>
           <p class="small muted" id="cutmsg" aria-live="polite">Traitement sur votre appareil, aucune photo envoyée. ${ph0.cutout ? '' : `Premier usage : téléchargement unique d'environ ${CUTOUT_DOWNLOAD_MB} Mo.`}</p></div>` : ''}
+        ${g.setId ? html`<div class="card"><h3>Ensemble</h3>${mates.length ? html`<p class="small">Se porte avec : ${mates.map((m, i) => html`${i ? ', ' : ''}<a href="#/wardrobe/${m.id}">${m.name}</a>`)}.</p>` : html`<p class="small">La pièce assortie n'a pas encore de fiche. <a href="#/wardrobe/${g.id}/edit">Modifier</a> puis enregistrer pour la créer.</p>`}
+          <p class="small muted">Ensemble complet pour les occasions habillées ; séparément le reste du temps (la veste en blazer avec un chino ou un jean, le pantalon avec un pull fin). Lavez et pressez les deux pièces ensemble pour garder la même teinte.</p></div>` : ''}
         <div class="card"><h3>Disponibilité</h3><div class="chips">${AVAILABILITY.map(([id, label]) => html`<button class="chip" data-avail="${id}" aria-pressed="${(g.availability || 'clean') === id}">${label}</button>`)}</div>
           <p class="small muted" style="margin-top:8px">Une pièce « à laver », « indisponible » ou « en retouche » n'est jamais proposée comme immédiatement portable.</p></div>
       </div>
@@ -186,10 +192,20 @@ async function renderDetail(main, g) {
 
 // ---------------------------------------------------------------- Éditeur
 let pendingSource = null; // photo de dressing conservée pour découper plusieurs pièces
+let pendingPreset = null; // fiche assortie à créer (ensemble / costume)
+/** Pièce assortie d'un ensemble : veste ↔ pantalon. */
+export function setComplement(sub, category) {
+  const m = { 'veste-costume': ['bas', 'pantalon-costume'], blazer: ['bas', 'pantalon'], 'pantalon-costume': ['veste', 'veste-costume'], pantalon: ['veste', 'blazer'], flanelle: ['veste', 'blazer'], chino: ['veste', 'surchemise'], 'veste-denim': ['bas', 'jean'], jean: ['veste', 'veste-denim'] };
+  if (m[sub]) return { category: m[sub][0], sub: m[sub][1] };
+  if (category === 'veste') return { category: 'bas', sub: 'pantalon-costume' };
+  if (category === 'bas') return { category: 'veste', sub: 'veste-costume' };
+  if (category === 'haut') return { category: 'bas', sub: 'pantalon' };
+  return null;
+}
 
 async function renderEditor(main, existing, preset = {}) {
   const g = existing || { id: null, category: preset.category || 'haut', sub: preset.sub || 'chemise', seasons: [], styles: [], tags: [], measures: {}, availability: 'clean', condition: 'good', photoIds: [], rainResistance: 0, windResistance: 0, ...preset };
-  const state = { source: null, rotation: 0, crop: { x: 0, y: 0, w: 1, h: 1 }, aspect: 'free', dominant: [], photoKind: preset.photoKind || 'single', removePhotos: new Set() };
+  const state = { source: null, rotation: 0, crop: { x: 0, y: 0, w: 1, h: 1 }, aspect: 'free', dominant: [], photoKind: preset.photoKind || 'single', removePhotos: new Set(), extras: [], pasteLabel: false };
   const ai = await aiStatus();
   const consentAI = store.profile.consents?.ai && store.profile.kind !== 'child';
   const colorOpts = ALL_COLORS.map((c) => [c.id, `${c.name}${c.aux ? ' (aux.)' : ''}`]).concat([['custom', 'Personnalisée…']]);
@@ -205,7 +221,7 @@ async function renderEditor(main, existing, preset = {}) {
       <div class="btn-row">
         <label class="btn" for="pcam">${icon('camera')} Prendre une photo</label><input id="pcam" type="file" accept="image/*" capture="environment" class="sr-only">
         <label class="btn" for="pfile">${icon('upload')} Galerie ou fichier</label><input id="pfile" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" class="sr-only">
-        ${pendingSource && !existing ? html`<button class="btn" type="button" id="reuse">Reprendre la photo de dressing précédente</button>` : ''}
+        ${pendingSource && !existing ? html`<button class="btn" type="button" id="reuse">Reprendre la photo précédente</button>` : ''}
       </div>
       <div id="cropper" class="hidden" style="margin-top:14px">
         <div class="crop-stage"><canvas id="cropcanvas" aria-label="Aperçu de la photo recadrée"></canvas></div>
@@ -218,6 +234,11 @@ async function renderEditor(main, existing, preset = {}) {
         <div class="btn-row"><button class="btn btn-sm" type="button" id="rot">${icon('rotate')} Pivoter 90°</button><button class="btn btn-sm btn-ghost" type="button" id="clearphoto">Retirer cette photo</button></div>
         <div id="domcolors" style="margin-top:10px"></div>
       </div>
+      <div class="card-flat" style="margin-top:12px"><p class="small"><strong>Autres photos de la même pièce</strong> <span class="muted">(facultatif) : dos, détail, étiquette</span></p>
+        <div class="btn-row"><label class="btn btn-sm btn-gold" for="plabel">${icon('camera')} Photo de l'étiquette</label><input id="plabel" type="file" accept="image/*" capture="environment" class="sr-only">
+          <label class="btn btn-sm" for="pextra">${icon('upload')} Ajouter des photos (dos, détail…)</label><input id="pextra" type="file" accept="image/*" multiple class="sr-only"></div>
+        <p class="hint">L'étiquette (composition, taille, référence, pays) est lue sur votre appareil, sans envoi, puis proposée pour remplir la fiche.</p>
+        <div id="extras" class="extras"></div><p class="small muted" id="ocrmsg" aria-live="polite"></p></div>
       ${existing?.photoIds?.length ? html`<div style="margin-top:12px"><p class="small muted">Photos enregistrées (cocher pour supprimer à l'enregistrement) :</p><div class="row">${existing.photoIds.map((ph) => html`<label class="check" style="flex-direction:column;align-items:flex-start"><span class="mini-thumb" style="width:70px"><img data-photo="${ph}" alt="Photo enregistrée"></span><span><input type="checkbox" data-rmphoto="${ph}"> Supprimer</span></label>`)}</div></div>` : ''}
       ${ai.ai && consentAI ? html`<button class="btn btn-sm" type="button" id="airecog" style="margin-top:10px">Suggérer les champs (IA)</button><p class="hint">La photo est envoyée au serveur IA configuré ; chaque champ suggéré reste à confirmer.</p>` : html`<p class="hint">Reconnaissance IA facultative : ${ai.ai ? 'activez le consentement IA dans Paramètres' : 'non configurée'} — couleurs estimées localement, sans envoi.</p>`}
       <div id="aiout"></div>
@@ -249,6 +270,8 @@ async function renderEditor(main, existing, preset = {}) {
       <div class="field"><label for="color2">Couleur secondaire</label><select id="color2" name="color2">${options(ALL_COLORS.map((c) => [c.id, c.name]), g.color2?.id || '', { empty: 'Aucune' })}</select></div>
       <div class="field"><label for="pattern">Motif</label><select id="pattern" name="pattern">${options(PATTERNS, g.pattern || 'Uni')}</select></div>
       <div class="field"><label for="brand">Marque</label><input id="brand" name="brand" type="text" value="${g.brand || ''}"></div>
+      <label class="check span-2"><input type="checkbox" id="isset" name="isset" ${g.setId ? raw('checked') : ''}> Fait partie d'un ensemble (costume : veste + pantalon assortis)</label>
+      <p class="hint span-2" id="sethint">${g.setId ? 'Pièce reliée à son ensemble.' : 'Chaque pièce a sa propre fiche, reliée à l\'autre : SPREZZA les propose ensemble pour les occasions habillées, et séparément le reste du temps.'}</p>
     </div></fieldset>
     <fieldset><legend>Matière, coupe et taille</legend><div class="form-grid">
       <div class="field"><label for="material">Matière principale</label><input id="material" name="material" list="materials" type="text" value="${g.material || ''}"><datalist id="materials">${MATERIALS.map((m) => html`<option value="${m}">`)}</datalist></div>
@@ -274,6 +297,8 @@ async function renderEditor(main, existing, preset = {}) {
     <fieldset><legend>Achat et notes</legend><div class="form-grid">
       <div class="field"><label for="purchaseDate">Date d'achat</label><input id="purchaseDate" name="purchaseDate" type="date" value="${g.purchaseDate || ''}"></div>
       <div class="field"><label for="price">Prix (€, facultatif)</label><input id="price" name="price" type="number" min="0" step="0.01" inputmode="decimal" value="${g.price ?? ''}"></div>
+      <div class="field"><label for="ref">Référence (étiquette)</label><input id="ref" name="ref" type="text" value="${g.ref || ''}" placeholder="ex. 0706/310/401"></div>
+      <div class="field"><label for="origin">Fabrication</label><input id="origin" name="origin" type="text" value="${g.origin || ''}" placeholder="ex. Portugal"></div>
       <div class="field span-2"><label for="sourceUrl">Lien d'origine</label><input id="sourceUrl" name="sourceUrl" type="url" value="${g.sourceUrl || ''}" placeholder="https://…"></div>
       <div class="field span-2"><label for="tags">Tags (séparés par des virgules)</label><input id="tags" name="tags" type="text" value="${(g.tags || []).join(', ')}"></div>
       <div class="field span-2"><label for="notes">Notes</label><textarea id="notes" name="notes">${g.notes || ''}</textarea></div>
@@ -339,6 +364,7 @@ async function renderEditor(main, existing, preset = {}) {
   main.querySelectorAll('[data-rmphoto]').forEach((cb) => cb.onchange = () => { if (cb.checked) state.removePhotos.add(cb.dataset.rmphoto); else state.removePhotos.delete(cb.dataset.rmphoto); });
   $('#airecog')?.addEventListener('click', () => aiRecognize(main, state));
   setupWebIdentify(main, state, { subOpts, syncSub, syncColor });
+  setupExtraPhotos(main, state);
 
   form.onsubmit = async (e) => {
     e.preventDefault();
@@ -360,6 +386,15 @@ async function renderEditor(main, existing, preset = {}) {
         await store.repo.put('photos', { id: phId, ownerId: id, profileId: pid(), blob: out.blob, thumb: out.thumbBlob, mime: 'image/jpeg', width: out.width, height: out.height, kind: v.photoKind, private: true, rights: 'user_owned', alt: v.name });
         photoIds = [...photoIds, phId];
       }
+      const ORDER = { back: 1, detail: 2, label: 3 };
+      for (const x of [...state.extras].sort((a, b) => ORDER[a.role] - ORDER[b.role])) {
+        const out = await processImage(x.bitmap, {});
+        const phId = uid('ph');
+        await store.repo.put('photos', { id: phId, ownerId: id, profileId: pid(), blob: out.blob, thumb: out.thumbBlob, mime: 'image/jpeg', width: out.width, height: out.height, kind: x.role, private: true, rights: 'user_owned', alt: `${v.name} — ${EXTRA_ROLES[x.role]}` });
+        photoIds = [...photoIds, phId];
+      }
+      const newSet = !!v.isset && (!g.setId || !(await loadGarments()).some((x) => x.setId === g.setId && x.id !== existing?.id));
+      const setId = v.isset ? (g.setId || uid('set')) : null;
       const rec = {
         ...(existing || {}), id, profileId: existing?.profileId || pid(), name: v.name, category: v.category, sub: v.sub,
         color: colorVal, color2: v.color2 ? { id: v.color2, name: COLOR_BY_ID[v.color2].name, hex: COLOR_BY_ID[v.color2].hex } : null,
@@ -367,7 +402,7 @@ async function renderEditor(main, existing, preset = {}) {
         seasons: v.seasons || [], formality: v.formality, warmth: v.warmth, comfort: v.comfort, rainResistance: v.rainResistance, windResistance: v.windResistance,
         styles: v.styles || [], condition: v.condition, availability: v.availability, purchaseDate: v.purchaseDate || null, price: v.price,
         sourceUrl: v.sourceUrl || null, tags: v.tags ? v.tags.split(',').map((t) => t.trim()).filter((t) => t && t !== 'à compléter') : [], // fiche complétée notes: v.notes, favorite: !!v.favorite,
-        photoIds, photoKind: v.photoKind, everyday: v.category === 'accessoire' ? !!v.everyday : undefined,
+        photoIds, photoKind: v.photoKind, ref: v.ref || null, origin: v.origin || null, setId, everyday: v.category === 'accessoire' ? !!v.everyday : undefined,
       };
       delete rec.capsuleId; delete rec.wishId;
       await store.repo.put('garments', rec);
@@ -375,13 +410,66 @@ async function renderEditor(main, existing, preset = {}) {
       if (!existing && g.wishId) { const w = await store.repo.get('wishlist', g.wishId); if (w) await store.repo.put('wishlist', { ...w, linkedGarmentId: id }); }
       if (state.lensUsed) store.sync.clearLens();
       toast(existing ? 'Fiche mise à jour' : 'Pièce ajoutée au dressing');
-      if (!existing && v.photoKind === 'wardrobe' && pendingSource) {
+      const comp = newSet ? setComplement(v.sub, v.category) : null;
+      if (comp) {
+        const other = SUB_INFO[comp.sub];
+        openModal({ title: 'Créer la pièce assortie ?', body: html`<p>« ${v.name} » fait partie d'un ensemble. Créez maintenant la fiche « ${other.name} » : couleur, matière, composition, marque et motif sont repris, et les deux fiches sont reliées.</p><p class="small muted">Deux fiches valent mieux qu'une : la veste se porte aussi en blazer, le pantalon avec un pull, et chacun a son propre rythme de lavage.</p><div class="btn-row"><button class="btn btn-primary" data-yes>Créer « ${other.name} »</button><button class="btn" data-no>Plus tard</button></div>`,
+          onMount(body, close) {
+            body.querySelector('[data-yes]').onclick = () => {
+              pendingPreset = { category: comp.category, sub: comp.sub, name: `${other.name} — ensemble ${v.brand || ''}`.replace(/\s+$/, '').replace(/ensemble $/, 'ensemble'), color: rec.color, color2: rec.color2, pattern: rec.pattern, material: rec.material, composition: rec.composition, brand: rec.brand, fit: rec.fit, seasons: rec.seasons, styles: rec.styles, condition: rec.condition, purchaseDate: rec.purchaseDate, sourceUrl: rec.sourceUrl, setId };
+              if (state.source) pendingSource = state.source;
+              close(); navigate('#/wardrobe/new?set=1');
+            };
+            body.querySelector('[data-no]').onclick = () => { close(); navigate(`#/wardrobe/${id}`); };
+          } });
+      } else if (!existing && v.photoKind === 'wardrobe' && pendingSource) {
         openModal({ title: 'Découper une autre pièce ?', body: html`<p>Cette photo montre plusieurs pièces. Voulez-vous en découper une autre ? Rien n'est ajouté sans votre validation.</p><div class="btn-row"><button class="btn btn-primary" data-yes>Découper une autre pièce</button><button class="btn" data-no>Terminer</button></div>`,
           onMount(body, close) { body.querySelector('[data-yes]').onclick = () => { close(); navigate('#/wardrobe/new'); }; body.querySelector('[data-no]').onclick = () => { pendingSource = null; close(); navigate(`#/wardrobe/${id}`); }; } });
       } else navigate(`#/wardrobe/${id}`);
     } catch (e2) { err.textContent = `Enregistrement impossible : ${e2.message}`; err.classList.remove('hidden'); $('#savebtn').disabled = false; }
   };
 }
+// ---------------------------------------------------------------- Photos supplémentaires et étiquette
+const EXTRA_ROLES = { back: 'Dos', detail: 'Détail', label: 'Étiquette' };
+function setupExtraPhotos(main, state) {
+  const $ = (s) => main.querySelector(s);
+  const msg = (t) => { $('#ocrmsg').textContent = t; };
+  const draw = () => {
+    setHTML($('#extras'), state.extras.map((x, i) => html`<div class="extra">
+      <span class="mini-thumb" style="width:76px"><img src="${x.url}" alt="${EXTRA_ROLES[x.role]}"></span>
+      <select data-role="${i}" aria-label="Type de photo">${options(Object.entries(EXTRA_ROLES), x.role)}</select>
+      ${x.role === 'label' ? html`<button class="btn btn-sm btn-primary" type="button" data-ocr="${i}">Lire l'étiquette</button>` : ''}
+      <button class="btn btn-sm btn-ghost" type="button" data-rmx="${i}">Retirer</button></div>`));
+    $('#extras').querySelectorAll('[data-role]').forEach((sel) => sel.onchange = () => { state.extras[+sel.dataset.role].role = sel.value; draw(); });
+    $('#extras').querySelectorAll('[data-rmx]').forEach((b) => b.onclick = () => { URL.revokeObjectURL(state.extras[+b.dataset.rmx].url); state.extras.splice(+b.dataset.rmx, 1); draw(); });
+    $('#extras').querySelectorAll('[data-ocr]').forEach((b) => b.onclick = () => ocr(state.extras[+b.dataset.ocr], b));
+  };
+  const add = async (files, role) => {
+    for (const file of files) {
+      try { await checkImageFile(file); state.extras.push({ bitmap: await loadBitmap(file), url: URL.createObjectURL(file), role }); } catch (e) { toast(e.message); }
+    }
+    draw();
+  };
+  const ocr = async (x, btn) => {
+    if (btn) btn.disabled = true;
+    try {
+      const { canvasToBlob } = await import('../services/image.js');
+      const blob = await canvasToBlob(renderToCanvas(x.bitmap, { maxSide: 2000 }), 0.92);
+      const { text } = await readLabel(blob, ({ step, pct }) => msg(`${step}${pct !== null && pct !== undefined ? ` — ${pct} %` : '…'}`));
+      if (!text.trim()) { msg('Aucun texte lisible : reprenez l\'étiquette à plat, bien éclairée, sans reflet, en remplissant la photo.'); return; }
+      $('#webpaste').value = text.trim(); state.pasteLabel = true;
+      msg('Étiquette lue : vérifiez les caractéristiques proposées ci-dessous (la lecture peut se tromper sur un texte usé ou plissé).');
+      $('#parsebtn').click();
+      $('#webid').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) { msg(`Lecture impossible : ${e.message}. Astuce iPhone : dans Photos, appuyez longuement sur le texte de l'étiquette, copiez-le et collez-le dans « Retrouver ce vêtement sur internet ».`); }
+    finally { if (btn) btn.disabled = false; }
+  };
+  $('#plabel').onchange = async (e) => { const f = [...e.target.files]; e.target.value = ''; await add(f, 'label'); const x = state.extras[state.extras.length - 1]; if (x?.role === 'label') ocr(x, $('#extras').querySelector(`[data-ocr="${state.extras.length - 1}"]`)); };
+  $('#pextra').onchange = (e) => { const f = [...e.target.files]; e.target.value = ''; add(f, 'back'); };
+  $('#isset').onchange = () => { $('#sethint').textContent = $('#isset').checked ? 'À l\'enregistrement, SPREZZA proposera de créer la pièce assortie (même couleur, matière, marque), reliée à celle-ci.' : 'Pièce indépendante.'; };
+  void OCR_DOWNLOAD_MB;
+}
+
 // ---------------------------------------------------------------- Identification sur internet
 async function croppedPhotoBlob(state) {
   const { canvasToBlob } = await import('../services/image.js');
@@ -434,18 +522,20 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
     const multi = ['Zalando', 'Vinted'].map((n) => RETAILERS.find((r) => r.name === n));
     const shops = (brand ? [own, ...multi] : QUICK_SHOPS.map((n) => RETAILERS.find((r) => r.name === n))).filter((r, i, a) => r && a.indexOf(r) === i);
     const qFor = (r) => (r === own ? identifyQuery({ subName: sub?.name || '', colorName: col?.name || '', material: $('#material').value.trim() }) : q);
-    setHTML($('#textshops'), html`<p class="small muted span-2" style="width:100%">Recherche : « ${q} » — renseignez d'abord marque, type et couleur pour un résultat précis.</p>
+    const refQ = $('#ref').value.trim() ? `${$('#brand').value.trim()} ${$('#ref').value.trim()}`.trim() : '';
+    setHTML($('#textshops'), html`${refQ ? html`<a class="btn btn-sm btn-primary" href="https://www.google.com/search?q=${encodeURIComponent(refQ)}" target="_blank" rel="noopener noreferrer">${icon('search')} Référence exacte « ${refQ} »</a>` : ''}<p class="small muted span-2" style="width:100%">Recherche : « ${q} » — renseignez d'abord marque, type et couleur pour un résultat précis.</p>
       <a class="btn btn-sm btn-gold" href="${priceCompareUrl(`${q} ${g}`)}" target="_blank" rel="noopener noreferrer">${icon('search')} Google Shopping</a>
       ${shops.map((r) => html`<a class="btn btn-sm" href="${shopSearchUrl(r, qFor(r), g)}" target="_blank" rel="noopener noreferrer">${r.name}</a>`)}`);
   };
 
   $('#pastebtn').onclick = async () => {
+    state.pasteLabel = false;
     try { const t = await navigator.clipboard.readText(); if (t) { $('#webpaste').value = t; $('#parsebtn').click(); } else toast('Presse-papiers vide'); }
     catch { toast('Collez avec un appui long dans le champ'); $('#webpaste').focus(); }
   };
 
   $('#parsebtn').onclick = () => {
-    const p = parseProduct($('#webpaste').value);
+    const p = parseProduct($('#webpaste').value, { label: state.pasteLabel });
     const out = $('#webout');
     if (!p.found.length) { setHTML(out, html`<p class="small callout callout-warn">Rien de reconnu. Collez le titre complet du produit, sa composition ou son lien.</p>`); return; }
     const rows = [];
@@ -459,6 +549,9 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
     if (p.pattern) rows.push(['pattern', 'Motif', p.pattern, p.pattern, true]);
     if (p.fit) rows.push(['fit', 'Coupe', FITS.find(([id]) => id === p.fit)?.[1] || p.fit, p.fit, true]);
     if (p.price) rows.push(['price', 'Prix', fmtEUR(p.price), p.price, true]);
+    if (p.size) rows.push(['size', 'Taille', p.size, p.size, true]);
+    if (p.ref) rows.push(['ref', 'Référence', p.ref, p.ref, true]);
+    if (p.origin) rows.push(['origin', 'Fabrication', p.origin, p.origin, true]);
     if (p.sourceUrl) rows.push(['sourceUrl', 'Lien d\'origine', p.sourceUrl.replace(/^https?:\/\/(www\.)?/, '').slice(0, 48), p.sourceUrl, true]);
     setHTML(out, html`<div class="card-flat" style="margin-top:10px"><p class="small"><strong>${rows.length} caractéristique(s) trouvée(s)</strong> — décochez ce qui ne correspond pas à votre pièce.</p>
       ${rows.map(([f, l, v, , on], i) => html`<label class="check"><input type="checkbox" data-web="${i}" ${on ? raw('checked') : ''}> ${l} : <strong>${v}</strong></label>`)}
@@ -473,6 +566,7 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
         else { const el = $(`#${f}`); if (el) el.value = val; }
       });
       toast('Fiche remplie — vérifiez puis enregistrez');
+      if ($('#ref').value && $('#brand').value) $('#textsearch').click();
       $('#name').scrollIntoView({ behavior: 'smooth', block: 'center' });
     };
   };
