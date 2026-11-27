@@ -447,7 +447,7 @@ export function colorVariants(content) {
     const alt = cleanAlt(m[2]); const url = m[3];
     if (!(/chip|swatch|wid=40\b/i.test(url) || /^couleur\b|^colou?r\b/i.test(alt))) continue;
     const name = alt.replace(/^(couleur|colou?r)\s*:?\s*/i, '').replace(/\s*s[ée]lectionn[ée]e?\s*$/i, '').trim();
-    if (!name || name.length > 40) continue;
+    if (!name || name.length > 40 || !/[a-zà-ÿ]{3}/i.test(name) || /default|image|photo|zoom/i.test(name)) continue; // codes seuls, vignettes génériques
     const code = codeOf(url);
     if (out.some((v) => v.name.toLowerCase() === name.toLowerCase())) continue;
     out.push({ name: name.charAt(0) + name.slice(1).toLowerCase(), code, href: m[4] || null, selected: /s[ée]lectionn/i.test(alt) });

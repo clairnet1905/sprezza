@@ -513,6 +513,7 @@ test('Lien produit : photos de l\'article et coloris proposés (Mango, Uniqlo)',
   eq(currentColorCode(murl, mi), '01');
   const kaki = imagesForColor(mi, '01', '37'); ok(kaki.length && kaki.every((i) => /37074438-37-/.test(i.url)), kaki.map((i) => i.url).join(' '));
   const uq = await (await fetch('./fixture-uq.json')).json();
+  eq(colorVariants('![Image 9: 06](https://x.com/chip/goods_06_1_chip.jpg) ![Image 10: default image](https://x.com/chip/goods_00_1_chip.jpg) ![Image 3: GRIS](https://x.com/chip/goods_06_1_chip.jpg)').map((v) => v.name).join(), 'Gris');
   const uv = colorVariants(uq.content); ok(uv.some((v) => v.name === 'Bleu marine' && v.code === '69'), uv.map((v) => `${v.name}:${v.code}`).join(','));
   const ui = pageImages(uq.content); ok(ui.some((i) => /eugoods_06_450259/.test(i.url)), 'photo Uniqlo manquante');
   eq(currentColorCode('https://www.uniqlo.com/fr/fr/products/E450259-000/00?colorDisplayCode=06', ui), '06');
