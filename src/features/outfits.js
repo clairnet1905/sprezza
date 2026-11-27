@@ -68,7 +68,7 @@ async function renderDetail(main, id) {
         <div class="card"><h3>Note recalculée (grille B18)</h3>${criteriaView(sc)}${o.score ? html`<p class="small muted" style="margin-top:8px">Note à la sauvegarde : ${o.score.score100 ?? (o.score.scoreRange ? o.score.scoreRange.join('–') : '—')}/100.</p>` : ''}</div>
         <div class="card"><h3>Historique de port</h3>${worn.length ? html`<ul class="clean small">${worn.map((w) => html`<li>${fmtDate(w.date)}${w.occasionId ? ` — ${OCCASION_BY_ID[w.occasionId]?.name}` : ''}</li>`)}</ul>` : html`<p class="small muted">Jamais portée.</p>`}</div>
       </div>
-      <div><div class="mannequin-wrap">${outfitMannequin(p)}</div><div class="schema-label">Schéma — pas une photographie</div></div>
+      <div><div class="mannequin-wrap">${outfitMannequin(p)}</div><div class="schema-label">Aperçu avec vos pièces · touchez pour agrandir</div></div>
     </div>`);
   hydratePhotos(main);
   const $ = (s) => main.querySelector(s);
@@ -102,7 +102,7 @@ async function renderBuilder(main, head, query) {
     const sc = scoreOutfit(p, { occasion: OCCASION_BY_ID[occasionId], prefs: await loadPrefs(), targetStyles: null });
     const ready = p.top && p.bottom;
     setHTML(main.querySelector('#bprev'), html`<div class="row-between"><h3>Aperçu</h3>${ready ? scoreBadge(sc) : ''}</div>
-      <div class="mannequin-wrap">${outfitMannequin(p)}</div><div class="schema-label">Schéma — pas une photographie</div>
+      <div class="mannequin-wrap">${outfitMannequin(p)}</div><div class="schema-label">Aperçu avec vos pièces · touchez pour agrandir</div>
       ${ready ? html`<details class="disclosure" open><summary>Détail de la note</summary>${criteriaView(sc, { compact: true })}</details>` : html`<p class="small muted">Choisissez au moins un haut et un bas.</p>`}
       <div class="field" style="margin-top:10px"><label for="bname">Nom de la tenue</label><input id="bname" type="text" placeholder="ex. Rendez-vous client d'automne"></div>
       <div class="btn-row"><button class="btn btn-primary" id="bsave" ${ready ? '' : raw('disabled')}>${icon('heart')} Sauvegarder</button><button class="btn" id="bwear" ${ready ? '' : raw('disabled')}>Je porte cette tenue</button></div>`);

@@ -28,6 +28,8 @@ import { wardrobeAudit, wardrobeGaps } from '../src/domain/audit.js';
 import { detectCapsule, capsuleState } from '../src/domain/wardrobe-logic.js';
 import { workKitStatus, workwearIssue } from '../src/domain/recommend.js';
 import { evaluatePurchase } from '../src/domain/purchase.js';
+import { parseICS, parseAgendaText, occasionForEvent } from '../src/domain/calendar-import.js';
+import { looksFor } from '../src/domain/explain.js';
 import { afterWear as afterWear2 } from '../src/domain/care.js';
 import { climateFeel } from '../src/domain/weather.js';
 import { inspirationQuery, colorsQuery, searchPhotos } from '../src/services/pexels.js';
@@ -677,6 +679,37 @@ test('Choisir « sans veste » est respecté', () => {
   const W = [G('haut', 'chemise', 'white'), G('bas', 'pantalon', 'mid-gray'), G('chaussures', 'derbies', 'chocolate'), G('veste', 'blazer', 'navy')];
   const r = recommend({ garments: W, occasionId: 'client', season: 'autumn', imposed: { layer: null } });
   ok(r.options.length && r.options.every((o) => !o.pieces.layer));
+});
+
+test('Agenda : fichier .ics (répétition hebdomadaire, annulé ignoré) et texte collé, occasion reconnue', () => {
+  const ics = ['BEGIN:VCALENDAR', 'BEGIN:VEVENT', 'UID:a1', 'SUMMARY:Rendez-vous client Dupont', 'DTSTART:20261201T130000Z', 'END:VEVENT',
+    'BEGIN:VEVENT', 'UID:a2', 'SUMMARY:Ménage bureaux', 'LOCATION:Mérignac', 'DTSTART;TZID=Europe/Paris:20261130T080000', 'RRULE:FREQ=WEEKLY;BYDAY=MO,TH;COUNT=4', 'END:VEVENT',
+    'BEGIN:VEVENT', 'UID:a3', 'SUMMARY:Dîner annulé', 'STATUS:CANCELLED', 'DTSTART;VALUE=DATE:20261205', 'END:VEVENT',
+    'BEGIN:VEVENT', 'UID:a4', 'SUMMARY:Mariage de L\\, et P', 'DTSTART;VALUE=DATE:20261212', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  const ev = parseICS(ics, { from: new Date(2026, 10, 27), days: 60 });
+  eq(ev.filter((e) => /Ménage/.test(e.title)).map((e) => e.date).join(','), '2026-11-30,2026-12-03,2026-12-07,2026-12-10');
+  ok(!ev.some((e) => /annulé/.test(e.title)));
+  eq(occasionForEvent(ev.find((e) => /client/.test(e.title))).occasionId, 'client');
+  eq(occasionForEvent(ev.find((e) => /Ménage/.test(e.title))).occasionId, 'work-cleaning');
+  eq(occasionForEvent(ev.find((e) => /Mariage/.test(e.title))).occasionId, 'wedding');
+  const tx = parseAgendaText('28/11 14h rendez-vous client Dupont\ndemain 8h30 ménage bureaux\n12 décembre dîner au restaurant\nrien ici', { now: new Date(2026, 10, 27, 10) });
+  eq(tx.length, 3);
+  eq(tx[0].date, '2026-11-28'); eq(tx[0].time, '08:30'); ok(/ménage bureaux/.test(tx[0].title), tx[0].title);
+  eq(tx[1].time, '14:00'); eq(tx[1].title, 'rendez-vous client Dupont');
+  eq(tx[2].date, '2026-12-12'); eq(occasionForEvent(tx[2]).occasionId, 'restaurant');
+  eq(occasionForEvent({ title: 'Entretien d\'embauche chez X' }).occasionId, 'interview');
+});
+test('Styles et raisons propres à l\'événement (pas les mêmes partout)', () => {
+  let n = 0; const G = (category, sub, name, color) => ({ id: `e${++n}`, category, sub, name, color: { id: color }, availability: 'clean' });
+  const W = [G('haut', 'chemise', 'Chemise blanche', 'white'), G('haut', 'col-roule', 'Col roulé noir', 'black'), G('haut', 'tee-shirt', 'Tee blanc', 'white'), G('haut', 'polo', 'Polo marine', 'navy'),
+    G('bas', 'pantalon', 'Pantalon gris', 'mid-gray'), G('bas', 'jean', 'Jean', 'indigo'), G('bas', 'chino', 'Chino beige', 'beige'),
+    G('veste', 'blazer', 'Blazer marine', 'navy'), G('chaussures', 'derbies', 'Derbies', 'chocolate'), G('chaussures', 'baskets', 'Baskets', 'white'), G('chaussures', 'chelsea', 'Chelsea', 'chocolate')];
+  const date = new Date(2026, 10, 27, 9);
+  const c = recommend({ garments: W, occasionId: 'client', date }); const w = recommend({ garments: W, occasionId: 'walk', date });
+  eq(c.options[0].title, looksFor({ id: 'client' })[0].name); eq(w.options[0].title, looksFor({ id: 'walk' })[0].name);
+  ok(c.options[0].reasons[0] !== w.options[0].reasons[0]);
+  ok(/Pièce/.test(c.options[0].reasons[1]), c.options[0].reasons[1]);
+  ok(!c.options[0].reasons.some((r) => /^Formalité/.test(r)), 'phrase générique de formalité');
 });
 
 test('Zara : pantalon « taille jogging » = chino, « marron clair chiné », prix soldé, taille et référence écrites', () => {

@@ -416,3 +416,9 @@ button.piece-pick:hover > .piece, button.piece-pick:focus-visible > .piece { bor
 .picker-name { font-size: 13px; font-weight: 500; line-height: 1.25; }
 .piece-clickable { cursor: pointer; }
 .piece-clickable:hover { border-color: var(--champagne, #b8975a); }
+
+/* Mannequin habillé avec les photos des pièces */
+.mannequin-wrap:has(svg.dressed) { cursor: zoom-in; background: linear-gradient(180deg, var(--surface-2, #f3efe7), var(--surface, #fbf9f5)); }
+.mannequin-wrap svg.dressed { max-width: 250px; }
+.mannequin-big { display: flex; justify-content: center; background: linear-gradient(180deg, var(--surface-2, #f3efe7), var(--surface, #fbf9f5)); border-radius: 14px; padding: 16px; }
+.mannequin-big svg { width: 100%; max-width: 420px; height: auto; }

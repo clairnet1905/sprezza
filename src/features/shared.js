@@ -2,6 +2,7 @@
 import { html, raw } from '../lib/html.js';
 import { icon, swatch, toast, todayISO, scoreLabel10, openModal } from '../components/ui.js';
 import { garmentGlyph, mannequinSVG } from '../components/mannequin.js';
+import { dressedMannequinSVG } from '../components/dressed.js';
 import { ROLE_LABELS, ROLE_ORDER, AVAILABILITY, CATEGORY_BY_ID, SUB_INFO } from '../data/taxonomy.js';
 import { OUTFIT_MODES, OCCASION_BY_ID } from '../data/occasions.js';
 import { store, pid, hydratePhotos } from '../state.js';
@@ -71,10 +72,21 @@ export function piecesList(pieces) {
 }
 
 export function outfitMannequin(pieces, label) {
-  const jacket = pieces.layer || pieces.outer;
   const tie = (pieces.accessories || []).find((a) => a.sub === 'cravate');
-  return mannequinSVG({ top: pieces.top?.color?.hex, pants: pieces.bottom?.color?.hex, shoe: pieces.shoes?.color?.hex, jacket: jacket?.color?.hex, belt: pieces.belt?.color?.hex, tie: tie?.color?.hex, label: label || 'Schéma des couleurs de la tenue' });
+  const P = (g) => (g ? { sub: g.sub, hex: g.color?.hex || colorHex(g.color?.id), photo: g.photoIds?.[0] || null } : null);
+  return dressedMannequinSVG({ top: P(pieces.top), bottom: P(pieces.bottom), layer: P(pieces.layer), outer: P(pieces.outer), shoes: P(pieces.shoes), belt: P(pieces.belt), tie: P(tie) }, { label: label || 'Mannequin habillé avec les pièces de la tenue' });
 }
+// Toucher le mannequin l'agrandit (une seule écoute pour toute l'application).
+if (typeof document !== 'undefined' && !window.__mannequinZoom) {
+  window.__mannequinZoom = true;
+  document.addEventListener('click', (e) => {
+    const w = e.target.closest?.('.mannequin-wrap');
+    if (!w || !w.querySelector('svg.dressed') || w.closest('.modal')) return;
+    openModal({ title: 'Aperçu de la tenue', body: html`<div class="mannequin-big">${raw(w.innerHTML)}</div><p class="small muted" style="text-align:center">Chaque vêtement est découpé dans la photo de votre pièce (ou rempli de sa couleur sans photo) : un aperçu, pas une photo portée.</p>` });
+  });
+}
+/** Légende sous le mannequin. */
+export const MANNEQUIN_NOTE = 'Aperçu avec vos pièces · touchez pour agrandir';
 
 /** Carte de proposition (Aujourd'hui, Tenues, Avec quoi le porter). */
 /** Ligne de pièce cliquable : ouvre le dressing pour choisir une autre pièce de ce rôle. */
@@ -142,14 +154,14 @@ export function upgradeBlock(u) {
 export function proposalCard(opt, idx, { actions = true, title } = {}) {
   const p = opt.pieces;
   return html`<article class="card card-accent proposal" data-idx="${idx}">
-    <div class="proposal-head"><div><div class="eyebrow">Option ${idx + 1}</div><h3>${title || MODE_NAME[opt.mode] || 'Tenue'}</h3>
+    <div class="proposal-head"><div><div class="eyebrow">Option ${idx + 1}</div><h3>${title || opt.title || MODE_NAME[opt.mode] || 'Tenue'}</h3>${opt.idea ? html`<p class="small muted" style="margin:2px 0 6px">${opt.idea}</p>` : ''}
       <div class="chips">${opt.palette.map((id) => html`<span class="tag">${swatch(colorHex(id))} ${colorName(id)}</span>`)}</div></div>
       ${scoreBadge(opt.score)}</div>
     <div class="grid-2" style="align-items:start">
       <div class="piece-list">${piecesList(p).map(([role, g]) => pieceRow(role, g, { actions: actions && role !== 'accessory' && role !== 'belt' ? html`<div class="row" style="gap:4px"><button class="btn btn-ghost btn-icon btn-sm" data-act="replace" data-role="${role}" aria-label="Remplacer cette pièce : ${g.name}" title="Remplacer cette pièce">${icon('swap')}</button><button class="btn btn-ghost btn-icon btn-sm" data-act="keep" data-role="${role}" data-id="${g.id}" aria-label="Garder cette pièce : ${g.name}" title="Garder cette pièce">${icon('lock')}</button></div>` : '' }))}
         ${opt.missing.map((m) => html`<div class="piece piece-missing"><div class="piece-info"><div class="piece-role">Manquant</div><div class="piece-name">${m}</div><div class="small muted">Non possédé — aucune pièce inventée.</div></div>${actions ? html`<a class="btn btn-sm" href="#/shopping?q=${encodeURIComponent(m)}">Chercher</a>` : ''}</div>`)}
       </div>
-      <div><div class="mannequin-wrap">${outfitMannequin(p)}</div><div class="schema-label">Schéma — pas une photographie</div></div>
+      <div><div class="mannequin-wrap">${outfitMannequin(p)}</div><div class="schema-label">${MANNEQUIN_NOTE}</div></div>
     </div>
     <ul class="ticks">${opt.reasons.map((r) => html`<li>${r}</li>`)}</ul>
     ${upgradeBlock(opt.upgrade)}
@@ -185,7 +197,7 @@ export function idsToPieces(ids, garments) {
   return p;
 }
 
-export async function saveOutfit(pieces, { name, occasionId, mode, score, source = 'generator', missing = [], favorite = false } = {}) {
+export async function saveOutfit(pieces, { name, occasionId, mode, score, source = 'generator', missing = [], favorite = false, silent = false } = {}) {
   const rec = {
     id: uid('outfit'), profileId: pid(), name: name || `${MODE_NAME[mode] || 'Tenue'} — ${OCCASION_BY_ID[occasionId]?.name || 'Libre'}`,
     garmentIds: piecesToIds(pieces), key: comboKey(pieces), occasionId: occasionId || null, mode: mode || null, source,
@@ -193,7 +205,7 @@ export async function saveOutfit(pieces, { name, occasionId, mode, score, source
     missingItems: missing, favorite, palette: [...new Set(Object.values(pieces).flat().filter((g) => g && g.color).map((g) => g.color.id))],
   };
   await store.repo.put('outfits', rec);
-  toast('Tenue sauvegardée');
+  if (!silent) toast('Tenue sauvegardée');
   return rec;
 }
 
@@ -215,11 +227,11 @@ export async function wearOutfit(pieces, { date = todayISO(), occasionId = null,
   toast('Bonne journée — tenue enregistrée dans l\'historique');
 }
 
-export async function addToCalendar(pieces, { date, occasionId, title, outfitId = null } = {}) {
+export async function addToCalendar(pieces, { date, occasionId, title, outfitId = null, silent = false } = {}) {
   let oid = outfitId;
-  if (!oid) { const o = await saveOutfit(pieces, { occasionId, name: title, source: 'calendar' }); oid = o.id; }
+  if (!oid) { const o = await saveOutfit(pieces, { occasionId, name: title, source: 'calendar', silent }); oid = o.id; }
   await store.repo.put('calendar', { id: uid('cal'), profileId: pid(), date, occasionId: occasionId || null, outfitId: oid, title: title || OCCASION_BY_ID[occasionId]?.name || 'Tenue', status: 'planned' });
-  toast(`Ajouté au calendrier le ${new Date(date + 'T12:00:00').toLocaleDateString('fr-FR')}`);
+  if (!silent) toast(`Ajouté au calendrier le ${new Date(date + 'T12:00:00').toLocaleDateString('fr-FR')}`);
 }
 
 /**

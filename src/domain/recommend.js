@@ -7,7 +7,8 @@ import { scoreOutfit, SUB_AFFINITY, garmentFormality, outfitFormality } from './
 import { classifyHarmony, colorName, luminance, colorHex, hexToRgb } from './colors.js';
 import { seasonFromDate, climateFeel } from './weather.js';
 import { CAPSULE } from '../data/capsule.js';
-import { WORK_KIT } from '../data/workwear.js';
+import { WORK_KIT, WORK_PRICE_CAP } from '../data/workwear.js';
+import { looksFor, explainOutfit } from './explain.js';
 
 const TOP_K = 6;
 const BELT_BOTTOMS = ['pantalon', 'pantalon-costume', 'chino', 'jean', 'flanelle', 'bermuda'];
@@ -23,13 +24,13 @@ export function workwearIssue(g, role = roleOf(g)) {
   if (garmentFormality(g) >= 4) return 'trop habillée pour le ménage';
   if (['chemise', 'chemise-lin', 'polo', 'col-roule', 'cardigan'].includes(g.sub)) return 'peu pratique pour le ménage (à garder pour la ville)';
   if (role === 'shoes' && !WORK_SHOES.includes(g.sub) && !(g.tags || []).some((t) => /travail|sécurité|securite|antidérapant/i.test(t))) return 'chaussures non adaptées au ménage (fermées et antidérapantes)';
-  if (role !== 'outer' && (g.price ?? 0) >= 80) return 'pièce trop chère pour risquer de l\'abîmer';
+  if ((g.price ?? 0) > (WORK_PRICE_CAP[role] ?? 50)) return `pièce trop chère pour le ménage (plus de ${WORK_PRICE_CAP[role] ?? 50} €) : gardez-la pour la ville`;
   return null;
 }
 /** Kit de travail : ce que l'on a déjà (pièces dédiées ou ordinaires qui conviennent) et ce qui manque. */
 export function workKitStatus(garments = []) {
   return WORK_KIT.map((k) => {
-    const have = garments.filter((g) => k.uses.includes(g.sub) && !workwearIssue(g) && (k.sub === g.sub || !['white', 'ecru', 'beige', 'sky', 'light-gray'].includes(g.color?.id)));
+    const have = garments.filter((g) => k.uses.includes(g.sub) && !workwearIssue(g) && (k.sub === g.sub || !['white', 'ecru', 'beige', 'sky', 'light-gray', 'stone', 'sand'].includes(g.color?.id)));
     return { item: k, have, missing: Math.max(0, k.qty - have.length), ok: have.length >= k.qty };
   });
 }
@@ -66,7 +67,8 @@ export const OCCASION_TASTE = {
   'chic-party': { subs: { ...DRESSY, 'veste-costume': 3, 'pantalon-costume': 2.5 }, dark: 1.5, layer: 4 },
   wedding: { subs: { ...DRESSY, 'veste-costume': 3.5, 'pantalon-costume': 3 }, layer: 4 },
   religious: { subs: { ...DRESSY, 'veste-costume': 3.5, 'pantalon-costume': 3 }, layer: 4 },
-  'work-cleaning': { subs: { 'tee-shirt-travail': 4, 'pantalon-travail': 5, 'chaussures-travail': 5, 'veste-travail': 3, 'tee-shirt': 2.5, 'polo-sport': 2.5, sweat: 2, polaire: 2, jogging: 2.5, 'pantalon-technique': 3, jean: 0.5, chino: -1.5, baskets: 1.5, randonnee: 1, 'veste-technique': 2, surchemise: -1 }, dark: 1.2, layer: -0.5 },
+  // Travail : propre et stylé mais pas cher — polo piqué, chino stretch foncé, baskets nettes ; couleurs sombres.
+  'work-cleaning': { subs: { 'tee-shirt-travail': 3.5, 'polo-sport': 3.5, 'tee-shirt': 2.5, sweat: 1.5, polaire: 1.5, 'pantalon-travail': 4, chino: 2, 'pantalon-technique': 2.5, jogging: 0.5, jean: 1, 'chaussures-travail': 5, baskets: 2, randonnee: 0.5, 'veste-travail': 3, surchemise: 2.5, 'veste-technique': 1.5 }, dark: 1.5, light: -1.5, layer: 0 },
   mountain: { subs: { pull: 2, polaire: 2, 'pantalon-technique': 2, jean: 0.5, 'veste-technique': 2, parka: 1, doudoune: 1, chemise: -1, pantalon: -2 } },
 };
 const tasteOf = (occasion) => OCCASION_TASTE[occasion?.id] || {};
@@ -74,7 +76,8 @@ const isDark = (g) => luminance(colorHex(g?.color?.id)) < 0.12;
 /** Bonus/malus d'une pièce pour l'occasion (sans la veste, gérée à part). */
 export function occasionFit(g, occasion) {
   const t = tasteOf(occasion);
-  return (t.subs?.[g.sub] ?? 0) + (t.dark && g.color?.id ? (isDark(g) ? t.dark * 0.6 : 0) : 0);
+  const lum = g.color?.id ? luminance(colorHex(g.color.id)) : null;
+  return (t.subs?.[g.sub] ?? 0) + (t.dark && lum !== null && lum < 0.12 ? t.dark * 0.6 : 0) + (t.light && lum !== null && lum > 0.45 && ['top', 'bottom'].includes(roleOf(g)) ? t.light : 0);
 }
 /** Note de classement hors historique de port : grille B18 + style du mode + attentes de l'occasion. */
 export function styleRank(pieces, { mode, occasion, env, prefs = {} }, sc = null) {
@@ -289,7 +292,7 @@ export function recommend(input) {
   const results = [];
   let combos = 0;
   const seen = new Set();
-  for (const mode of OUTFIT_MODES.map((m) => m.id)) {
+  for (const mode of looksFor(occasion).map((l) => l.mode)) { // styles choisis pour l'événement, du plus adapté au moins attendu
     const cand = (role, k) => (forced[role] ? [forced[role]] : topK(pools[role], (g) => unaryScore(g, role, mode, ctxBase), k));
     const tops = cand('top'); const bottoms = cand('bottom'); const shoes = cand('shoes');
     const layersAll = cand('layer', 3);
@@ -349,21 +352,23 @@ export function recommend(input) {
   return { options, backup, info, combos };
 }
 
+const lowerFirst = (t) => String(t || '').charAt(0).toLowerCase() + String(t || '').slice(1);
 function decorate(pick, { occasion, env, pools, list, ctxBase }) {
   const p = pick.pieces;
   const reasons = []; const warnings = []; const missing = [];
   const colorIds = [p.top, p.bottom, p.layer, p.outer, p.shoes].filter(Boolean).map((g) => g.color?.id).filter(Boolean);
   const h = classifyHarmony(colorIds);
-  reasons.push(`${h.name} : ${[...new Set(colorIds)].map(colorName).join(', ')}. ${h.text}`);
+  const day = new Date(ctxBase.now || Date.now()); const seed = `${day.getFullYear()}-${day.getMonth()}-${day.getDate()}|${comboKey(p)}`;
+  const ex = explainOutfit(p, { occasion, env, mode: pick.mode, fitOf: (g) => occasionFit(g, occasion), seed });
+  reasons.push(...ex.reasons);
+  reasons.push(`Couleurs — ${lowerFirst(h.name)} : ${[...new Set(colorIds)].map(colorName).join(', ')}. ${h.text}`);
   const of = outfitFormality(p);
-  reasons.push(`Formalité ${of?.toFixed(1)}/5, adaptée à « ${occasion.name} » (plage ${occasion.formality[0]}–${occasion.formality[1]}).`);
-  if (env.fromWeather || env.feel !== undefined) reasons.push(`Pensée pour un ressenti d'environ ${Math.round(env.feel)} °C${env.rain ? ', avec pluie' : ''}.`);
+  if (of !== null && (of < occasion.formality[0] - 0.3 || of > occasion.formality[1] + 0.3)) reasons.push(`Niveau d'habillage ${of.toFixed(1)}/5 : un peu ${of < occasion.formality[0] ? 'en dessous' : 'au-dessus'} de ce qu'attend « ${occasion.name} » (${occasion.formality[0]}–${occasion.formality[1]}), faute de meilleure pièce disponible.`);
   if (env.rain && p.shoes && (p.shoes.rainResistance ?? 1) < 2) warnings.push('Pluie prévue : vos chaussures disponibles résistent peu à l\'eau. Privilégier une paire en cuir lisse avec semelle adaptée.');
   if (env.rain && p.outer && (p.outer.rainResistance ?? 0) < 2) warnings.push('Couche extérieure peu déperlante : prévoir un parapluie.');
   if (env.cold && !p.outer) warnings.push('Froid : aucune couche extérieure disponible dans le dressing.');
   if (occasion.strict) warnings.push('Dress code : les codes explicites de l\'événement priment sur cette proposition.');
   reasons.push(...accessoryNotes(p, occasion, pick.mode));
-  if (occasion.id === 'client') reasons.push('Tenue de représentation pour les rendez-vous clients ; elle ne remplace pas le vêtement de travail/protection lors d\'une intervention.');
   if (pick.duplicate) warnings.push('Combinaison proche d\'une autre proposition : le dressing compatible est limité.');
   if (needsLayer(occasion) && !p.layer) missing.push('Veste habillée (blazer ou costume)');
   if ((env.cold || env.rain) && !p.outer && !pools.outer.length) missing.push(env.rain ? 'Trench ou manteau déperlant' : 'Manteau en laine');
@@ -377,7 +382,7 @@ function decorate(pick, { occasion, env, pools, list, ctxBase }) {
     if (alts.length) alternatives[role] = alts;
   }
   void ctxBase;
-  return { ...pick, mode: pick.mode, reasons, warnings, missing, alternatives, harmony: h, palette: [...new Set(colorIds)] };
+  return { ...pick, mode: pick.mode, title: ex.title, idea: ex.idea, reasons, warnings, missing, alternatives, harmony: h, palette: [...new Set(colorIds)] };
 }
 
 function buildBackup(option, pools, env) {

@@ -98,6 +98,12 @@ export function forgetPhotoURL(photoId) {
 }
 /** Remplit les <img data-photo="id"> d'un conteneur (chargement paresseux). */
 export async function hydratePhotos(root) {
+  // Photos découpées dans le mannequin habillé (SVG) : si la photo manque, la couleur de la pièce reste visible.
+  const svgImgs = root.querySelectorAll('image[data-photo]');
+  await Promise.all([...svgImgs].map(async (im) => {
+    const url = await photoURL(im.getAttribute('data-photo'), { thumb: true });
+    if (url) im.setAttribute('href', url); else im.remove();
+  }));
   const imgs = root.querySelectorAll('img[data-photo]');
   await Promise.all([...imgs].map(async (img) => {
     const url = await photoURL(img.dataset.photo, { thumb: img.dataset.full === undefined });

@@ -36,7 +36,7 @@ async function weatherFor(offset) {
     try { const w = await forecast(store.profile.city, { dayIndex: offset }); await store.repo.kvSet(key, w); return { w, real: true }; }
     catch { /* repli saisonnier ci-dessous */ }
   }
-  const saved = await store.repo.kvGet(`today:${pid()}`, {});
+  const saved = (await store.repo.kvGet(`today:${pid()}`, {})) || {};
   const manualToday = offset === 0 && saved.manual?.date === todayISO(d) ? saved.manual : null; // une saisie manuelle ne vaut que pour son jour
   const temp = manualToday?.temp ?? climateFeel(d);
   return { w: manualWeather({ temp, rain: !!manualToday?.rain, date: todayISO(d) }), real: false };
@@ -45,7 +45,7 @@ async function weatherFor(offset) {
 export async function renderDaily(box, { onShowAll } = {}) {
   const today = todayISO(); const now = new Date();
   const tomorrowD = new Date(); tomorrowD.setDate(tomorrowD.getDate() + 1); const tomorrow = todayISO(tomorrowD);
-  const saved = await store.repo.kvGet(KEY(), {});
+  const saved = (await store.repo.kvGet(KEY(), {})) || {};
   const st = { occasionId: saved.date === today && saved.occasionId ? saved.occasionId : defaultOccasion(now, store.profile.kind), offset: 0, showProposal: false, imposed: {} };
   setHTML(box, html`<section class="card card-accent"><p class="muted"><span class="loader"></span> Votre tenue du jour se prépare…</p></section>`);
   const [all, wl, cal, outs, prefs, w0, w1] = await Promise.all([loadGarments(), loadWearlog(), loadCalendar(), loadOutfits(), loadPrefs(), weatherFor(0), weatherFor(1)]);
@@ -53,6 +53,9 @@ export async function renderDaily(box, { onShowAll } = {}) {
   const wornToday = wl.filter((w) => w.date === today).pop();
   const plannedToday = cal.find((c) => c.date === today && c.status === 'planned');
   const plannedTomorrow = cal.find((c) => c.date === tomorrow);
+  // Un rendez-vous de l'agenda aujourd'hui donne l'occasion du jour (sauf si vous en avez choisi une autre)
+  if (!(saved.date === today && saved.occasionId) && plannedToday?.occasionId && OCCASION_BY_ID[plannedToday.occasionId]) st.occasionId = plannedToday.occasionId;
+  const occTomorrow = (plannedTomorrow?.occasionId && OCCASION_BY_ID[plannedTomorrow.occasionId]) ? plannedTomorrow.occasionId : defaultOccasion(tomorrowD, store.profile.kind);
   const outBy = Object.fromEntries(outs.map((o) => [o.id, o]));
 
   // Propositions des jours précédents (rotation même sans « Je la porte »).
@@ -61,7 +64,7 @@ export async function renderDaily(box, { onShowAll } = {}) {
   let streak = await store.repo.kvGet(WORK_KEY, null);
   const dayDiff = (a, b) => Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 864e5);
   const PROP_KEY = `proposed:${pid()}`;
-  const propHist = await store.repo.kvGet(PROP_KEY, {});
+  const propHist = (await store.repo.kvGet(PROP_KEY, {})) || {};
   const proposed = {};
   for (const [d, ids] of Object.entries(propHist)) if (d < today) for (const id of ids) (proposed[id] ||= []).push(`${d}T12:00:00`);
   const weekAgo = todayISO(new Date(Date.now() - 7 * 864e5));
@@ -69,7 +72,11 @@ export async function renderDaily(box, { onShowAll } = {}) {
   const withToday = (prop, b) => { const out = { ...prop }; if (b) for (const r of ['top', 'bottom', 'shoes']) { const id = b.pieces[r]?.id; if (id) out[id] = [...(out[id] || []), `${today}T12:00:00`]; } return out; };
   const pick = (res, avoidKey) => {
     const opts = res.options;
-    return opts.find((o) => o.mode === mode && comboKey(o.pieces) !== avoidKey) || opts.find((o) => comboKey(o.pieces) !== avoidKey) || opts[0] || null;
+    // Le style le plus adapté à l'événement d'abord ; votre style préféré seulement s'il est presque aussi bon.
+    const ok = opts.filter((o) => comboKey(o.pieces) !== avoidKey);
+    const first = ok[0] || opts[0] || null;
+    const fav = ok.find((o) => o.mode === mode);
+    return fav && first && fav.rank >= first.rank - 2 ? fav : first;
   };
 
   // Rappel de changement de garde-robe : 14 jours avant, jusqu'à 3 semaines après le début de la période.
@@ -94,7 +101,7 @@ export async function renderDaily(box, { onShowAll } = {}) {
       if (JSON.stringify(streak?.ids) !== JSON.stringify(ids) || streak?.start !== today) { streak = { ids, start: today, days: streak?.days || 3 }; store.repo.kvSet(WORK_KEY, streak); }
       workDay = 1;
     }
-    const resT = recommend({ garments: all, occasionId: defaultOccasion(tomorrowD, store.profile.kind), weather: w1.w, prefs, profileId: pid(), date: tomorrowD, now: tomorrowD.getTime(), proposed: withToday(proposed, best) });
+    const resT = recommend({ garments: all, occasionId: occTomorrow, weather: w1.w, prefs, profileId: pid(), date: tomorrowD, now: tomorrowD.getTime(), proposed: withToday(proposed, best) });
     const bestT = pick(resT, best ? comboKey(best.pieces) : null);
     // Mémorise la proposition principale du jour (7 derniers jours gardés).
     if (best && !wornToday && st.offset === 0 && st.occasionId === defaultOccasion(now, store.profile.kind)) {
@@ -121,7 +128,7 @@ export async function renderDaily(box, { onShowAll } = {}) {
       footer = html`<button class="btn btn-primary" data-d="wear-planned">${icon('check')} Je la porte</button><button class="btn btn-sm" data-d="propose">Autre proposition</button>`;
     } else if (best) {
       pieces = best.pieces;
-      head = html`<div class="row-between" style="align-items:flex-start"><div><div class="eyebrow">Tenue du jour · ${MODE_NAME[best.mode]}</div><h2 style="margin:0">${occ.name}</h2></div>${scoreBadge(best.score)}</div>
+      head = html`<div class="row-between" style="align-items:flex-start"><div><div class="eyebrow">Tenue du jour · ${occ.name}</div><h2 style="margin:0">${best.title || MODE_NAME[best.mode]}</h2>${best.idea ? html`<p class="small muted" style="margin:2px 0 0">${best.idea}</p>` : ''}</div>${scoreBadge(best.score)}</div>
         ${occ.workwear && workDay ? html`<div class="callout small" style="margin-top:8px">${icon('rotate')} Tenue de travail <strong>jour ${workDay}/${streak?.days || 3}</strong> : la même ${workDay < (streak?.days || 3) ? `jusqu'au ${fmtDate(todayISO(new Date(Date.now() + ((streak?.days || 3) - workDay) * 864e5)), { weekday: 'long', day: 'numeric' })}` : 'aujourd\'hui encore, une nouvelle demain'}.
           <span class="row" style="gap:6px;margin-top:6px">Changer tous les <button class="chip" data-wdays="2" aria-pressed="${(streak?.days || 3) === 2}">2 jours</button><button class="chip" data-wdays="3" aria-pressed="${(streak?.days || 3) === 3}">3 jours</button><button class="btn btn-sm btn-ghost" data-d="worknew">Nouvelle tenue maintenant</button></span></div>` : ''}`;
       footer = html`<button class="btn btn-primary" data-d="wear">${icon('check')} Je la porte</button><button class="btn" data-d="other">${icon('rotate')} Autre</button><button class="btn" data-d="all">Voir les 3 propositions</button>`;
@@ -135,7 +142,7 @@ export async function renderDaily(box, { onShowAll } = {}) {
           ${occChips()}
           <div class="grid-2" style="align-items:start">
             <div class="piece-list">${piecesList(pieces).map(([r, g]) => (best && pieces === best.pieces && ['top', 'bottom', 'layer', 'outer', 'shoes'].includes(r) ? pickRow(r, g) : pieceRow(r, g)))}</div>${best && pieces === best.pieces ? html`<p class="small muted" style="margin:6px 0 0">Touchez une pièce pour en choisir une autre dans votre dressing.</p>` : ''}
-            <div><div class="mannequin-wrap">${outfitMannequin(pieces)}</div><div class="schema-label">Schéma — pas une photographie</div></div>
+            <div><div class="mannequin-wrap">${outfitMannequin(pieces)}</div><div class="schema-label">Aperçu avec vos pièces · touchez pour agrandir</div></div>
           </div>
           ${best && !wornToday && !plannedToday || (best && st.showProposal) ? html`<p class="small" style="margin-top:10px">${best.reasons.slice(0, 2).join(' ')}</p>${best.warnings.length ? html`<div class="callout callout-warn small">${best.warnings[0]}</div>` : ''}${res.backup?.changes?.length ? html`<p class="small"><strong>Plan B :</strong> ${res.backup.changes.join(' ; ')}.</p>` : ''}${OCCASION_BY_ID[st.occasionId]?.workwear ? workKitBlock(all, { tips: false }) : upgradeBlock(best.upgrade)}` : ''}
           <div class="btn-row" style="margin-top:12px">${footer}</div>`}
