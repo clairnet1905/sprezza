@@ -366,3 +366,4 @@ svg[aria-hidden="true"] { width: 1.1em; height: 1.1em; flex: none; vertical-alig
 .stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .stat-grid .card { padding: 12px; }
 @media (max-width: 480px) { .stat-grid .stat { font-size: 28px; } .stat-grid .stat-label { font-size: 11px; } }
+ol.steps { margin: 8px 0 12px; padding-left: 20px; } ol.steps li { margin: 3px 0; }

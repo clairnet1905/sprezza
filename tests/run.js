@@ -28,6 +28,7 @@ import { alphaBounds } from '../src/services/cutout.js';
 import { careStatus, afterWear, afterWash, afterCare } from '../src/domain/care.js';
 import { periodAt, nextChange, seasonClass, seasonalPlan } from '../src/domain/seasonal.js';
 import { OCCASION_BY_ID } from '../src/data/occasions.js';
+import { parseProduct, urlWords } from '../src/domain/product-parse.js';
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -391,6 +392,23 @@ test('Synchro : ajout, photo, modification et suppression propagés entre iPhone
     ok(!files.has('u1/ph1.jpg'), 'photo non supprimée en ligne');
     ra.close(); rb.close();
   } finally { window.fetch = realFetch; names.forEach((n) => indexedDB.deleteDatabase(n)); }
+});
+
+test('Fiche produit web : titre, composition, prix et lien lus', () => {
+  const a = parseProduct('Chemise Oxford Regular Fit - Bleu ciel | Uniqlo\n29,90 €\nComposition : 100% coton');
+  eq(a.sub, 'chemise'); eq(a.category, 'haut'); eq(a.color, 'sky'); eq(a.brand, 'Uniqlo'); eq(a.material, 'Coton Oxford'); eq(a.fit, 'regular'); eq(a.price, 29.9); eq(a.composition, '100 % coton');
+  ok(a.name.startsWith('Chemise Oxford'), `nom : ${a.name}`);
+  const b = parseProduct('https://www.zara.com/fr/fr/pull-col-roule-100-laine-merinos-p05755300.html');
+  eq(b.brand, 'Zara'); eq(b.sub, 'col-roule'); eq(b.material, 'Mérinos'); eq(b.sourceUrl, 'https://www.zara.com/fr/fr/pull-col-roule-100-laine-merinos-p05755300.html');
+  const c = parseProduct('Mocassins en daim marron foncé Massimo Dutti 119 €');
+  eq(c.sub, 'mocassins'); eq(c.category, 'chaussures'); eq(c.color, 'dark-brown'); eq(c.material, 'Daim'); eq(c.brand, 'Massimo Dutti'); eq(c.price, 119);
+  const d = parseProduct('Manteau en laine mélangée gris anthracite 70% laine 30% polyamide');
+  eq(d.sub, 'manteau'); eq(d.color, 'charcoal'); eq(d.material, 'Laine'); eq(d.composition, '70 % laine 30 % polyamide');
+  const e = parseProduct('Bracelet Apple Watch boucle unique tressée bleu marine');
+  eq(e.sub, 'bracelet-montre'); eq(e.color, 'navy'); eq(e.brand, 'Apple');
+  eq(parseProduct('Jean Levi\'s 501 Original').color, 'mid-blue');
+  eq(urlWords('https://www2.hm.com/fr_fr/productpage.1234567001.html').brand, 'H&M');
+  eq(parseProduct('').found.length, 0);
 });
 
 // ---------------- Exécution

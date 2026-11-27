@@ -216,6 +216,23 @@ export class SyncService {
     return r.blob();
   }
 
+  /**
+   * Lien temporaire (15 min) vers une photo, pour la recherche visuelle Google Lens.
+   * Un seul fichier, écrasé à chaque recherche et supprimé ensuite (clearLens).
+   */
+  async lensUrl(blob) {
+    const s = await this.validSession();
+    const path = `${s.user.id}/lens/current.jpg`;
+    await this.upload(path, blob);
+    const d = await this.http(`/storage/v1/object/sign/${BUCKET}/${path}`, { method: 'POST', body: { expiresIn: 900 } });
+    const cfg = await this.config();
+    return `${cfg.url}/storage/v1${d.signedURL || d.signedUrl}`;
+  }
+  async clearLens() {
+    const s = await this.session(); if (!s) return;
+    await this.http(`/storage/v1/object/${BUCKET}`, { method: 'DELETE', body: { prefixes: [`${s.user.id}/lens/current.jpg`] } }).catch(() => {});
+  }
+
   /** Supprime toutes mes données en ligne (lignes + photos). Les données locales restent. */
   async deleteRemote() {
     const s = await this.validSession();
@@ -223,6 +240,7 @@ export class SyncService {
     const files = await this.http(`/storage/v1/object/list/${BUCKET}`, { method: 'POST', body: { prefix: `${s.user.id}/`, limit: 10000 } }).catch(() => []);
     const names = (files || []).map((f) => `${s.user.id}/${f.name}`);
     if (names.length) await this.http(`/storage/v1/object/${BUCKET}`, { method: 'DELETE', body: { prefixes: names } });
+    await this.clearLens();
     for (const k of ['sync:lastPull', 'sync:lastPush']) await this.repo.remove('kv', k, { tombstone: false });
   }
 

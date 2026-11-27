@@ -12,6 +12,9 @@ import { costPerWear, wardrobeStats } from '../domain/wardrobe-logic.js';
 import { versatility, reviewGarment, keyThresholdOf, VERDICTS } from '../domain/review.js';
 import { careStatus, afterWash, afterCare } from '../domain/care.js';
 import { PERIODS, periodAt, nextChange, seasonalPlan, storageTip } from '../domain/seasonal.js';
+import { parseProduct, identifyQuery } from '../domain/product-parse.js';
+import { RETAILERS, QUICK_SHOPS, priceCompareUrl } from '../data/retailers.js';
+import { shopSearchUrl } from './shopping.js';
 import { prefs as loadPrefs } from '../state.js';
 import { checkImageFile, loadBitmap, processImage, renderToCanvas } from '../services/image.js';
 import { aiStatus } from '../services/ai.js';
@@ -219,6 +222,25 @@ async function renderEditor(main, existing, preset = {}) {
       ${ai.ai && consentAI ? html`<button class="btn btn-sm" type="button" id="airecog" style="margin-top:10px">Suggérer les champs (IA)</button><p class="hint">La photo est envoyée au serveur IA configuré ; chaque champ suggéré reste à confirmer.</p>` : html`<p class="hint">Reconnaissance IA facultative : ${ai.ai ? 'activez le consentement IA dans Paramètres' : 'non configurée'} — couleurs estimées localement, sans envoi.</p>`}
       <div id="aiout"></div>
     </fieldset>
+    <fieldset id="webid"><legend>Retrouver ce vêtement sur internet</legend>
+      <p class="small muted">Trouvez la fiche du fabricant, puis collez son lien ou son titre : SPREZZA remplit marque, type, couleur, matière, composition, coupe et prix. Vous validez chaque champ.</p>
+      <ol class="steps small">
+        <li><strong>Chercher</strong> — par la photo (Google Lens) ou par texte.</li>
+        <li><strong>Ouvrir le bon produit</strong>, copier son lien (ou son titre et sa composition).</li>
+        <li><strong>Revenir ici, coller</strong>, vérifier les champs proposés.</li>
+      </ol>
+      <div class="btn-row">
+        <button class="btn btn-gold" type="button" id="lensbtn">${icon('camera')} Recherche par photo (Google Lens)</button>
+        <button class="btn" type="button" id="sharebtn" hidden>${icon('upload')} Partager la photo…</button>
+        <button class="btn" type="button" id="textsearch">${icon('search')} Recherche par texte</button>
+      </div>
+      <p class="hint" id="lenshint"></p>
+      <div id="textshops" class="btn-row"></div>
+      <div class="field" style="margin-top:10px"><label for="webpaste">Lien ou description du produit trouvé</label>
+        <textarea id="webpaste" rows="3" placeholder="https://www.uniqlo.com/fr/fr/products/… ou « Chemise Oxford Regular Fit – Bleu ciel – 100 % coton – 29,90 € »"></textarea></div>
+      <div class="btn-row"><button class="btn btn-sm" type="button" id="pastebtn">Coller</button><button class="btn btn-sm btn-primary" type="button" id="parsebtn">${icon('check')} Remplir la fiche</button></div>
+      <div id="webout"></div>
+    </fieldset>
     <fieldset><legend>Identification</legend><div class="form-grid">
       <div class="field span-2"><label for="name">Nom *</label><input id="name" name="name" type="text" required value="${g.name || ''}" placeholder="ex. Pantalon écru taille mi-haute"></div>
       <div class="field"><label for="category">Catégorie *</label><select id="category" name="category">${options(CATEGORIES.map((c) => [c.id, c.name]), g.category)}</select></div>
@@ -316,6 +338,7 @@ async function renderEditor(main, existing, preset = {}) {
   $('#clearphoto').onclick = () => { state.source = null; $('#cropper').classList.add('hidden'); };
   main.querySelectorAll('[data-rmphoto]').forEach((cb) => cb.onchange = () => { if (cb.checked) state.removePhotos.add(cb.dataset.rmphoto); else state.removePhotos.delete(cb.dataset.rmphoto); });
   $('#airecog')?.addEventListener('click', () => aiRecognize(main, state));
+  setupWebIdentify(main, state, { subOpts, syncSub, syncColor });
 
   form.onsubmit = async (e) => {
     e.preventDefault();
@@ -350,6 +373,7 @@ async function renderEditor(main, existing, preset = {}) {
       await store.repo.put('garments', rec);
       if (!existing && g.capsuleId) { const key = `capsule:${pid()}`; const cap = await store.repo.kvGet(key, { level: 1, items: {} }); cap.items[g.capsuleId] = { owned: true, garmentId: id }; await store.repo.kvSet(key, cap); }
       if (!existing && g.wishId) { const w = await store.repo.get('wishlist', g.wishId); if (w) await store.repo.put('wishlist', { ...w, linkedGarmentId: id }); }
+      if (state.lensUsed) store.sync.clearLens();
       toast(existing ? 'Fiche mise à jour' : 'Pièce ajoutée au dressing');
       if (!existing && v.photoKind === 'wardrobe' && pendingSource) {
         openModal({ title: 'Découper une autre pièce ?', body: html`<p>Cette photo montre plusieurs pièces. Voulez-vous en découper une autre ? Rien n'est ajouté sans votre validation.</p><div class="btn-row"><button class="btn btn-primary" data-yes>Découper une autre pièce</button><button class="btn" data-no>Terminer</button></div>`,
@@ -358,6 +382,102 @@ async function renderEditor(main, existing, preset = {}) {
     } catch (e2) { err.textContent = `Enregistrement impossible : ${e2.message}`; err.classList.remove('hidden'); $('#savebtn').disabled = false; }
   };
 }
+// ---------------------------------------------------------------- Identification sur internet
+async function croppedPhotoBlob(state) {
+  const { canvasToBlob } = await import('../services/image.js');
+  return canvasToBlob(renderToCanvas(state.source, { rotation: state.rotation, crop: state.crop, maxSide: 1200 }), 0.86);
+}
+function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
+  const $ = (s) => main.querySelector(s);
+  const hint = (t) => { $('#lenshint').textContent = t; };
+  const canShareFiles = !!(navigator.canShare && navigator.canShare({ files: [new File([''], 'x.jpg', { type: 'image/jpeg' })] }));
+  if (canShareFiles) $('#sharebtn').hidden = false;
+  hint(store.profile.kind === 'child' ? 'Profil enfant : la recherche par photo est désactivée (aucune photo envoyée). Utilisez la recherche par texte.' : 'La recherche par photo envoie la photo recadrée à Google, seulement quand vous cliquez.');
+
+  $('#lensbtn').onclick = async () => {
+    if (store.profile.kind === 'child') { toast('Désactivé pour un profil enfant'); return; }
+    if (!state.source) { toast('Prenez ou choisissez d\'abord une photo'); $('#pcam').scrollIntoView({ block: 'center' }); return; }
+    const signedIn = !!(await store.sync.session());
+    if (!signedIn) {
+      // Sans compte : pas d'hébergement temporaire possible → partage vers l'app Google, ou import manuel dans Lens.
+      if (canShareFiles) { hint('Sans compte SPREZZA, la photo passe par le partage : choisissez « Google » (ou « Rechercher avec Google Lens »), ou enregistrez-la puis importez-la dans Lens.'); $('#sharebtn').click(); }
+      else { window.open('https://lens.google.com/', '_blank', 'noopener'); hint('Google Lens est ouvert : cliquez sur « Importer un fichier » et choisissez la photo. Astuce : connectez-vous à la synchro (Paramètres) pour l\'envoi direct.'); }
+      return;
+    }
+    const w = window.open('', '_blank'); // ouvert tout de suite (sinon bloqué par Safari), rempli après l'envoi
+    if (w) { try { w.opener = null; w.document.title = 'Recherche…'; w.document.body.innerHTML = '<p style="font:16px system-ui;padding:24px">Envoi de la photo à Google Lens…</p>'; } catch { /* autre origine */ } }
+    hint('Envoi de la photo (lien temporaire 15 min)…');
+    try {
+      const url = await store.sync.lensUrl(await croppedPhotoBlob(state));
+      const lens = `https://lens.google.com/uploadbyurl?url=${encodeURIComponent(url)}`;
+      if (w) w.location.href = lens; else window.open(lens, '_blank', 'noopener');
+      hint('Résultats ouverts dans un nouvel onglet. Ouvrez le produit correspondant, copiez son lien, revenez ici et collez-le ci-dessous. La photo temporaire est effacée à l\'enregistrement de la fiche.');
+      state.lensUsed = true;
+    } catch (e) { if (w) w.close(); hint(`Recherche par photo impossible : ${e.message}. Utilisez « Partager la photo » ou la recherche par texte.`); }
+  };
+
+  $('#sharebtn').onclick = async () => {
+    if (!state.source) { toast('Prenez ou choisissez d\'abord une photo'); return; }
+    try {
+      const file = new File([await croppedPhotoBlob(state)], 'sprezza-vetement.jpg', { type: 'image/jpeg' });
+      await navigator.share({ files: [file], title: 'Vêtement à identifier' });
+    } catch (e) { if (e.name !== 'AbortError') toast(`Partage impossible : ${e.message}`); }
+  };
+
+  $('#textsearch').onclick = () => {
+    const sub = SUB_INFO[$('#sub').value]; const col = COLOR_BY_ID[$('#color').value];
+    const q = identifyQuery({ brand: $('#brand').value.trim(), subName: sub?.name || '', colorName: col?.name || '', material: $('#material').value.trim() });
+    const g = store.profile.kind === 'woman' ? 'femme' : 'homme';
+    const brand = $('#brand').value.trim().toLowerCase();
+    const own = RETAILERS.find((r) => brand && r.name.toLowerCase() === brand);
+    // Marque connue : son site (sans répéter la marque) + revendeurs multimarques ; sinon les boutiques rapides.
+    const multi = ['Zalando', 'Vinted'].map((n) => RETAILERS.find((r) => r.name === n));
+    const shops = (brand ? [own, ...multi] : QUICK_SHOPS.map((n) => RETAILERS.find((r) => r.name === n))).filter((r, i, a) => r && a.indexOf(r) === i);
+    const qFor = (r) => (r === own ? identifyQuery({ subName: sub?.name || '', colorName: col?.name || '', material: $('#material').value.trim() }) : q);
+    setHTML($('#textshops'), html`<p class="small muted span-2" style="width:100%">Recherche : « ${q} » — renseignez d'abord marque, type et couleur pour un résultat précis.</p>
+      <a class="btn btn-sm btn-gold" href="${priceCompareUrl(`${q} ${g}`)}" target="_blank" rel="noopener noreferrer">${icon('search')} Google Shopping</a>
+      ${shops.map((r) => html`<a class="btn btn-sm" href="${shopSearchUrl(r, qFor(r), g)}" target="_blank" rel="noopener noreferrer">${r.name}</a>`)}`);
+  };
+
+  $('#pastebtn').onclick = async () => {
+    try { const t = await navigator.clipboard.readText(); if (t) { $('#webpaste').value = t; $('#parsebtn').click(); } else toast('Presse-papiers vide'); }
+    catch { toast('Collez avec un appui long dans le champ'); $('#webpaste').focus(); }
+  };
+
+  $('#parsebtn').onclick = () => {
+    const p = parseProduct($('#webpaste').value);
+    const out = $('#webout');
+    if (!p.found.length) { setHTML(out, html`<p class="small callout callout-warn">Rien de reconnu. Collez le titre complet du produit, sa composition ou son lien.</p>`); return; }
+    const rows = [];
+    if (p.name) rows.push(['name', 'Nom', p.name, p.name, !$('#name').value.trim()]);
+    if (p.brand) rows.push(['brand', 'Marque', p.brand, p.brand, true]);
+    if (p.sub) rows.push(['sub', 'Type', `${CATEGORY_BY_ID[p.category].name} › ${SUB_INFO[p.sub].name}`, p.sub, true]);
+    if (p.color) rows.push(['color', 'Couleur principale', COLOR_BY_ID[p.color].name, p.color, true]);
+    if (p.color2) rows.push(['color2', 'Couleur secondaire', COLOR_BY_ID[p.color2].name, p.color2, true]);
+    if (p.material) rows.push(['material', 'Matière', p.material, p.material, true]);
+    if (p.composition) rows.push(['composition', 'Composition', p.composition, p.composition, true]);
+    if (p.pattern) rows.push(['pattern', 'Motif', p.pattern, p.pattern, true]);
+    if (p.fit) rows.push(['fit', 'Coupe', FITS.find(([id]) => id === p.fit)?.[1] || p.fit, p.fit, true]);
+    if (p.price) rows.push(['price', 'Prix', fmtEUR(p.price), p.price, true]);
+    if (p.sourceUrl) rows.push(['sourceUrl', 'Lien d\'origine', p.sourceUrl.replace(/^https?:\/\/(www\.)?/, '').slice(0, 48), p.sourceUrl, true]);
+    setHTML(out, html`<div class="card-flat" style="margin-top:10px"><p class="small"><strong>${rows.length} caractéristique(s) trouvée(s)</strong> — décochez ce qui ne correspond pas à votre pièce.</p>
+      ${rows.map(([f, l, v, , on], i) => html`<label class="check"><input type="checkbox" data-web="${i}" ${on ? raw('checked') : ''}> ${l} : <strong>${v}</strong></label>`)}
+      ${p.sourceUrl && p.found.length <= 3 ? html`<p class="hint">Le lien seul donne peu d'informations : copiez aussi le titre et la composition depuis la page pour une fiche complète.</p>` : ''}
+      <p class="hint">La taille n'est jamais déduite : indiquez la vôtre. La composition fait foi sur l'étiquette.</p>
+      <button class="btn btn-sm btn-primary" type="button" id="webapply">Appliquer la sélection</button></div>`);
+    out.querySelector('#webapply').onclick = () => {
+      out.querySelectorAll('[data-web]:checked').forEach((cb) => {
+        const [f, , , val] = rows[+cb.dataset.web];
+        if (f === 'sub') { $('#category').value = p.category; setHTML($('#sub'), options(subOpts(p.category), p.sub)); syncSub(); }
+        else if (f === 'color') { $('#color').value = val; syncColor(); }
+        else { const el = $(`#${f}`); if (el) el.value = val; }
+      });
+      toast('Fiche remplie — vérifiez puis enregistrez');
+      $('#name').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+  };
+}
+
 function colorHint(hex) { const n = nearestColor(hex); return n ? `Couleur la plus proche : ${n.name} (proximité ${n.confidence}). La proximité numérique n'est pas une certitude stylistique.` : ''; }
 
 async function aiRecognize(main, state) {
