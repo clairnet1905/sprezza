@@ -12,7 +12,7 @@ import { costPerWear, wardrobeStats } from '../domain/wardrobe-logic.js';
 import { versatility, reviewGarment, keyThresholdOf, VERDICTS } from '../domain/review.js';
 import { careStatus, afterWash, afterCare } from '../domain/care.js';
 import { PERIODS, periodAt, nextChange, seasonalPlan, storageTip } from '../domain/seasonal.js';
-import { parseProduct, identifyQuery, readerToText, assistantPrompt, parseStructured, extractJSON } from '../domain/product-parse.js';
+import { parseProduct, identifyQuery, readerToText, assistantPrompt, parseStructured, extractJSON, pageImages, colorVariants, currentColorCode, imagesForColor } from '../domain/product-parse.js';
 import { readLabel, OCR_DOWNLOAD_MB } from '../services/ocr.js';
 import { RETAILERS, QUICK_SHOPS, priceCompareUrl } from '../data/retailers.js';
 import { shopSearchUrl } from './shopping.js';
@@ -111,7 +111,7 @@ async function renderList(main) {
 }
 
 // ---------------------------------------------------------------- Galerie photo (défilement)
-const PHOTO_LABEL = (p) => (p.cutout ? 'Présentation boutique' : ({ real: 'Photo réelle', back: 'Dos', detail: 'Détail', label: 'Étiquette', worn: 'Portée', wardrobe: 'Photo réelle', single: 'Photo réelle' })[p.kind] || 'Photo');
+const PHOTO_LABEL = (p) => (p.cutout ? 'Présentation boutique' : ({ product: 'Photo de l\'article', real: 'Photo réelle', back: 'Dos', detail: 'Détail', label: 'Étiquette', worn: 'Portée', wardrobe: 'Photo réelle', single: 'Photo réelle' })[p.kind] || 'Photo');
 function gallery(photos, name) {
   return html`<div class="gallery" id="gallery">
     <div class="gallery-track" tabindex="0" aria-label="Photos de ${name} (faites défiler)">${photos.map((p, i) => html`<figure class="gallery-slide" data-i="${i}"><img data-photo="${p.id}" data-full alt="${name} — ${PHOTO_LABEL(p)}"><figcaption>${PHOTO_LABEL(p)}${photos.length > 1 ? ` · ${i + 1}/${photos.length}` : ''}</figcaption></figure>`)}</div>
@@ -483,6 +483,7 @@ async function renderEditor(main, existing, preset = {}) {
         await store.repo.put('photos', { id: phId, ownerId: id, profileId: pid(), blob: out.blob, thumb: out.thumbBlob, mime: 'image/jpeg', width: out.width, height: out.height, kind: x.role, private: true, rights: 'user_owned', alt: `${v.name} — ${EXTRA_ROLES[x.role]}` });
         photoIds = [...photoIds, phId];
       }
+      if (state.saveProductPhotos && state.productPicks?.length) { $('#savebtn').textContent = 'Photos de l\'article…'; photoIds = [...photoIds, ...(await state.saveProductPhotos(id))]; }
       const newSet = !!v.isset && (!g.setId || !(await loadGarments()).some((x) => x.setId === g.setId && x.id !== existing?.id));
       const setId = v.isset ? (g.setId || uid('set')) : null;
       const rec = {
@@ -662,18 +663,32 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
     // Un JSON (ou une réponse structurée) fait foi : pas de lecture de page, même s'il contient un lien.
     const url = !state.pasteLabel && !parseStructured(input) && input.match(/https?:\/\/[^\s"'<>]+/)?.[0];
     let pageName = ''; let note = '';
+    if (!url) { state.product = null; state.productPicks = []; }
     if (url) {
       lastUrl = url;
       setHTML(out, html`<p class="small"><span class="loader"></span> Lecture de la page produit (${url.replace(/^https?:\/\/(www\d?\.)?/, '').split('/')[0]})…</p>`);
       $('#parsebtn').disabled = true;
       try {
         const { fetchProductPage } = await import('../services/product-fetch.js');
-        const r = readerToText(await fetchProductPage(url));
+        const page = await fetchProductPage(url);
+        const r = readerToText(page);
         pageName = r.name; input = `${r.text}\n${input}`;
-      } catch (e) { note = `Page non lisible (${e.message}) : seules les informations du lien sont reprises. Copiez le titre et la composition depuis la page et collez-les ici pour compléter.`; }
+        const images = pageImages(page.content); const variants = colorVariants(page.content);
+        state.product = { url, images, variants, cur: currentColorCode(url, images) };
+      } catch (e) { state.product = null; note = `Page non lisible (${e.message}) : seules les informations du lien sont reprises. Copiez le titre et la composition depuis la page et collez-les ici pour compléter.`; }
       finally { $('#parsebtn').disabled = false; }
     }
     const p = parseProduct(input, { label: state.pasteLabel });
+    // « J'ai acheté le kaki » : la couleur écrite par vous l'emporte sur celle de la page, et choisit le bon coloris.
+    const own = url ? $('#webpaste').value.replace(/https?:\/\/\S+/g, ' ').trim() : '';
+    const ownColor = own ? parseProduct(own).color : null;
+    if (ownColor) { p.color = ownColor; delete p.colorHex; delete p.colorUnknown; }
+    if (state.product) {
+      const v = state.product.variants;
+      const byName = (id) => v.find((x) => parseProduct(x.name).color === id || x.name.toLowerCase() === COLOR_BY_ID[id]?.name.toLowerCase());
+      state.product.pick = (ownColor && byName(ownColor)) || v.find((x) => x.code && x.code === state.product.cur) || v.find((x) => x.selected) || null;
+      if (!ownColor && state.product.pick) { const c = parseProduct(state.product.pick.name).color; if (c) p.color = c; }
+    }
     if (pageName) p.name = pageName.charAt(0).toUpperCase() + pageName.slice(1).toLowerCase().replace(/\boxford\b/, 'Oxford');
     if (!p.found.length && !pageName) { setHTML(out, html`<p class="small callout callout-warn">${note || 'Rien de reconnu. Collez le lien de l\'article, son titre complet ou sa composition.'}</p>`); return; }
     const rows = [];
@@ -727,12 +742,49 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
       $('#category').value = before.category; setHTML($('#sub'), options(subOpts(before.category), before.sub));
       for (const f of FIELDS) if (!['category', 'sub'].includes(f) && $(`#${f}`)) $(`#${f}`).value = before[f] ?? '';
       setSeasons(before.seasons); $('#notes').value = before.notes; main.querySelectorAll('input[name=styles]').forEach((c) => { c.checked = before.styles.includes(c.value); }); Object.entries(before.measures).forEach(([k, v]) => { const el = $(`#m-${k}`); if (el) el.value = v; }); for (const f of ['formality', 'warmth']) { $(`#${f}`).value = before[f]; $(`#${f}`).dispatchEvent(new Event('input')); }
+      state.product = null; state.productPicks = [];
       syncColor(); setHTML(out, html`<p class="small muted">Remplissage annulé.</p>`);
     };
+    renderProductPhotos();
     toast(`${rows.length} champ(s) rempli(s) — vérifiez puis enregistrez`);
     if ($('#ref').value && $('#brand').value) $('#textsearch').click();
   };
   $('#parsebtn').onclick = run;
+
+  // Photos de l'article (coloris acheté) : affichées et enregistrées via wsrv.nl (proxy d'images gratuit, converti en WebP).
+  const proxied = (u, w) => `https://wsrv.nl/?url=${encodeURIComponent(u)}&w=${w}&output=webp&q=82`;
+  const renderProductPhotos = () => {
+    const pr = state.product; let box = $('#prodphotos');
+    if (!box) { box = document.createElement('div'); box.id = 'prodphotos'; $('#webout').appendChild(box); }
+    if (!pr || !pr.images.length) { box.innerHTML = ''; state.productPicks = []; return; }
+    const to = pr.pick?.code || pr.cur;
+    const imgs = imagesForColor(pr.images, pr.cur, to).slice(0, 8);
+    state.productPicks = state.productPicks?.length && pr.lastTo === to ? state.productPicks.filter((u) => imgs.some((i) => i.url === u)) : imgs.slice(0, 2).map((i) => i.url);
+    pr.lastTo = to;
+    setHTML(box, html`<div class="card-flat" style="margin-top:10px"><p class="small" style="margin-top:0"><strong>Photos de l'article</strong>${pr.pick ? html` — coloris <strong>${pr.pick.name}</strong>` : ''}. Cochez celles à garder dans la fiche (en plus de vos propres photos).</p>
+      ${pr.variants.length > 1 ? html`<p class="small muted" style="margin:6px 0">Quel coloris avez-vous acheté ?</p><div class="chips">${pr.variants.map((v, i) => html`<button type="button" class="chip" data-variant="${i}" aria-pressed="${pr.pick === v}">${v.name}</button>`)}</div>` : ''}
+      <div class="prod-grid">${imgs.map((im) => html`<label class="prod-pick"><input type="checkbox" data-pick="${im.url}" ${state.productPicks.includes(im.url) ? raw('checked') : ''}><img src="${proxied(im.url, 240)}" alt="${im.alt || 'Photo de l\'article'}" loading="lazy"></label>`)}</div>
+      <p class="hint">Photos du site, gardées en privé dans votre dressing (usage personnel). Si une photo ne correspond pas au coloris, décochez-la.</p></div>`);
+    box.querySelectorAll('[data-pick]').forEach((cb) => cb.onchange = () => { state.productPicks = [...box.querySelectorAll('[data-pick]:checked')].map((x) => x.dataset.pick); });
+    box.querySelectorAll('[data-variant]').forEach((b) => b.onclick = () => {
+      pr.pick = pr.variants[+b.dataset.variant];
+      const c = parseProduct(pr.pick.name).color; if (c) { $('#color').value = c; syncColor(); }
+      if (!pr.pick.code && pr.pick.href) { $('#webpaste').value = pr.pick.href; run(); return; } // coloris sans code : on relit sa page
+      renderProductPhotos(); toast(`Coloris ${pr.pick.name}${c ? ` — couleur ${COLOR_BY_ID[c].name}` : ''}`);
+    });
+  };
+  state.saveProductPhotos = async (ownerId) => {
+    const ids = [];
+    for (const u of state.productPicks || []) {
+      try {
+        const [blob, thumb] = await Promise.all([proxied(u, 1400), proxied(u, 480)].map((x) => fetch(x, { credentials: 'omit', referrerPolicy: 'no-referrer' }).then((r) => { if (!r.ok) throw new Error(r.status); return r.blob(); })));
+        const id = uid('ph');
+        await store.repo.put('photos', { id, ownerId, profileId: pid(), blob, thumb, mime: blob.type, kind: 'product', private: true, rights: 'retailer_personal_use', source: u, alt: 'Photo de l\'article' });
+        ids.push(id);
+      } catch { /* photo indisponible : ignorée */ }
+    }
+    return ids;
+  };
   // Bouton « Coller un JSON » à côté des informations.
   $('#jsonbtn').onclick = () => {
     const current = () => JSON.stringify({ nom: $('#name').value, marque: $('#brand').value || 'inconnue', type: SUB_INFO[$('#sub').value]?.name || '', couleur: COLOR_BY_ID[$('#color').value]?.name || '', matiere: $('#material').value || 'inconnue', composition: $('#composition').value || 'inconnue', coupe: FITS.find(([id]) => id === $('#fit').value)?.[1] || 'inconnue', motif: $('#pattern').value, taille: $('#size').value || 'inconnue', prix: $('#price').value || null }, null, 2);

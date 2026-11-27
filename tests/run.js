@@ -29,7 +29,7 @@ import { encodeImage, supportsWebP } from '../src/services/image.js';
 import { careStatus, afterWear, afterWash, afterCare } from '../src/domain/care.js';
 import { periodAt, nextChange, seasonClass, seasonalPlan } from '../src/domain/seasonal.js';
 import { OCCASION_BY_ID } from '../src/data/occasions.js';
-import { parseProduct, urlWords, parseComposition, readerToText, assistantPrompt, parseStructured, extractJSON } from '../src/domain/product-parse.js';
+import { parseProduct, urlWords, parseComposition, readerToText, assistantPrompt, parseStructured, extractJSON, pageImages, colorVariants, currentColorCode, imagesForColor } from '../src/domain/product-parse.js';
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -503,6 +503,20 @@ test('Photo boutique : petits îlots effacés, pièce (même en deux parties) co
   fill(10, 10, 16, 16); fill(380, 480, 386, 486); fill(30, 300, 34, 303); // poussières
   eq(keepMainRegions(d, w, h), 3);
   eq(d[(12 * w + 12) * 4 + 3], 0); eq(d[(200 * w + 150) * 4 + 3], 255); eq(d[(200 * w + 250) * 4 + 3], 255);
+});
+
+test('Lien produit : photos de l\'article et coloris proposés (Mango, Uniqlo)', async () => {
+  const mg = await (await fetch('./fixture-mg.json')).json();
+  const mi = pageImages(mg.content); ok(mi.length >= 5, `photos Mango : ${mi.length}`); ok(mi.every((i) => !/wid=40\b/.test(i.url)), 'pastilles exclues');
+  const mv = colorVariants(mg.content); eq(mv.map((v) => v.name).join(','), 'Blanc,Kaki,Beige,Bleu ciel'); eq(mv[0].selected, true); eq(mv[1].code, '37'); ok(/37074438\/37\/00/.test(mv[1].href));
+  const murl = 'https://shop.mango.com/fr/fr/p/homme/chemises/regular-fit/chemise-100-coton-oxford/37074438/01/00';
+  eq(currentColorCode(murl, mi), '01');
+  const kaki = imagesForColor(mi, '01', '37'); ok(kaki.length && kaki.every((i) => /37074438-37-/.test(i.url)), kaki.map((i) => i.url).join(' '));
+  const uq = await (await fetch('./fixture-uq.json')).json();
+  const uv = colorVariants(uq.content); ok(uv.some((v) => v.name === 'Bleu marine' && v.code === '69'), uv.map((v) => `${v.name}:${v.code}`).join(','));
+  const ui = pageImages(uq.content); ok(ui.some((i) => /eugoods_06_450259/.test(i.url)), 'photo Uniqlo manquante');
+  eq(currentColorCode('https://www.uniqlo.com/fr/fr/products/E450259-000/00?colorDisplayCode=06', ui), '06');
+  ok(imagesForColor(ui, '06', '69').every((i) => /goods_69_450259/.test(i.url)));
 });
 
 // ---------------- Exécution

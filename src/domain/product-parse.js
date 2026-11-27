@@ -418,6 +418,57 @@ export function parseStructured(text) {
   return out;
 }
 
+// ------------------------------------------------------------ Photos et coloris d'une page produit
+const IMG_RE = /(\[)?!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)(?:\]\((https?:\/\/[^)\s]+)\))?/g;
+const SMALL = /chip|swatch|icon|logo|sprite|\.svg|flag|payment|badge|wid=(?:[1-9]\d?|1\d\d)\b|width=(?:[1-9]\d?|1\d\d)\b|w=(?:[1-9]\d?|1\d\d)\b|_\d{2}x\d{2}\b/i;
+const cleanAlt = (a) => String(a || '').replace(/^Image \d+:\s*/i, '').trim();
+
+/** Grandes photos produit d'une page lue (ordre d'apparition, sans doublons ni pictos). */
+export function pageImages(content) {
+  const out = []; const seen = new Set();
+  for (const m of String(content || '').matchAll(IMG_RE)) {
+    const url = m[3];
+    if (SMALL.test(url) || !/\.(jpe?g|png|webp)(\?|$)|\/is\/image\/|imagesgoods|\/image\//i.test(url)) continue;
+    const key = url.replace(/\?.*$/, '');
+    if (seen.has(key)) continue; seen.add(key);
+    out.push({ url, alt: cleanAlt(m[2]) });
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
+/** Code couleur dans une URL d'image (Mango : 37074438-37-002 ; Uniqlo : goods_69_450259). */
+const codeOf = (url) => url.match(/\d{8}-(\d{2})-\d{3}/)?.[1] || url.match(/goods_(\d{2,3})_\d+/)?.[1] || null;
+
+/** Coloris proposés sur la page : nom, code, lien éventuel, coloris affiché. */
+export function colorVariants(content) {
+  const out = [];
+  for (const m of String(content || '').matchAll(IMG_RE)) {
+    const alt = cleanAlt(m[2]); const url = m[3];
+    if (!(/chip|swatch|wid=40\b/i.test(url) || /^couleur\b|^colou?r\b/i.test(alt))) continue;
+    const name = alt.replace(/^(couleur|colou?r)\s*:?\s*/i, '').replace(/\s*s[ée]lectionn[ée]e?\s*$/i, '').trim();
+    if (!name || name.length > 40) continue;
+    const code = codeOf(url);
+    if (out.some((v) => v.name.toLowerCase() === name.toLowerCase())) continue;
+    out.push({ name: name.charAt(0) + name.slice(1).toLowerCase(), code, href: m[4] || null, selected: /s[ée]lectionn/i.test(alt) });
+  }
+  return out;
+}
+
+/** Coloris affiché par le lien (paramètre ou chemin), sinon par les photos. */
+export function currentColorCode(url, images = []) {
+  const u = String(url || '');
+  return u.match(/colorDisplayCode=(\d{2,3})/)?.[1] || u.match(/\/\d{8}\/(\d{2})(?:\/\d{2})?(?:[?#]|$)/)?.[1] || images.map((i) => codeOf(i.url)).find(Boolean) || null;
+}
+
+/** Photos du coloris choisi : on remplace le code couleur dans les URL d'images (sans relire la page). */
+export function imagesForColor(images, from, to) {
+  if (!from || !to || from === to) return images;
+  const swap = (u) => u.replace(new RegExp(`(\\d{8}-)${from}(-\\d{3})`), `$1${to}$2`).replace(new RegExp(`goods_${from}_(\\d+)`), `goods_${to}_$1`);
+  const withCode = images.filter((i) => codeOf(i.url) === from);
+  return (withCode.length ? withCode : images).map((i) => ({ ...i, url: swap(i.url) }));
+}
+
 /** Requête courte pour retrouver la pièce par texte (moteurs et boutiques). */
 export function identifyQuery({ brand, subName, colorName, material }) {
   const seen = new Set();
