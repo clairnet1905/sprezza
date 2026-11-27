@@ -256,7 +256,7 @@ export function parseComposition(text) {
   for (const p of pairs) {
     if (set.some((x) => x.fiber === p.fiber)) { if (total >= 95) break; continue; }
     set.push(p); total += p.pct;
-    if (total >= 99) break;
+    if (total >= 100) break;
   }
   set.sort((a, b) => b.pct - a.pct);
   return { text: set.map((p) => `${p.pct} % ${p.fiber}`).join(', '), main: set[0].fiber, total };
