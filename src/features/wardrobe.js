@@ -32,6 +32,7 @@ export async function render(main, params, query) {
   if (a === 'import') return renderImport(main);
   if (a === 'stats') return renderStats(main);
   if (a === 'review') return renderReview(main);
+  if (a === 'bilan') return renderBilan(main);
   if (a === 'quick') return renderQuick(main);
   if (a === 'care') return renderCare(main);
   if (a === 'season') return renderSeason(main);
@@ -93,7 +94,7 @@ async function renderList(main) {
   setHTML(main, html`
     <div class="page-head row-between"><div><div class="eyebrow">Dressing numérique</div><h1>Mon dressing</h1>
       <p class="lede">${all.length} pièce${all.length > 1 ? 's' : ''} · ${all.filter(isAvailable).length} disponible${all.filter(isAvailable).length > 1 ? 's' : ''} immédiatement. Vos photos restent privées sur cet appareil.</p></div>
-      <div class="btn-row"><a class="btn btn-primary" href="#/wardrobe/quick">${icon('camera')} Ajout rapide</a><a class="btn btn-gold" href="#/wardrobe/new?web=1">${icon('search')} Ajouter depuis un lien ou ChatGPT</a><a class="btn" href="#/wardrobe/new">${icon('plus')} Fiche complète</a><a class="btn" href="#/wardrobe/import">${icon('upload')} Import multiple</a><a class="btn" href="#/wardrobe/care">${icon('rotate')} Lessive & entretien${all.filter((g) => g.availability === 'to-wash').length ? ` (${all.filter((g) => g.availability === 'to-wash').length})` : ''}</a><a class="btn" href="#/wardrobe/season">Rangement saisonnier</a><a class="btn" href="#/wardrobe/review">Revue du dressing</a><a class="btn" href="#/wardrobe/stats">Statistiques</a></div></div>
+      <div class="btn-row"><a class="btn btn-primary" href="#/wardrobe/quick">${icon('camera')} Ajout rapide</a><a class="btn btn-gold" href="#/wardrobe/new?web=1">${icon('search')} Ajouter depuis un lien ou ChatGPT</a><a class="btn" href="#/wardrobe/new">${icon('plus')} Fiche complète</a><a class="btn" href="#/wardrobe/import">${icon('upload')} Import multiple</a><a class="btn" href="#/wardrobe/care">${icon('rotate')} Lessive & entretien${all.filter((g) => g.availability === 'to-wash').length ? ` (${all.filter((g) => g.availability === 'to-wash').length})` : ''}</a><a class="btn" href="#/wardrobe/bilan">${icon('check')} Bilan du dressing</a><a class="btn" href="#/wardrobe/season">Rangement saisonnier</a><a class="btn" href="#/wardrobe/review">Revue du dressing</a><a class="btn" href="#/wardrobe/stats">Statistiques</a></div></div>
     ${all.length ? html`
     <div class="card" style="margin-bottom:16px">
       <div class="field"><label for="wq">Rechercher</label><input id="wq" type="search" placeholder="Nom, marque, matière, tag…" value="${filters.q}"></div>
@@ -934,6 +935,55 @@ async function renderImport(main) {
 }
 
 // ---------------------------------------------------------------- Statistiques
+// ---------------------------------------------------------------- Bilan du dressing
+const LEVEL = { high: ['Prioritaire', 'tag-danger'], mid: ['Important', 'tag-warn'], low: ['À prévoir', ''] };
+async function renderBilan(main) {
+  setHTML(main, html`<a href="#/wardrobe" class="small">← Dressing</a><div class="page-head"><div class="eyebrow">Bilan du dressing</div><h1>Ce que votre dressing permet, et ce qui lui manque</h1></div><p class="muted"><span class="loader"></span> Analyse de toutes vos combinaisons…</p>`);
+  const all = await loadGarments();
+  if (!all.length) { setHTML(main, emptyState('Dressing vide', 'Ajoutez quelques pièces pour obtenir un bilan.', html`<a class="btn btn-primary" href="#/wardrobe/quick">Ajout rapide</a>`)); return; }
+  await new Promise((r) => setTimeout(r, 30)); // laisse s'afficher le chargement
+  const { wardrobeAudit } = await import('../domain/audit.js');
+  const a = wardrobeAudit(all, { date: new Date() });
+  const okOcc = a.coverage.filter((r) => r.good >= 2).length;
+  const names = (p) => ['top', 'layer', 'bottom', 'shoes', 'outer'].map((k) => p?.[k]?.name).filter(Boolean).join(' · ');
+  const q = (c) => `${c.name.toLowerCase()} homme ${c.material.toLowerCase()}`;
+  setHTML(main, html`<a href="#/wardrobe" class="small">← Dressing</a>
+    <div class="page-head"><div class="eyebrow">Bilan du dressing</div><h1>Ce que votre dressing permet, et ce qui lui manque</h1>
+      <p class="lede">Calculé sur vos ${a.total} pièces, y compris celles au lavage ou rangées. Rien n'est inventé : les achats proposés sont des suggestions.</p></div>
+    <div class="grid-3">
+      <div class="card"><div class="stat">${a.outfits}</div><div class="stat-label">tenues de base harmonieuses (haut + bas + chaussures)</div></div>
+      <div class="card"><div class="stat">${okOcc}/${a.coverage.length}</div><div class="stat-label">occasions bien couvertes (au moins 2 bonnes tenues)</div></div>
+      <div class="card"><div class="stat">${a.gaps.filter((g) => g.level !== 'low').length}</div><div class="stat-label">manques importants</div></div>
+    </div>
+
+    <h2>Les achats les plus utiles</h2>
+    ${a.buys.length ? html`<p class="small muted">Classés selon ce qu'ils améliorent vraiment dans vos tenues (pour la saison en cours) et les manques qu'ils comblent.</p>
+    <div class="stack">${a.buys.map((b, i) => html`<div class="card"><div class="row" style="gap:12px;align-items:flex-start">
+      <div class="stat" style="min-width:34px">${i + 1}</div>${swatch(colorHex(b.item.color), b.item.name)}
+      <div style="flex:1"><strong>${b.item.name}</strong> <span class="small muted">· ${b.item.material} · ${b.item.budget[0]}–${b.item.budget[1]} €</span>
+        <div class="small">${b.why}.</div>
+        <div class="btn-row" style="margin-top:6px"><a class="btn btn-sm" href="#/shopping?q=${encodeURIComponent(q(b.item))}">${icon('search')} La chercher</a><a class="btn btn-sm btn-ghost" href="#/wardrobe/new?capsule=${b.item.id}">Je l'ai déjà : créer la fiche</a></div></div></div></div>`)}</div>`
+    : html`<div class="card"><p class="muted">Aucun achat ne changerait vraiment votre dressing : il est déjà bien construit.</p></div>`}
+
+    <h2>Ce qui manque vraiment</h2>
+    ${a.gaps.length ? html`<div class="card"><ul class="clean">${a.gaps.map((g) => html`<li style="padding:8px 0;border-bottom:1px solid var(--line)"><div class="row" style="gap:8px"><span class="tag ${LEVEL[g.level][1]}">${LEVEL[g.level][0]}</span><strong>${g.text}</strong></div><div class="small muted" style="margin-top:3px">${g.why}</div></li>`)}</ul></div>`
+    : html`<div class="card"><p>${icon('check')} Aucun manque important : toutes les bases sont là.</p></div>`}
+
+    <h2>Vos tenues par occasion</h2>
+    <p class="small muted">Avec la météo estimée d'aujourd'hui. « Bonne tenue » = note d'au moins 70/100.</p>
+    <div class="table-wrap"><table><thead><tr><th>Occasion</th><th class="num">Bonnes tenues</th><th>Meilleure proposition</th></tr></thead><tbody>
+      ${a.coverage.map((r) => html`<tr><td><strong>${r.name}</strong>${r.missing.length ? html`<div class="small" style="color:var(--warn)">${r.missing.slice(0, 2).join(' · ')}</div>` : ''}</td>
+        <td class="num"><span class="tag ${r.good >= 2 ? 'tag-ok' : r.good === 1 ? 'tag-warn' : 'tag-danger'}">${r.good}/3</span></td>
+        <td class="small">${r.bestPieces ? html`${names(r.bestPieces)} <span class="muted">(${r.best}/100)</span>` : html`<span class="muted">Aucune tenue complète</span>`}</td></tr>`)}
+    </tbody></table></div>
+
+    <div class="grid-2" style="margin-top:8px">
+      <div><h2>Vos pièces clés</h2><div class="card">${a.keys.length ? html`<ul class="clean">${a.keys.map(({ g, count }) => html`<li class="row-between" style="padding:6px 0;border-bottom:1px solid var(--line)"><a href="#/wardrobe/${g.id}">${g.name}</a><span class="tag tag-gold">${count} tenues</span></li>`)}</ul><p class="small muted" style="margin-top:8px">À entretenir en priorité : ce sont elles qui portent votre dressing.</p>` : html`<p class="muted small">Pas encore assez de pièces pour former des tenues.</p>`}</div></div>
+      <div><h2>Jamais proposées en ce moment</h2><div class="card">${a.underused.length ? html`<ul class="clean">${a.underused.slice(0, 10).map((u) => html`<li style="padding:6px 0;border-bottom:1px solid var(--line)"><a href="#/wardrobe/${u.g.id}">${u.g.name}</a><div class="small muted">${u.why}</div></li>`)}</ul>${a.underused.length > 10 ? html`<p class="small muted">… et ${a.underused.length - 10} autre(s).</p>` : ''}` : html`<p class="small">${icon('check')} Toutes vos pièces sont proposées au moins une fois.</p>`}
+        <a class="small" href="#/wardrobe/review">Revue pièce par pièce (garder, retoucher, donner) →</a></div></div>
+    </div>`);
+}
+
 async function renderStats(main) {
   const [all, wl, outs] = await Promise.all([loadGarments(), loadWearlog(), loadOutfits()]);
   const s = wardrobeStats(all, wl);

@@ -24,6 +24,7 @@ import { defaultOccasion, preferredMode } from '../src/features/daily.js';
 import { chooseAccessories, missingPieceFor } from '../src/domain/recommend.js';
 import { shortQuery } from '../src/features/shopping.js';
 import { closetOrder } from '../src/features/wardrobe.js';
+import { wardrobeAudit, wardrobeGaps } from '../src/domain/audit.js';
 import { climateFeel } from '../src/domain/weather.js';
 import { inspirationQuery, colorsQuery, searchPhotos } from '../src/services/pexels.js';
 import { alphaBounds, deskewAngle, keepMainRegions } from '../src/services/cutout.js';
@@ -593,6 +594,23 @@ test('Dressing rangé : catégories dans l\'ordre, types groupés, du clair au f
   const g = (id, category, sub, color) => ({ id, name: id, category, sub, color: { id: color } });
   const o = closetOrder([g('a', 'chaussures', 'baskets', 'white'), g('b', 'haut', 'pull', 'navy'), g('c', 'haut', 'chemise', 'navy'), g('d', 'haut', 'chemise', 'white'), g('e', 'accessoire', 'montre', 'black'), g('f', 'bas', 'chino', 'beige')]).map((x) => x.id).join('');
   eq(o, 'dcbfae');
+});
+
+test('Bilan : vrais manques, achats utiles de saison, aucun achat déjà possédé', () => {
+  let n = 0; const G = (category, sub, name, color, x = {}) => ({ id: `b${++n}`, category, sub, name, color: { id: color }, availability: 'clean', ...x });
+  const W = [G('haut', 'chemise', 'Chemise anthracite', 'charcoal'), G('haut', 'polo', 'Polo marine', 'navy'), G('haut', 'tee-shirt', 'Tee blanc', 'white'), G('haut', 'chemise', 'Chemise blanche', 'white'),
+    G('bas', 'chino', 'Chino cognac', 'camel'), G('bas', 'chino', 'Chino taupe', 'taupe'), G('bas', 'jean', 'Jean', 'indigo'),
+    G('chaussures', 'baskets', 'Baskets', 'white'), G('chaussures', 'mocassins', 'Mocassins daim', 'suede-brown', { material: 'Daim' })];
+  const ids = wardrobeGaps(W).map((g) => g.id);
+  ['no-coat', 'no-warm-top', 'no-rain-shoes', 'no-blazer'].forEach((id) => ok(ids.includes(id), id));
+  const a = wardrobeAudit(W, { date: new Date(2026, 10, 27, 9) });
+  ok(a.buys.length >= 3, 'pas assez d\'achats');
+  ok(a.buys.slice(0, 3).some((b) => b.item.role === 'outer'), 'manteau absent du top 3 en novembre');
+  ok(a.buys.every((b) => b.item.sub !== 'bermuda'), 'bermuda proposé en novembre');
+  ok(a.buys.every((b) => !(b.item.sub === 'chino' && ['camel', 'taupe'].includes(b.item.color))), 'achat déjà possédé');
+  eq(new Set(a.buys.map((b) => b.item.id)).size, a.buys.length);
+  ok(a.coverage.length === 8 && a.outfits > 0);
+  ok(a.keys.every((k) => ['haut', 'bas', 'chaussures'].includes(k.g.category)));
 });
 
 test('Zara : pantalon « taille jogging » = chino, « marron clair chiné », prix soldé, taille et référence écrites', () => {
