@@ -520,6 +520,15 @@ test('Lien produit : photos de l\'article et coloris proposés (Mango, Uniqlo)',
   ok(imagesForColor(ui, '06', '69').every((i) => /goods_69_450259/.test(i.url)));
 });
 
+test('Zara : pantalon « taille jogging » = chino, « marron clair chiné », prix soldé, taille et référence écrites', () => {
+  const r = readerToText({ title: 'PANTALON TAILLE JOGGING EASY CARE', description: '', content: '# PANTALON TAILLE JOGGING EASY CARE\n\n~~35,95 EUR~~-40,00%21,57 EUR\n\nComposition : 77% polyester 20% viscose 3% élasthanne' });
+  eq(r.text.includes('21,57 €'), true, r.text);
+  const own = 'MARRON CLAIR CHINÉ 0347/890/723 taille S';
+  const p = parseProduct(`${r.text}\nhttps://www.zara.com/fr/fr/pantalon-regular-fit-easy-care-p00347890.html?v1=545490301 ${own}`);
+  eq(p.sub, 'chino'); eq(p.category, 'bas'); eq(p.price, 21.57); eq(p.size, 'S'); eq(p.ref, '0347/890/723'); eq(p.brand, 'Zara'); eq(p.fit, 'regular');
+  eq(parseProduct(own).color, 'taupe'); eq(parseProduct('chino marron clair').color, 'camel'); eq(parseProduct('Jogging en molleton gris').sub, 'jogging');
+});
+
 // ---------------- Exécution
 const out = document.getElementById('out'); let pass = 0; const fails = [];
 for (const t of tests) {

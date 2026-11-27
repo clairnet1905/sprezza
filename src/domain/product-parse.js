@@ -34,7 +34,7 @@ const SUB_RULES = [
   ['chemise', /chemise|shirt|camisa|camicia|oxford/],
   ['pantalon-costume', /pantalon (de )?costume|suit trousers|suit pants|pantalon de traje/],
   ['flanelle', /pantalon[^.,;]{0,20}flanelle|flannel trousers/],
-  ['chino', /chino/],
+  ['chino', /chino|pantalon (a |en )?(taille|ceinture) (jogging|elastique)|pantalon jogger|jogger (pants?|trousers?)/], // pantalon « taille jogging » de ville ≠ jogging de sport
   ['jean', /\bjeans?\b|denim pant|vaquero|\bdenim\b(?! (jacket|veste))/],
   ['bermuda', /bermuda/],
   ['short', /\bshorts?\b/],
@@ -81,6 +81,8 @@ const SUB_RULES = [
 
 /** Couleurs (ids SPREZZA). */
 const COLOR_RULES = [
+  ['taupe', /(marron|brun) clair chine|taupe chine|greige/],
+  ['camel', /(marron|brun) clair|light brown|noisette|hazel|\btan\b clair/],
   ['forest', /vert foret|forest green|vert anglais|british racing/],
   ['bottle-green', /vert bouteille|bottle green|vert sapin|vert fonce|dark green|hunter green/],
   ['sage', /vert sauge|\bsauge\b|\bsage\b|vert de gris|vert amande|mint|menthe/],
@@ -272,7 +274,8 @@ export function readerToText({ title = '', description = '', content = '' }) {
   const start = h1 ? content.indexOf(h1[0]) : 0;
   const zone = content.slice(start, start + 5000).replace(/!\[[^\]]*\]\([^)]*\)/g, ' ').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
   const color = zone.match(/(?:^|\n)\s*(?:\*\s*)?(?:coloris|couleur|colou?r|color)\s*:\s*(?:\d{1,3}\s+)?([^\n|:]{2,40})/i)?.[1].trim() || '';
-  const price = zone.match(/(\d{1,4}[.,]\d{2})\s?€/)?.[1] || '';
+  // Prix actuel : on ignore l'ancien prix barré (~~35,95 EUR~~) ; « € » ou « EUR ».
+  const price = zone.replace(/~~[^~]*~~/g, ' ').match(/(\d{1,4}[.,]\d{2})\s?(?:€|EUR\b)/i)?.[1] || '';
   const ci = content.search(/composition|mati[èe]res?\b|d[ée]tails du tissu|fabric/i);
   const compZone = `${ci >= 0 ? content.slice(ci, ci + 900) : ''}\n${description}\n${zone}`;
   const comp = parseComposition(compZone);
