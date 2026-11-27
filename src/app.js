@@ -122,7 +122,7 @@ function setupUpdates() {
 
 /** Version installée (nom du cache du service worker). */
 export async function appVersion() {
-  try { return (await caches.keys()).find((k) => k.startsWith('sprezza-'))?.replace('sprezza-', '') || 'inconnue'; } catch { return 'inconnue'; }
+  try { const n = (await caches.keys()).map((k) => Number(k.match(/^sprezza-v(\d+)$/)?.[1])).filter(Boolean); return n.length ? `v${Math.max(...n)}` : 'inconnue'; } catch { return 'inconnue'; }
 }
 /** Force la recherche d'une mise à jour puis recharge. */
 export async function forceUpdate() {
