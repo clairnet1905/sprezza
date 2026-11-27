@@ -9,7 +9,7 @@ import { manualWeather, weatherSummary, isStale, seasonFromDate } from '../domai
 import { MODE_STYLES } from '../domain/scoring.js';
 import { forecast } from '../services/weather.js';
 import { PERIODS, periodAt, nextChange, daysSinceChange, seasonalPlan } from '../domain/seasonal.js';
-import { outfitMannequin, piecesList, pieceRow, scoreBadge, idsToPieces, wearOutfit, addToCalendar, MODE_NAME } from './shared.js';
+import { outfitMannequin, piecesList, pieceRow, scoreBadge, idsToPieces, wearOutfit, addToCalendar, MODE_NAME, upgradeBlock } from './shared.js';
 
 const QUICK_OCCASIONS = ['daily', 'client', 'office', 'restaurant', 'walk', 'elegant-dinner'];
 const KEY = () => `daily:${pid()}`;
@@ -105,7 +105,7 @@ export async function renderDaily(box, { onShowAll } = {}) {
             <div class="piece-list">${piecesList(pieces).map(([r, g]) => pieceRow(r, g))}</div>
             <div><div class="mannequin-wrap">${outfitMannequin(pieces)}</div><div class="schema-label">Schéma — pas une photographie</div></div>
           </div>
-          ${best && !wornToday && !plannedToday || (best && st.showProposal) ? html`<p class="small" style="margin-top:10px">${best.reasons.slice(0, 2).join(' ')}</p>${best.warnings.length ? html`<div class="callout callout-warn small">${best.warnings[0]}</div>` : ''}${res.backup?.changes?.length ? html`<p class="small"><strong>Plan B :</strong> ${res.backup.changes.join(' ; ')}.</p>` : ''}` : ''}
+          ${best && !wornToday && !plannedToday || (best && st.showProposal) ? html`<p class="small" style="margin-top:10px">${best.reasons.slice(0, 2).join(' ')}</p>${best.warnings.length ? html`<div class="callout callout-warn small">${best.warnings[0]}</div>` : ''}${res.backup?.changes?.length ? html`<p class="small"><strong>Plan B :</strong> ${res.backup.changes.join(' ; ')}.</p>` : ''}${upgradeBlock(best.upgrade)}` : ''}
           <div class="btn-row" style="margin-top:12px">${footer}</div>`}
     </section>
     ${seasonBanner}

@@ -6,6 +6,7 @@ import { COLOR_TRAITS } from '../data/colors.js';
 import { scoreOutfit, SUB_AFFINITY, garmentFormality, outfitFormality } from './scoring.js';
 import { classifyHarmony, colorName, luminance, colorHex } from './colors.js';
 import { seasonFromDate } from './weather.js';
+import { CAPSULE } from '../data/capsule.js';
 
 const TOP_K = 6;
 const BELT_BOTTOMS = ['pantalon', 'pantalon-costume', 'chino', 'jean', 'flanelle', 'bermuda'];
@@ -53,6 +54,20 @@ const isDark = (g) => luminance(colorHex(g?.color?.id)) < 0.12;
 export function occasionFit(g, occasion) {
   const t = tasteOf(occasion);
   return (t.subs?.[g.sub] ?? 0) + (t.dark && g.color?.id ? (isDark(g) ? t.dark * 0.6 : 0) : 0);
+}
+/** Note de classement hors historique de port : grille B18 + style du mode + attentes de l'occasion. */
+export function styleRank(pieces, { mode, occasion, env, prefs = {} }, sc = null) {
+  const score = sc || scoreOutfit(pieces, { occasion, env, prefs, mode, weather: env });
+  const { top, bottom, layer, outer, shoes } = pieces;
+  let rank = score.normalized ?? 50;
+  rank += [top, bottom, layer, outer, shoes].filter(Boolean).reduce((a, g) => a + (SUB_AFFINITY[g.sub]?.[mode] ?? 0), 0) * 0.8;
+  // L'occasion façonne la tenue : pièces attendues, veste souhaitée ou non, formalité visée.
+  const taste = tasteOf(occasion);
+  rank += [top, bottom, layer, shoes].filter(Boolean).reduce((a, g) => a + occasionFit(g, occasion), 0) * 2.5;
+  if (taste.layer) rank += layer ? taste.layer * 1.5 : (taste.layer > 0 ? -taste.layer : 0);
+  const ofr = outfitFormality(pieces);
+  if (ofr !== null && occasion) rank -= Math.abs(ofr - (occasion.target + (prefs.formalityBias || 0))) * 3;
+  return rank;
 }
 const byId = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 const daysSince = (iso, now) => (iso ? (now - new Date(iso).getTime()) / 864e5 : Infinity);
@@ -248,14 +263,7 @@ export function recommend(input) {
       if (reuse) { rank += reuse * 0.8; bonus.push(`+${(reuse * 0.8).toFixed(1)} réutilisation de pièces peu portées`); }
       const recent = pieceList.filter((g) => daysSince(g.lastWornAt, now) < 2).length;
       if (recent) { rank -= recent * 2; bonus.push(`−${recent * 2} pièces portées très récemment`); }
-      const aff = pieceList.reduce((a, g) => a + (SUB_AFFINITY[g.sub]?.[mode] ?? 0), 0);
-      rank += aff * 0.8;
-      // L'occasion façonne la tenue : pièces attendues, veste souhaitée ou non, formalité visée.
-      const taste = tasteOf(occasion);
-      rank += [top, bottom, layer, sh].filter(Boolean).reduce((a, g) => a + occasionFit(g, occasion), 0) * 2.5;
-      if (taste.layer) rank += layer ? taste.layer * 1.5 : (taste.layer > 0 ? -taste.layer : 0);
-      const ofr = outfitFormality(pieces);
-      if (ofr !== null) rank -= Math.abs(ofr - (occasion.target + (prefs.formalityBias || 0))) * 3;
+      rank += styleRank(pieces, { mode, occasion, env, prefs }, sc) - base;
       if (prefs.likedCombos?.includes(comboKey(pieces))) { rank += 3; bonus.push('+3 tenue aimée'); }
       if (needsOuter(env) && !outer) { rank -= 4; bonus.push('−4 couche extérieure manquante'); }
       scored.push({ pieces, score: sc, rank: Math.round(rank * 100) / 100, bonus, mode });
@@ -280,6 +288,8 @@ export function recommend(input) {
     chosen.push(pick.pieces); seen.add(comboKey(pick.pieces));
     options.push(decorate(pick, { occasion, env, pools, list, ctxBase }));
   }
+  // « La pièce qui manque à cette tenue » (non possédée), sauf pour les calculs internes.
+  if (!input.noUpgrade) for (const o of options) o.upgrade = missingPieceFor(o, garments, { occasionId: occasion.id, weather, season: input.season, date: input.date || new Date(now), prefs });
   const distinct = new Set(options.map((o) => comboKey(o.pieces))).size;
   info.distinct = distinct;
   if (distinct < 3) info.note = `Le dressing disponible permet ${distinct} combinaison${distinct > 1 ? 's' : ''} réellement distincte${distinct > 1 ? 's' : ''} pour cette occasion (${combos} combinaisons évaluées).`;
@@ -352,9 +362,54 @@ export function outfitsUnlocked(hypo, garments, { occasionIds = ['daily', 'clien
   if (!role) return 0;
   let count = 0;
   for (const occ of occasionIds) {
-    const r = recommend({ garments: [...garments, g], occasionId: occ, imposed: { [role]: g.id }, season: hypo.season });
+    const r = recommend({ garments: [...garments, g], occasionId: occ, imposed: { [role]: g.id }, season: hypo.season, noUpgrade: true });
     const keys = new Set(r.options.filter((o) => (o.score.normalized ?? 0) >= 60).map((o) => comboKey(o.pieces)));
     count += keys.size;
   }
   return count;
+}
+
+/** Sous-catégorie de l'app pour une pièce de la capsule (« col roulé » → col-roule). */
+const CAPSULE_SUB = { 'col roulé': 'col-roule' };
+const ROLE_NAME = { top: 'le haut', bottom: 'le bas', layer: 'la veste', outer: 'le manteau', shoes: 'les chaussures' };
+/**
+ * « La pièce qui manque à cette tenue » : parmi les pièces de la capsule que l'on ne possède pas,
+ * celle qui améliorerait le plus cette tenue pour cette occasion (remplacement ou ajout d'une veste/d'un manteau).
+ * Pur et rapide : une évaluation par pièce candidate, pas de nouvelle recherche de combinaisons.
+ * @returns {null | {item, role, replaces, before, after, gain, text}}
+ */
+export function missingPieceFor(option, garments = [], { occasionId = 'daily', weather = null, season, date, prefs = {}, minGain = 4 } = {}) {
+  if (!option?.pieces) return null;
+  const occasion = OCCASION_BY_ID[occasionId] || OCCASION_BY_ID.daily;
+  const env = buildEnv({ weather, season, date: date || new Date(), prefs });
+  const mode = option.mode || 'italian';
+  const ctx = { mode, occasion, env, prefs };
+  const owned = new Set(garments.map((g) => `${g.sub}|${g.color?.id}`));
+  const before = styleRank(option.pieces, ctx);
+  let best = null;
+  for (const c of CAPSULE) {
+    if (!['top', 'bottom', 'layer', 'outer', 'shoes'].includes(c.role)) continue;
+    const sub = CAPSULE_SUB[c.sub] || c.sub;
+    if (owned.has(`${sub}|${c.color}`)) continue;
+    const g = { id: `__capsule_${c.id}`, name: c.name, category: c.category, sub, color: { id: c.color }, material: c.material, availability: 'clean' };
+    // Mêmes contraintes que pour le dressing réel (saison, météo, formalité de l'occasion).
+    const { pools } = hardFilter([g], { occasion, env });
+    if (!pools[c.role].length) continue;
+    if (c.role === 'outer' && !needsOuter(env)) continue;
+    const old = option.pieces[c.role] || null;
+    if (old && old.sub === sub && old.color?.id === c.color) continue;
+    const pieces = { ...option.pieces, [c.role]: g };
+    if (c.role === 'layer' && pieces.top && pieces.top.id === g.id) continue;
+    const after = styleRank(pieces, ctx);
+    const gain = after - before;
+    if (gain >= minGain && (!best || gain > best.gain)) best = { item: c, role: c.role, replaces: old, before, after, gain, pieces };
+  }
+  if (!best) return null;
+  const sc0 = option.score?.normalized; const sc1 = scoreOutfit(best.pieces, { occasion, env, prefs, mode, weather: env }).normalized;
+  const why = [];
+  if (!best.replaces && ['layer', 'outer'].includes(best.role)) why.push((tasteOf(occasion).layer || 0) > 0 && best.role === 'layer' ? `une veste est attendue pour « ${occasion.name} »` : 'elle complète la tenue');
+  if (best.replaces && occasionFit({ sub: best.pieces[best.role].sub, color: best.pieces[best.role].color }, occasion) > (best.replaces ? occasionFit(best.replaces, occasion) : 0)) why.push(`plus juste pour « ${occasion.name} »`);
+  if (sc0 != null && sc1 > sc0) why.push(`note ${sc0} → ${sc1}/100`);
+  const text = `${best.replaces ? `À la place de ${best.replaces.name.toLowerCase()}` : `En ajoutant ${ROLE_NAME[best.role]}`}${why.length ? ` : ${why.join(', ')}` : ''}.`;
+  return { item: best.item, role: best.role, replaces: best.replaces, gain: Math.round(best.gain * 10) / 10, scoreBefore: sc0 ?? null, scoreAfter: sc1 ?? null, text };
 }

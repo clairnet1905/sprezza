@@ -74,6 +74,20 @@ export function outfitMannequin(pieces, label) {
 }
 
 /** Carte de proposition (Aujourd'hui, Tenues, Avec quoi le porter). */
+/** Encadré « La pièce qui manque à cette tenue » : une pièce non possédée qui l'améliorerait. */
+export function upgradeBlock(u) {
+  if (!u) return '';
+  const c = u.item;
+  const q = `${c.name.toLowerCase()} homme ${c.material.toLowerCase()}`;
+  return html`<div class="callout upgrade" style="margin-top:10px"><div class="row" style="gap:10px;align-items:flex-start">
+    ${swatch(colorHex(c.color), colorName(c.color))}
+    <div style="flex:1"><div class="eyebrow">La pièce qui manque à cette tenue</div>
+      <div><strong>${c.name}</strong> <span class="small muted">· ${c.material} · ${c.budget[0]}–${c.budget[1]} €</span></div>
+      <div class="small">${u.text}</div>
+      <div class="btn-row" style="margin-top:6px"><a class="btn btn-sm" href="#/shopping?q=${encodeURIComponent(q)}">${icon('search')} La chercher</a><a class="btn btn-sm btn-ghost" href="#/capsule">Voir ma capsule</a></div>
+      <div class="small muted">Suggestion d'achat : vous ne l'avez pas dans votre dressing.</div></div></div></div>`;
+}
+
 export function proposalCard(opt, idx, { actions = true, title } = {}) {
   const p = opt.pieces;
   return html`<article class="card card-accent proposal" data-idx="${idx}">
@@ -87,6 +101,7 @@ export function proposalCard(opt, idx, { actions = true, title } = {}) {
       <div><div class="mannequin-wrap">${outfitMannequin(p)}</div><div class="schema-label">Schéma — pas une photographie</div></div>
     </div>
     <ul class="ticks">${opt.reasons.map((r) => html`<li>${r}</li>`)}</ul>
+    ${upgradeBlock(opt.upgrade)}
     ${opt.warnings.length ? html`<div class="callout callout-warn">${opt.warnings.map((w) => html`<div>${w}</div>`)}</div>` : ''}
     <details class="disclosure"><summary>Détail de la note (grille B18)</summary>${criteriaView(opt.score)}
       ${opt.bonus?.length ? html`<p class="small muted" style="margin-top:8px">Classement (distinct de la note d'élégance) : ${opt.bonus.join(' ; ')}</p>` : ''}</details>
