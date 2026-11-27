@@ -115,7 +115,7 @@ export async function cutout(blob, onProgress = () => {}) {
   const sctx = src.getContext('2d'); sctx.drawImage(bmp, 0, 0);
   const img = sctx.getImageData(0, 0, src.width, src.height);
   for (let i = 3; i < img.data.length; i += 4) if (img.data[i] < 40) img.data[i] = 0; // supprime le halo presque transparent
-  keepMainRegions(img.data, src.width, src.height); // supprime les petits îlots (poussières, bouts de fond)
+  keepMainRegions(img.data, src.width, src.height, { threshold: 40 }); // supprime les petits îlots (poussières, bouts de fond)
   sctx.putImageData(img, 0, 0);
   // Redressement automatique (pièce photographiée un peu de travers).
   const rot = deskewAngle(img.data, src.width, src.height);
