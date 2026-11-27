@@ -90,8 +90,45 @@ async function boot() {
   route();
   setupSync();
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('sw.js').catch((e) => console.warn('Service worker non enregistré', e));
+    setupUpdates();
   }
+}
+
+/**
+ * Mises à jour : une fenêtre restée ouverte (ordinateur, app installée) garde l'ancien code en mémoire.
+ * On vérifie à chaque retour sur l'app et toutes les 30 min ; dès qu'une version est prête, bandeau « Mettre à jour »
+ * (ou rechargement discret si l'app est en arrière-plan).
+ */
+function setupUpdates() {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js').then((reg) => {
+    const check = () => reg.update().catch(() => {});
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+    window.addEventListener('online', check);
+    setInterval(check, 30 * 60 * 1000);
+  }).catch((e) => console.warn('Service worker non enregistré', e));
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) return; // première installation : rien à recharger
+    const editing = /\/(new|edit)\b/.test(location.hash) || document.querySelector('dialog[open], .modal');
+    if (document.visibilityState === 'hidden' && !editing) { location.reload(); return; }
+    if (document.getElementById('update-bar')) return;
+    const bar = document.createElement('div');
+    bar.id = 'update-bar'; bar.className = 'update-bar'; bar.setAttribute('role', 'status');
+    bar.innerHTML = '<span>Nouvelle version de SPREZZA disponible.</span><button class="btn btn-sm btn-gold" type="button">Mettre à jour</button>';
+    bar.querySelector('button').onclick = () => location.reload();
+    document.body.appendChild(bar);
+  });
+}
+
+/** Version installée (nom du cache du service worker). */
+export async function appVersion() {
+  try { return (await caches.keys()).find((k) => k.startsWith('sprezza-'))?.replace('sprezza-', '') || 'inconnue'; } catch { return 'inconnue'; }
+}
+/** Force la recherche d'une mise à jour puis recharge. */
+export async function forceUpdate() {
+  const reg = await navigator.serviceWorker?.getRegistration();
+  await reg?.update().catch(() => {});
+  location.reload();
 }
 
 /** Photos d'inspiration Pexels, à la demande (délégation : fonctionne dans tous les écrans). */
