@@ -123,6 +123,8 @@ async function renderDetail(main, g) {
     <div class="page-head row-between" style="margin-top:8px"><div><div class="eyebrow">${CATEGORY_BY_ID[g.category]?.name} · ${sub?.name || ''}</div><h1>${g.name}</h1>
       <div class="row"><span class="tag ${isAvailable(g) ? 'tag-ok' : 'tag-warn'}">${AVAIL_LABEL[g.availability] || 'Propre'}</span>${g.favorite ? html`<span class="tag tag-gold">Favori</span>` : ''}</div></div>
       <div class="btn-row"><button class="btn" id="fav">${icon('heart', { filled: g.favorite })} ${g.favorite ? 'Retirer des favoris' : 'Favori'}</button><a class="btn" href="#/wardrobe/${g.id}/edit">${icon('edit')} Modifier</a><button class="btn btn-danger" id="del">${icon('trash')} Supprimer</button></div></div>
+    ${g.tags?.includes('à compléter') ? html`<div class="callout" style="margin-bottom:14px"><strong>Fiche à compléter.</strong> Type, nom, matière ou prix à vérifier ? Retrouvez la pièce sur internet (photo ou lien de l'article) pour tout remplir.
+      <div class="btn-row" style="margin-top:8px"><button class="btn btn-sm btn-gold" id="goweb">${icon('search')} Compléter avec internet</button><a class="btn btn-sm" href="#/wardrobe/${g.id}/edit">Modifier à la main</a></div></div>` : ''}
     <div class="grid-2" style="align-items:start">
       <div class="stack">
         ${g.photoIds?.length ? html`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr))">${g.photoIds.map((ph) => html`<div class="g-thumb" style="border-radius:12px"><img data-photo="${ph}" data-full alt="${g.name}"></div>`)}</div>` : html`<div class="card-flat small muted">Aucune photo. Ajoutez-en une depuis « Modifier ».</div>`}
@@ -166,6 +168,7 @@ async function renderDetail(main, g) {
     await store.repo.put('photos', { ...ph0, blob: ph0.originalBlob, thumb: ph0.originalThumb, originalBlob: null, originalThumb: null, cutout: false });
     forgetPhotoURL(ph0.id); toast('Photo originale rétablie'); navigate(`#/wardrobe/${g.id}`);
   });
+  main.querySelector('#goweb')?.addEventListener('click', () => { focusWeb = true; navigate(`#/wardrobe/${g.id}/edit`); });
   main.querySelector('#fav').onclick = async () => { await store.repo.put('garments', { ...g, favorite: !g.favorite }); navigate(`#/wardrobe/${g.id}`); };
   main.querySelectorAll('[data-avail]').forEach((b) => b.onclick = async () => { await store.repo.put('garments', b.dataset.avail === 'clean' && g.availability === 'to-wash' ? afterWash(g) : { ...g, availability: b.dataset.avail }); toast(`Disponibilité : ${AVAIL_LABEL[b.dataset.avail]}`); navigate(`#/wardrobe/${g.id}`); });
   main.querySelector('#del').onclick = async () => {
@@ -193,6 +196,7 @@ async function renderDetail(main, g) {
 // ---------------------------------------------------------------- Éditeur
 let pendingSource = null; // photo de dressing conservée pour découper plusieurs pièces
 let pendingPreset = null; // fiche assortie à créer (ensemble / costume)
+let focusWeb = false; // ouvrir la fiche directement sur « Retrouver ce vêtement sur internet »
 /** Pièce assortie d'un ensemble : veste ↔ pantalon. */
 export function setComplement(sub, category) {
   const m = { 'veste-costume': ['bas', 'pantalon-costume'], blazer: ['bas', 'pantalon'], 'pantalon-costume': ['veste', 'veste-costume'], pantalon: ['veste', 'blazer'], flanelle: ['veste', 'blazer'], chino: ['veste', 'surchemise'], 'veste-denim': ['bas', 'jean'], jean: ['veste', 'veste-denim'] };
@@ -205,7 +209,7 @@ export function setComplement(sub, category) {
 
 async function renderEditor(main, existing, preset = {}) {
   const g = existing || { id: null, category: preset.category || 'haut', sub: preset.sub || 'chemise', seasons: [], styles: [], tags: [], measures: {}, availability: 'clean', condition: 'good', photoIds: [], rainResistance: 0, windResistance: 0, ...preset };
-  const state = { source: null, rotation: 0, crop: { x: 0, y: 0, w: 1, h: 1 }, aspect: 'free', dominant: [], photoKind: preset.photoKind || 'single', removePhotos: new Set(), extras: [], pasteLabel: false };
+  const state = { source: null, rotation: 0, crop: { x: 0, y: 0, w: 1, h: 1 }, aspect: 'free', dominant: [], photoKind: preset.photoKind || 'single', removePhotos: new Set(), extras: [], pasteLabel: false, savedPhotoId: null };
   const ai = await aiStatus();
   const consentAI = store.profile.consents?.ai && store.profile.kind !== 'child';
   const colorOpts = ALL_COLORS.map((c) => [c.id, `${c.name}${c.aux ? ' (aux.)' : ''}`]).concat([['custom', 'Personnalisée…']]);
@@ -363,8 +367,10 @@ async function renderEditor(main, existing, preset = {}) {
   $('#clearphoto').onclick = () => { state.source = null; $('#cropper').classList.add('hidden'); };
   main.querySelectorAll('[data-rmphoto]').forEach((cb) => cb.onchange = () => { if (cb.checked) state.removePhotos.add(cb.dataset.rmphoto); else state.removePhotos.delete(cb.dataset.rmphoto); });
   $('#airecog')?.addEventListener('click', () => aiRecognize(main, state));
+  if (existing?.photoIds?.length) { const phs = await Promise.all(existing.photoIds.map((id) => store.repo.get('photos', id))); state.savedPhotoId = phs.find((ph) => ph && ph.blob && ph.kind !== 'label')?.id || null; }
   setupWebIdentify(main, state, { subOpts, syncSub, syncColor });
   setupExtraPhotos(main, state);
+  if (focusWeb) { focusWeb = false; setTimeout(() => $('#webid').scrollIntoView({ behavior: 'smooth', block: 'start' }), 150); }
 
   form.onsubmit = async (e) => {
     e.preventDefault();
@@ -472,6 +478,7 @@ function setupExtraPhotos(main, state) {
 
 // ---------------------------------------------------------------- Identification sur internet
 async function croppedPhotoBlob(state) {
+  if (!state.source && state.savedPhotoId) return (await store.repo.get('photos', state.savedPhotoId))?.blob; // photo déjà enregistrée
   const { canvasToBlob } = await import('../services/image.js');
   return canvasToBlob(renderToCanvas(state.source, { rotation: state.rotation, crop: state.crop, maxSide: 1200 }), 0.86);
 }
@@ -484,7 +491,7 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
 
   $('#lensbtn').onclick = async () => {
     if (store.profile.kind === 'child') { toast('Désactivé pour un profil enfant'); return; }
-    if (!state.source) { toast('Prenez ou choisissez d\'abord une photo'); $('#pcam').scrollIntoView({ block: 'center' }); return; }
+    if (!state.source && !state.savedPhotoId) { toast('Prenez ou choisissez d\'abord une photo'); $('#pcam').scrollIntoView({ block: 'center' }); return; }
     const signedIn = !!(await store.sync.session());
     if (!signedIn) {
       // Sans compte : pas d'hébergement temporaire possible → partage vers l'app Google, ou import manuel dans Lens.
@@ -505,7 +512,7 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
   };
 
   $('#sharebtn').onclick = async () => {
-    if (!state.source) { toast('Prenez ou choisissez d\'abord une photo'); return; }
+    if (!state.source && !state.savedPhotoId) { toast('Prenez ou choisissez d\'abord une photo'); return; }
     try {
       const file = new File([await croppedPhotoBlob(state)], 'sprezza-vetement.jpg', { type: 'image/jpeg' });
       await navigator.share({ files: [file], title: 'Vêtement à identifier' });
@@ -771,18 +778,19 @@ async function renderQuick(main) {
         <div id="qform" class="hidden">
           <div class="row" style="align-items:flex-start;flex-wrap:nowrap"><div class="mini-thumb" style="width:96px" id="qprev"></div>
           <div style="flex:1;min-width:0">
-            <p class="small muted" style="margin:0 0 6px">Type</p>
-            <div class="chips" id="qcats">${CATEGORIES.map((c) => html`<button type="button" class="chip" data-cat="${c.id}" aria-pressed="${c.id === 'haut'}">${c.name}</button>`)}</div>
-            <div class="field" style="margin-top:10px"><label for="qsub">Précision</label><select id="qsub">${options(CATEGORY_BY_ID.haut.subs.map(([id, n]) => [id, n]), 'chemise')}</select></div>
+            <p class="small muted" style="margin:0 0 6px">Type <strong>*</strong> (veste, haut, bas…)</p>
+            <div class="chips" id="qcats">${CATEGORIES.map((c) => html`<button type="button" class="chip" data-cat="${c.id}" aria-pressed="false">${c.name}</button>`)}</div>
+            <div class="field" style="margin-top:10px"><label for="qsub">Précision</label><select id="qsub" disabled><option value="">Choisissez d'abord le type</option></select></div>
           </div></div>
           <p class="small muted" style="margin:8px 0 6px">Couleur <span id="qhint"></span></p>
           <div class="chips" id="qcols">${ALL_COLORS.filter((c) => !c.aux || ['mid-gray', 'cognac', 'mid-blue'].includes(c.id)).map((c) => html`<button type="button" class="color-btn" data-col="${c.id}" aria-pressed="false">${swatch(c.hex)} ${c.name}</button>`)}</div>
-          <div class="btn-row" style="margin-top:14px"><button class="btn btn-primary" id="qsave" disabled>${icon('check')} Enregistrer et suivante</button><button class="btn" id="qdone" disabled>Enregistrer et terminer</button></div>
+          <div class="btn-row" style="margin-top:14px"><button class="btn btn-primary" id="qsave" disabled>${icon('check')} Enregistrer et suivante</button><button class="btn" id="qdone" disabled>Enregistrer et terminer</button><button class="btn btn-gold" id="qweb" disabled>${icon('search')} Enregistrer et chercher sur internet</button></div>
+          <p class="hint">« Chercher sur internet » ouvre la fiche complète : recherche par photo (Google Lens) ou collage du lien de l'article pour tout remplir.</p>
         </div>
       </div>`);
     const $ = (q) => main.querySelector(q);
-    const st = { cat: 'haut', sub: 'chemise', color: null, out: null };
-    const ready = () => { $('#qsave').disabled = $('#qdone').disabled = !st.color; };
+    const st = { cat: null, sub: null, color: null, out: null };
+    const ready = () => { $('#qsave').disabled = $('#qdone').disabled = $('#qweb').disabled = !(st.color && st.sub); };
     const show = () => $('#qform').classList.remove('hidden');
     const load = async (f) => {
       try {
@@ -802,8 +810,8 @@ async function renderQuick(main) {
     $('#qfile').onchange = (e) => e.target.files[0] && load(e.target.files[0]);
     $('#qnophoto').onclick = () => { st.out = null; show(); };
     $('#qcut').onchange = async (e) => { autoCut = e.target.checked; await store.repo.kvSet('pref:cutout', autoCut); };
-    main.querySelectorAll('[data-cat]').forEach((b) => b.onclick = () => { st.cat = b.dataset.cat; main.querySelectorAll('[data-cat]').forEach((x) => x.setAttribute('aria-pressed', x === b)); setHTML($('#qsub'), options(CATEGORY_BY_ID[st.cat].subs.map(([id, n]) => [id, n]), '')); st.sub = $('#qsub').value; });
-    $('#qsub').onchange = (e) => { st.sub = e.target.value; };
+    main.querySelectorAll('[data-cat]').forEach((b) => b.onclick = () => { st.cat = b.dataset.cat; main.querySelectorAll('[data-cat]').forEach((x) => x.setAttribute('aria-pressed', x === b)); setHTML($('#qsub'), options(CATEGORY_BY_ID[st.cat].subs.map(([id, n]) => [id, n]), '')); $('#qsub').disabled = false; st.sub = $('#qsub').value; ready(); });
+    $('#qsub').onchange = (e) => { st.sub = e.target.value; ready(); };
     main.querySelectorAll('[data-col]').forEach((b) => b.onclick = () => { st.color = b.dataset.col; main.querySelectorAll('[data-col]').forEach((x) => x.setAttribute('aria-pressed', x === b)); ready(); });
     const save = async (again) => {
       const id = uid('g'); const info = SUB_INFO[st.sub]; const c = COLOR_BY_ID[st.color];
@@ -811,8 +819,9 @@ async function renderQuick(main) {
       if (st.out) { const phId = uid('ph'); await store.repo.put('photos', { id: phId, ownerId: id, profileId: pid(), blob: st.out.blob, thumb: st.out.thumbBlob, mime: 'image/jpeg', width: st.out.width, height: st.out.height, kind: 'single', private: true, rights: 'user_owned', cutout: !!st.out.cut, originalBlob: st.out.original || null }, { silent: true }); photoIds.push(phId); }
       await store.repo.put('garments', { id, profileId: pid(), name: `${info?.name || 'Pièce'} ${c.name.toLowerCase()}`, category: st.cat, sub: st.sub, color: { id: c.id, name: c.name, hex: c.hex }, color2: null, pattern: 'Uni', seasons: [], styles: [], tags: ['à compléter'], measures: {}, formality: info?.formality || 3, warmth: Math.max(1, info?.warmth || 2), comfort: 3, rainResistance: 0, windResistance: 0, availability: 'clean', photoIds, photoKind: 'single' });
       added++; toast(`${info?.name || 'Pièce'} ${c.name.toLowerCase()} ajoutée`);
-      if (again) draw(); else navigate('#/wardrobe');
+      if (again === 'web') { focusWeb = true; navigate(`#/wardrobe/${id}/edit`); } else if (again) draw(); else navigate('#/wardrobe');
     };
+    $('#qweb').onclick = () => save('web');
     $('#qsave').onclick = () => save(true);
     $('#qdone').onclick = () => save(false);
   };
