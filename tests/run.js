@@ -407,7 +407,7 @@ test('Fiche produit web : titre, composition, prix et lien lus', () => {
   const e = parseProduct('Bracelet Apple Watch boucle unique tressée bleu marine');
   eq(e.sub, 'bracelet-montre'); eq(e.color, 'navy'); eq(e.brand, 'Apple');
   eq(parseProduct('Jean Levi\'s 501 Original').color, 'mid-blue');
-  eq(urlWords('https://www2.hm.com/fr_fr/productpage.1234567001.html').brand, 'H&M');
+  eq(urlWords('https://www2.hm.com/fr_fr/productpage.1234567001.html').brand, 'H&M'); eq(parseProduct('https://www2.hm.com/fr_fr/productpage.0925212048.html').name, undefined);
   eq(parseProduct('').found.length, 0);
 });
 

@@ -119,7 +119,7 @@ export function urlWords(url) {
     const u = new URL(url);
     const host = u.hostname.replace(/^www\./, '');
     const brandKey = Object.keys(BRAND_DOMAINS).find((d) => host === d || host.endsWith(`.${d}`) || host === d.replace(/^www\d?\./, ''));
-    const words = decodeURIComponent(u.pathname).replace(/\.(html?|aspx?|php)$/i, '').split(/[/_\-+.]+/).filter((w) => w && !/^\d+$/.test(w) && !/^[a-z]?\d{4,}[a-z0-9]*$/i.test(w) && !/^(fr|en|es|it|de|p|c|product|products|produit|produits|item|shop|homme|femme|men|women|man|woman|hombre|mujer|pdp|prd)$/i.test(w));
+    const words = decodeURIComponent(u.pathname).replace(/\.(html?|aspx?|php)$/i, '').split(/[/_\-+.]+/).filter((w) => w && !/^\d+$/.test(w) && !/^[a-z]?\d{4,}[a-z0-9]*$/i.test(w) && !/^(fr|en|es|it|de|p|c|product|products|produit|produits|item|shop|homme|femme|men|women|man|woman|hombre|mujer|pdp|prd|productpage|product-page|article|detail|details|html|www2|fr_fr|en_gb)$/i.test(w));
     return { host, brand: brandKey ? BRAND_DOMAINS[brandKey] : '', text: words.join(' ') };
   } catch { return { host: '', brand: '', text: '' }; }
 }
@@ -173,7 +173,8 @@ export function parseProduct(input, opts = {}) {
   if (pm) { const n = Number((pm[1] || pm[2]).replace(',', '.')); if (n > 0 && n < 10000) out.price = n; }
 
   // Nom : première ligne lisible, sans le nom du site, raccourcie.
-  const line = text.split(/\n/).map((l) => l.trim()).find((l) => l.length > 3 && !/^\d/.test(l) && !/%/.test(l)) || fromUrl.text;
+  // Nom tiré du lien seulement s'il décrit vraiment une pièce (sinon « productpage », numéros…).
+  const line = text.split(/\n/).map((l) => l.trim()).find((l) => l.length > 3 && !/^\d/.test(l) && !/%/.test(l)) || (out.sub ? fromUrl.text : '');
   if (line) {
     let name = line.split(/\s[|–—]\s|\s-\s(?=[A-Z&][\w&.' ]{1,25}$)/)[0].replace(/\s{2,}/g, ' ').trim();
     if (out.brand) name = name.replace(new RegExp(`\\s*(\\||-|–|—)?\\s*${out.brand.replace(/[.&'+]/g, (c) => `\\${c}`)}\\s*$`, 'i'), '').trim();
