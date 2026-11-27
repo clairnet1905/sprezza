@@ -414,7 +414,7 @@ test('Fiche produit web : titre, composition, prix et lien lus', () => {
 test('Étiquette lue : composition multilingue, taille, référence, origine', () => {
   const label = 'ZARA MAN\nEUR M  USA M  MEX 40\n0706/310/401\n100% COTON\n100% COTTON\n100% ALGODÓN\nMADE IN PORTUGAL\nFABRIQUÉ AU PORTUGAL';
   const a = parseProduct(label, { label: true });
-  eq(a.composition, '100 % coton'); eq(a.material, 'Coton'); eq(a.size, 'M'); eq(a.ref, '0706/310/401'); eq(a.origin, 'Portugal'); eq(a.brand, 'Zara'); eq(a.name, undefined);
+  eq(a.composition, '100 % coton'); eq(a.material, 'Coton'); eq(a.size, 'M'); eq(a.ref, '0706/310/401'); eq(a.origin, 'Portugal'); eq(a.brand, 'Zara'); eq(a.name, undefined); eq(a.price, undefined);
   eq(parseComposition('EXTÉRIEUR 80% LAINE VIERGE 20% POLYAMIDE / OUTER 80% VIRGIN WOOL 20% POLYAMIDE / DOUBLURE 100% VISCOSE').text, '80 % laine vierge, 20 % polyamide');
   eq(parseComposition('97% CO 3% EA').text, '97 % coton, 3 % élasthanne');
   eq(parseProduct('Taille: 48 Made in Italy', { label: true }).size, '48');

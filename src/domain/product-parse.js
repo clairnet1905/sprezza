@@ -169,7 +169,7 @@ export function parseProduct(input, opts = {}) {
   out.fit = firstMatch(FIT_RULES, t) || undefined;
 
   // Prix : « 29,95 € », « €49.90 », « EUR 59 ». Le plus bas cité (prix soldé) n'est pas forcément le bon : on prend le premier.
-  const pm = text.match(/(\d{1,4}(?:[.,]\d{2})?)\s?(?:€|eur\b)|(?:€|eur)\s?(\d{1,4}(?:[.,]\d{2})?)/i);
+  const pm = text.match(/(\d{1,4}(?:[.,]\d{2})?)\s?(?:€|eur\b)|€\s?(\d{1,4}(?:[.,]\d{2})?)/i); // « EUR 48 » sur une étiquette = taille, pas prix
   if (pm) { const n = Number((pm[1] || pm[2]).replace(',', '.')); if (n > 0 && n < 10000) out.price = n; }
 
   // Nom : première ligne lisible, sans le nom du site, raccourcie.

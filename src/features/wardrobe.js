@@ -556,7 +556,7 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
     setHTML(out, html`<div class="card-flat" style="margin-top:10px"><p class="small"><strong>${rows.length} caractéristique(s) trouvée(s)</strong> — décochez ce qui ne correspond pas à votre pièce.</p>
       ${rows.map(([f, l, v, , on], i) => html`<label class="check"><input type="checkbox" data-web="${i}" ${on ? raw('checked') : ''}> ${l} : <strong>${v}</strong></label>`)}
       ${p.sourceUrl && p.found.length <= 3 ? html`<p class="hint">Le lien seul donne peu d'informations : copiez aussi le titre et la composition depuis la page pour une fiche complète.</p>` : ''}
-      <p class="hint">La taille n'est jamais déduite : indiquez la vôtre. La composition fait foi sur l'étiquette.</p>
+      <p class="hint">La taille n'est reprise que si elle figure sur l'étiquette ; sinon indiquez la vôtre. La composition fait foi sur l'étiquette.</p>
       <button class="btn btn-sm btn-primary" type="button" id="webapply">Appliquer la sélection</button></div>`);
     out.querySelector('#webapply').onclick = () => {
       out.querySelectorAll('[data-web]:checked').forEach((cb) => {
