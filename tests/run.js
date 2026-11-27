@@ -24,7 +24,7 @@ import { defaultOccasion, preferredMode } from '../src/features/daily.js';
 import { chooseAccessories } from '../src/domain/recommend.js';
 import { shortQuery } from '../src/features/shopping.js';
 import { inspirationQuery, colorsQuery, searchPhotos } from '../src/services/pexels.js';
-import { alphaBounds, deskewAngle } from '../src/services/cutout.js';
+import { alphaBounds, deskewAngle, keepMainRegions } from '../src/services/cutout.js';
 import { encodeImage, supportsWebP } from '../src/services/image.js';
 import { careStatus, afterWear, afterWash, afterCare } from '../src/domain/care.js';
 import { periodAt, nextChange, seasonClass, seasonalPlan } from '../src/domain/seasonal.js';
@@ -494,6 +494,15 @@ test('Photo boutique : redressement automatique et encodage WebP/JPEG', async ()
   const c = document.createElement('canvas'); c.width = 64; c.height = 64; c.getContext('2d').fillRect(0, 0, 32, 32);
   const b = await encodeImage(c, 0.8);
   eq(b.type, (await supportsWebP()) ? 'image/webp' : 'image/jpeg');
+});
+
+test('Photo boutique : petits îlots effacés, pièce (même en deux parties) conservée', () => {
+  const w = 400, h = 500; const d = new Uint8ClampedArray(w * h * 4);
+  const fill = (x0, y0, x1, y1) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) d[(y * w + x) * 4 + 3] = 255; };
+  fill(100, 50, 190, 450); fill(210, 50, 300, 450); // deux jambes (pantalon) : deux grandes zones
+  fill(10, 10, 16, 16); fill(380, 480, 386, 486); fill(30, 300, 34, 303); // poussières
+  eq(keepMainRegions(d, w, h), 3);
+  eq(d[(12 * w + 12) * 4 + 3], 0); eq(d[(200 * w + 150) * 4 + 3], 255); eq(d[(200 * w + 250) * 4 + 3], 255);
 });
 
 // ---------------- Exécution

@@ -47,6 +47,40 @@ export function alphaBounds(data, w, h, threshold = 24) {
 const toBlob = (canvas, q = 0.86) => encodeImage(canvas, q);
 
 /**
+ * Nettoyage : garde la ou les grandes zones de la pièce et efface les petits îlots (poussières, reflets, bouts de fond).
+ * Travaille sur une grille réduite (rapide). Modifie data en place ; renvoie le nombre d'îlots effacés. Fonction testée.
+ */
+export function keepMainRegions(data, w, h, { minShare = 0.04, threshold = 128 } = {}) {
+  const f = Math.max(1, Math.ceil(Math.max(w, h) / 400));
+  const gw = Math.ceil(w / f), gh = Math.ceil(h / f);
+  const grid = new Uint8Array(gw * gh);
+  for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
+    let on = 0;
+    for (let y = gy * f; y < Math.min(h, gy * f + f) && !on; y += Math.max(1, f >> 1)) for (let x = gx * f; x < Math.min(w, gx * f + f); x += Math.max(1, f >> 1)) if (data[(y * w + x) * 4 + 3] > threshold) { on = 1; break; }
+    grid[gy * gw + gx] = on;
+  }
+  const label = new Int32Array(gw * gh); const areas = [0]; const stack = [];
+  for (let i = 0; i < grid.length; i++) {
+    if (!grid[i] || label[i]) continue;
+    const id = areas.length; let area = 0; stack.push(i); label[i] = id;
+    while (stack.length) {
+      const j = stack.pop(); area++;
+      const x = j % gw, y = (j / gw) | 0;
+      for (const k of [x > 0 ? j - 1 : -1, x < gw - 1 ? j + 1 : -1, y > 0 ? j - gw : -1, y < gh - 1 ? j + gw : -1]) if (k >= 0 && grid[k] && !label[k]) { label[k] = id; stack.push(k); }
+    }
+    areas.push(area);
+  }
+  const max = Math.max(0, ...areas);
+  const drop = new Set(areas.map((a, id) => (id && a < max * minShare ? id : 0)).filter(Boolean));
+  if (!drop.size) return 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const id = label[((y / f) | 0) * gw + ((x / f) | 0)];
+    if (id && drop.has(id)) data[(y * w + x) * 4 + 3] = 0;
+  }
+  return drop.size;
+}
+
+/**
  * Redressement : angle (degrés) à appliquer pour remettre la pièce d'aplomb, d'après l'axe principal de sa silhouette.
  * 0 si la pièce est déjà droite, trop « carrée » pour juger, ou inclinée de plus de 12° (pose volontaire). Fonction pure, testée.
  */
@@ -81,6 +115,7 @@ export async function cutout(blob, onProgress = () => {}) {
   const sctx = src.getContext('2d'); sctx.drawImage(bmp, 0, 0);
   const img = sctx.getImageData(0, 0, src.width, src.height);
   for (let i = 3; i < img.data.length; i += 4) if (img.data[i] < 40) img.data[i] = 0; // supprime le halo presque transparent
+  keepMainRegions(img.data, src.width, src.height); // supprime les petits îlots (poussières, bouts de fond)
   sctx.putImageData(img, 0, 0);
   // Redressement automatique (pièce photographiée un peu de travers).
   const rot = deskewAngle(img.data, src.width, src.height);
