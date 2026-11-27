@@ -42,6 +42,11 @@ export async function render(main) {
       <label class="check"><input type="checkbox" id="withphotos"> Exporter aussi les photos (archive séparée, privée)</label>
       <div class="btn-row" style="margin-top:8px"><button class="btn btn-primary" id="export">${icon('download')} Exporter mes données (.json)</button><label class="btn" for="import">${icon('upload')} Importer une sauvegarde</label><input id="import" type="file" accept="application/json,.json" multiple class="sr-only"></div>
       <p class="hint">Format versionné (schemaVersion ${SCHEMA_VERSION}, seeds ${SEED_VERSION}). Import validé avec aperçu des conflits et confirmation avant écrasement.</p></section>
+    <section class="card" style="margin-top:14px" id="photostore"><h2 style="margin-top:0">Photos : gagner de la place</h2>
+      <p class="small muted">Les nouvelles photos sont enregistrées en <strong>WebP</strong> (≈ 25 à 35 % plus léger que le JPEG, même qualité) quand le navigateur le permet : Chrome, Edge, Firefox. Safari sur iPhone ne sait pas encore créer de WebP : il garde le JPEG, mais affiche très bien le WebP.</p>
+      <p class="small" id="photostats"><span class="loader"></span></p>
+      <div class="btn-row"><button class="btn" id="optimize">Optimiser mes photos existantes (WebP)</button></div>
+      <p class="small muted" id="optmsg" aria-live="polite"></p></section>
     <section class="card" style="margin-top:14px"><h2 style="margin-top:0">Données</h2>
       <div class="table-wrap"><table><tbody>${Object.entries(counts).map(([k, n]) => html`<tr><td>${({ kv: 'Réglages et progression', profiles: 'Profils', garments: 'Vêtements', photos: 'Photos', outfits: 'Tenues', wearlog: 'Historique de port', calendar: 'Calendrier', wishlist: 'Liste d\'envies', palettes: 'Palettes', analyses: 'Analyses' })[k]}</td><td class="num">${n}</td></tr>`)}</tbody></table></div>
       <p class="small">${est ? `Espace utilisé : ${(est.usage / 1048576).toFixed(1)} Mo sur ${(est.quota / 1048576).toFixed(0)} Mo disponibles.` : ''} Stockage persistant : ${persisted ? 'accordé' : 'non accordé'}. ${store.repo.isMemory ? html`<strong style="color:var(--danger)">Stockage en mémoire uniquement (navigation privée ?)</strong>` : ''}</p>
@@ -71,6 +76,7 @@ export async function render(main) {
     if (cap?.items) { for (const [k, v] of Object.entries(cap.items)) if (ids.has(v.garmentId)) delete cap.items[k]; await store.repo.kvSet(key, cap); }
     toast('Démonstration supprimée'); navigate('#/settings');
   };
+  setupPhotoStorage(main);
   $('#wipe').onclick = () => openModal({ title: 'Tout supprimer ?', body: html`<p>Action irréversible. Tapez <strong>SUPPRIMER</strong> pour confirmer.</p><input id="wconf" type="text" autocomplete="off"><div class="btn-row" style="margin-top:12px"><button class="btn btn-danger" data-ok>Supprimer définitivement</button></div>`,
     onMount(body, close) { body.querySelector('[data-ok]').onclick = async () => { if (body.querySelector('#wconf').value.trim() !== 'SUPPRIMER') { toast('Confirmation incorrecte'); return; } for (const s of Object.keys(STORES)) await store.repo.clear(s); close(); location.hash = '#/today'; location.reload(); }; } });
 }
@@ -243,4 +249,38 @@ async function renderApis(box) {
     catch (err) { msg.textContent = err.message; }
   });
   box.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => { await setKey('', b.dataset.del); renderApis(box); });
+}
+
+// ---------------------------------------------------------------- Photos : poids et conversion WebP
+const MB = (n) => `${(n / 1048576).toFixed(1).replace('.', ',')} Mo`;
+async function setupPhotoStorage(main) {
+  const { supportsWebP, reencodeSmaller } = await import('../services/image.js');
+  const $ = (q) => main.querySelector(q);
+  const stats = async () => {
+    const all = await store.repo.all('photos');
+    let total = 0, webp = 0, n = 0;
+    for (const p of all) for (const k of ['blob', 'thumb', 'originalBlob', 'originalThumb']) if (p[k]) { total += p[k].size; n++; if (p[k].type === 'image/webp') webp++; }
+    $('#photostats').textContent = `${all.length} photo(s), ${MB(total)} au total sur cet appareil — ${webp}/${n} fichier(s) déjà en WebP.`;
+    return all;
+  };
+  await stats();
+  const ok = await supportsWebP();
+  if (!ok) { $('#optimize').disabled = true; $('#optmsg').textContent = 'Ce navigateur ne sait pas créer de WebP (Safari/iPhone). Lancez l\'optimisation depuis l\'ordinateur (Chrome, Edge ou Firefox) : avec la synchronisation, les photos allégées arrivent ensuite sur l\'iPhone.'; }
+  $('#optimize').onclick = async () => {
+    const btn = $('#optimize'); btn.disabled = true;
+    const all = await store.repo.all('photos');
+    let saved = 0, done = 0;
+    for (const p of all) {
+      const next = { ...p }; let changed = false;
+      for (const [k, q] of [['blob', 0.84], ['thumb', 0.78], ['originalBlob', 0.84], ['originalThumb', 0.78]]) {
+        if (!p[k]) continue;
+        try { const b = await reencodeSmaller(p[k], q); if (b) { saved += p[k].size - b.size; next[k] = b; changed = true; } } catch { /* photo illisible : laissée telle quelle */ }
+      }
+      if (changed) { next.mime = next.blob?.type || p.mime; await store.repo.put('photos', next); }
+      done++; $('#optmsg').textContent = `Optimisation… ${done}/${all.length}`;
+    }
+    const { forgetPhotoURL } = await import('../state.js'); all.forEach((p) => forgetPhotoURL?.(p.id));
+    $('#optmsg').textContent = saved > 0 ? `Terminé : ${MB(saved)} gagnés. Les photos allégées seront envoyées à vos autres appareils à la prochaine synchronisation.` : 'Terminé : vos photos étaient déjà optimisées.';
+    btn.disabled = false; await stats();
+  };
 }

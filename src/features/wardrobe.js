@@ -128,7 +128,7 @@ async function renderDetail(main, g) {
     <div class="grid-2" style="align-items:start">
       <div class="stack">
         ${g.photoIds?.length ? html`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr))">${g.photoIds.map((ph) => html`<div class="g-thumb" style="border-radius:12px"><img data-photo="${ph}" data-full alt="${g.name}"></div>`)}</div>` : html`<div class="card-flat small muted">Aucune photo. Ajoutez-en une depuis « Modifier ».</div>`}
-        ${ph0 ? html`<div class="card-flat"><div class="btn-row"><button class="btn btn-sm" id="cutbtn">${ph0.cutout ? 'Refaire le détourage' : 'Détourer la photo (fond ivoire)'}</button>${ph0.originalBlob ? html`<button class="btn btn-sm btn-ghost" id="uncut">Revenir à la photo originale</button>` : ''}</div>
+        ${ph0 ? html`<div class="card-flat"><div class="btn-row"><button class="btn btn-sm" id="cutbtn">${ph0.cutout ? 'Refaire la présentation boutique' : 'Présentation boutique (fond ivoire, redressée)'}</button>${ph0.originalBlob ? html`<button class="btn btn-sm btn-ghost" id="uncut">Revenir à la photo originale</button>` : ''}</div>
           <p class="small muted" id="cutmsg" aria-live="polite">Traitement sur votre appareil, aucune photo envoyée. ${ph0.cutout ? '' : `Premier usage : téléchargement unique d'environ ${CUTOUT_DOWNLOAD_MB} Mo.`}</p></div>` : ''}
         ${g.setId ? html`<div class="card"><h3>Ensemble</h3>${mates.length ? html`<p class="small">Se porte avec : ${mates.map((m, i) => html`${i ? ', ' : ''}<a href="#/wardrobe/${m.id}">${m.name}</a>`)}.</p>` : html`<p class="small">La pièce assortie n'a pas encore de fiche. <a href="#/wardrobe/${g.id}/edit">Modifier</a> puis enregistrer pour la créer.</p>`}
           <p class="small muted">Ensemble complet pour les occasions habillées ; séparément le reste du temps (la veste en blazer avec un chino ou un jean, le pantalon avec un pull fin). Lavez et pressez les deux pièces ensemble pour garder la même teinte.</p></div>` : ''}
@@ -211,6 +211,7 @@ async function renderEditor(main, existing, preset = {}) {
   const g = existing || { id: null, category: preset.category || 'haut', sub: preset.sub || 'chemise', seasons: [], styles: [], tags: [], measures: {}, availability: 'clean', condition: 'good', photoIds: [], rainResistance: 0, windResistance: 0, ...preset };
   const state = { source: null, rotation: 0, crop: { x: 0, y: 0, w: 1, h: 1 }, aspect: 'free', dominant: [], photoKind: preset.photoKind || 'single', removePhotos: new Set(), extras: [], pasteLabel: false, savedPhotoId: null };
   const ai = await aiStatus();
+  const shopPref = await store.repo.kvGet('pref:cutout', false);
   const consentAI = store.profile.consents?.ai && store.profile.kind !== 'child';
   const colorOpts = GARMENT_COLORS.map((c) => [c.id, c.name]).concat([['custom', 'Personnalisée…']]);
   const subOpts = (cat) => CATEGORY_BY_ID[cat].subs.map(([id, name]) => [id, name]);
@@ -227,6 +228,14 @@ async function renderEditor(main, existing, preset = {}) {
         <label class="btn" for="pfile">${icon('upload')} Galerie ou fichier</label><input id="pfile" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" class="sr-only">
         ${pendingSource && !existing ? html`<button class="btn" type="button" id="reuse">Reprendre la photo précédente</button>` : ''}
       </div>
+      <details class="disclosure" style="margin-top:10px"><summary>Réussir une photo « comme en boutique »</summary>
+        <ul class="small" style="margin:8px 0 0;padding-left:18px">
+          <li><strong>Défroissez d'abord</strong> (vapeur ou fer) : aucune retouche ne retire honnêtement un pli sans inventer le tissu.</li>
+          <li><strong>À plat</strong> sur un drap ou un sol uni et contrasté (pièce claire sur fond foncé, et inversement), ou <strong>sur cintre</strong> contre un mur uni.</li>
+          <li>Téléphone <strong>bien parallèle</strong> à la pièce, au-dessus d'elle, pièce entière dans le cadre avec un peu de marge.</li>
+          <li><strong>Lumière du jour</strong> indirecte, sans flash ni ombre du téléphone : la couleur enregistrée sera fidèle.</li>
+          <li>Boutonnez, alignez les manches, rentrez le col : SPREZZA détoure, redresse et centre le reste.</li>
+        </ul></details>
       <div id="cropper" class="hidden" style="margin-top:14px">
         <div class="crop-stage"><canvas id="cropcanvas" aria-label="Aperçu de la photo recadrée"></canvas></div>
         <div class="form-grid" style="margin-top:12px">
@@ -237,6 +246,8 @@ async function renderEditor(main, existing, preset = {}) {
         </div>
         <div class="btn-row"><button class="btn btn-sm" type="button" id="rot">${icon('rotate')} Pivoter 90°</button><button class="btn btn-sm btn-ghost" type="button" id="clearphoto">Retirer cette photo</button></div>
         <div id="domcolors" style="margin-top:10px"></div>
+        <label class="check" style="margin-top:10px"><input type="checkbox" id="shopstyle" ${shopPref ? raw('checked') : ''}> <span><strong>Présentation boutique</strong> à l'enregistrement : fond ivoire uni, pièce détourée, redressée et centrée, ombre douce. Sur l'appareil, sans envoi (premier usage : téléchargement unique d'environ ${CUTOUT_DOWNLOAD_MB} Mo).</span></label>
+        <p class="small muted" id="shopmsg" aria-live="polite"></p>
       </div>
       <div class="card-flat" style="margin-top:12px"><p class="small"><strong>Autres photos de la même pièce</strong> <span class="muted">(facultatif) : dos, détail, étiquette</span></p>
         <div class="btn-row"><label class="btn btn-sm btn-gold" for="plabel">${icon('camera')} Photo de l'étiquette</label><input id="plabel" type="file" accept="image/*" capture="environment" class="sr-only">
@@ -375,6 +386,7 @@ async function renderEditor(main, existing, preset = {}) {
   if (existing?.photoIds?.length) { const phs = await Promise.all(existing.photoIds.map((id) => store.repo.get('photos', id))); state.savedPhotoId = phs.find((ph) => ph && ph.blob && ph.kind !== 'label')?.id || null; }
   setupWebIdentify(main, state, { subOpts, syncSub, syncColor });
   setupExtraPhotos(main, state);
+  $('#shopstyle')?.addEventListener('change', (e) => store.repo.kvSet('pref:cutout', e.target.checked));
   if (focusWeb) { focusWeb = false; setTimeout(() => $('#webid').scrollIntoView({ behavior: 'smooth', block: 'start' }), 150); }
 
   form.onsubmit = async (e) => {
@@ -392,9 +404,15 @@ async function renderEditor(main, existing, preset = {}) {
       for (const ph of state.removePhotos) { await store.repo.remove('photos', ph); forgetPhotoURL(ph); }
       const id = existing?.id || uid('g');
       if (state.source) {
-        const out = await processImage(state.source, { rotation: state.rotation, crop: state.crop });
+        let out = await processImage(state.source, { rotation: state.rotation, crop: state.crop });
         const phId = uid('ph');
-        await store.repo.put('photos', { id: phId, ownerId: id, profileId: pid(), blob: out.blob, thumb: out.thumbBlob, mime: 'image/jpeg', width: out.width, height: out.height, kind: v.photoKind, private: true, rights: 'user_owned', alt: v.name });
+        let cut = null;
+        if ($('#shopstyle')?.checked) {
+          const msg = $('#shopmsg');
+          try { cut = await cutout(out.blob, ({ step, pct }) => { msg.textContent = `${step}${pct !== null ? ` — ${pct} %` : '…'}`; $('#savebtn').textContent = 'Présentation boutique…'; }); msg.textContent = cut.straightened ? `Pièce redressée de ${Math.abs(cut.straightened)}°.` : ''; }
+          catch (err) { msg.textContent = `Présentation boutique impossible (${err.message}) : la photo d'origine est conservée.`; }
+        }
+        await store.repo.put('photos', { id: phId, ownerId: id, profileId: pid(), blob: cut ? cut.blob : out.blob, thumb: cut ? cut.thumb : out.thumbBlob, mime: (cut ? cut.blob : out.blob).type || 'image/jpeg', width: cut ? cut.width : out.width, height: cut ? cut.height : out.height, kind: v.photoKind, private: true, rights: 'user_owned', alt: v.name, ...(cut ? { cutout: true, originalBlob: out.blob, originalThumb: out.thumbBlob } : {}) });
         photoIds = [...photoIds, phId];
       }
       const ORDER = { back: 1, detail: 2, label: 3 };
@@ -849,7 +867,7 @@ async function renderQuick(main) {
       <p class="lede">Photo, type, couleur : c'est tout. La pièce est marquée « à compléter » ; affinez la fiche plus tard. ${added ? html`<strong>${added} pièce${added > 1 ? 's' : ''} ajoutée${added > 1 ? 's' : ''} pendant cette session.</strong>` : ''}</p></div>
       <div class="card stack">
         <div class="btn-row"><label class="btn btn-primary" for="qcam">${icon('camera')} Prendre la photo</label><input id="qcam" type="file" accept="image/*" capture="environment" class="sr-only"><label class="btn" for="qfile">${icon('upload')} Choisir une photo</label><input id="qfile" type="file" accept="image/*" class="sr-only"><button class="btn btn-ghost" id="qnophoto">Sans photo</button></div>
-        <label class="check"><input type="checkbox" id="qcut" ${autoCut ? raw('checked') : ''}> Détourer automatiquement (fond ivoire, sur l'appareil ; premier usage : ~${CUTOUT_DOWNLOAD_MB} Mo)</label>
+        <label class="check"><input type="checkbox" id="qcut" ${autoCut ? raw('checked') : ''}> Présentation boutique automatique : fond ivoire, pièce redressée et centrée, ombre douce (sur l'appareil ; premier usage : ~${CUTOUT_DOWNLOAD_MB} Mo)</label>
         <p class="small muted" id="qcutmsg" aria-live="polite"></p>
         <div id="qform" class="hidden">
           <div class="row" style="align-items:flex-start;flex-wrap:nowrap"><div class="mini-thumb" style="width:96px" id="qprev"></div>

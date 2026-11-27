@@ -59,11 +59,27 @@ export function canvasToBlob(canvas, quality = 0.84) {
   return new Promise((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error('Compression impossible'))), 'image/jpeg', quality));
 }
 
+/** Le navigateur sait-il produire du WebP ? (Chrome, Edge, Firefox oui ; Safari/iPhone non : JPEG utilisé.) */
+let webpOK = null;
+export async function supportsWebP() {
+  if (webpOK !== null) return webpOK;
+  try { const c = document.createElement('canvas'); c.width = c.height = 2; const b = await new Promise((r) => c.toBlob(r, 'image/webp', 0.8)); webpOK = b?.type === 'image/webp'; } catch { webpOK = false; }
+  return webpOK;
+}
+/** Encodage de stockage : WebP si possible (≈ 25 à 35 % plus léger à qualité égale), sinon JPEG. */
+export async function encodeImage(canvas, quality = 0.84) {
+  if (await supportsWebP()) {
+    const b = await new Promise((r) => canvas.toBlob(r, 'image/webp', Math.max(0.5, quality - 0.04)));
+    if (b?.type === 'image/webp') return b;
+  }
+  return canvasToBlob(canvas, quality);
+}
+
 /** Produit l'image principale et la miniature (métadonnées EXIF supprimées par ré-encodage). */
 export async function processImage(src, opts = {}) {
   const full = renderToCanvas(src, { ...opts, maxSide: 1600 });
   const thumb = renderToCanvas(src, { ...opts, maxSide: 480 });
-  const [blob, thumbBlob] = await Promise.all([canvasToBlob(full, 0.84), canvasToBlob(thumb, 0.78)]);
+  const [blob, thumbBlob] = await Promise.all([encodeImage(full, 0.84), encodeImage(thumb, 0.78)]);
   return { blob, thumbBlob, width: full.width, height: full.height, dominant: dominantColors(thumb) };
 }
 
@@ -99,4 +115,17 @@ export function dataURLToBlob(url) {
   const bin = atob(m[3]); const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return new Blob([bytes], { type: m[1] || 'image/jpeg' });
+}
+
+/**
+ * Ré-encode une photo existante en WebP si c'est plus léger. Renvoie null si rien à gagner.
+ * @returns {Promise<Blob|null>}
+ */
+export async function reencodeSmaller(blob, quality = 0.84) {
+  if (!blob || blob.type === 'image/webp' || !(await supportsWebP())) return null;
+  const bmp = await createImageBitmap(blob);
+  const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
+  c.getContext('2d').drawImage(bmp, 0, 0); bmp.close?.();
+  const out = await encodeImage(c, quality);
+  return out.type === 'image/webp' && out.size < blob.size * 0.97 ? out : null;
 }

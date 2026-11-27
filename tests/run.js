@@ -24,7 +24,8 @@ import { defaultOccasion, preferredMode } from '../src/features/daily.js';
 import { chooseAccessories } from '../src/domain/recommend.js';
 import { shortQuery } from '../src/features/shopping.js';
 import { inspirationQuery, colorsQuery, searchPhotos } from '../src/services/pexels.js';
-import { alphaBounds } from '../src/services/cutout.js';
+import { alphaBounds, deskewAngle } from '../src/services/cutout.js';
+import { encodeImage, supportsWebP } from '../src/services/image.js';
 import { careStatus, afterWear, afterWash, afterCare } from '../src/domain/care.js';
 import { periodAt, nextChange, seasonClass, seasonalPlan } from '../src/domain/seasonal.js';
 import { OCCASION_BY_ID } from '../src/data/occasions.js';
@@ -479,6 +480,20 @@ test('JSON réel (jean NEXT) : catégorie « Bas » ≠ chaussures, sous-catégo
   eq(parseProduct('{"category": "Bas", "color": "navy"}').sub, 'pantalon'); eq(parseProduct('{"category": "Bas", "color": "navy"}').subGuessed, true);
   eq(parseStructured('Type : Bas\nCouleur : Marine\nMatière : Coton').category, 'bas');
   eq(parseProduct('{"type": "Baskets", "couleur": "Blanc", "nom": "Baskets cuir"}').sub, 'baskets');
+});
+
+test('Photo boutique : redressement automatique et encodage WebP/JPEG', async () => {
+  const mask = (deg, w = 200, h = 300) => {
+    const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d');
+    x.translate(w / 2, h / 2); x.rotate((deg * Math.PI) / 180); x.fillStyle = '#000'; x.fillRect(-40, -110, 80, 220);
+    return x.getImageData(0, 0, w, h).data;
+  };
+  const r6 = deskewAngle(mask(6), 200, 300); ok(Math.abs(r6 + 6) < 0.8, `attendu ≈ -6°, obtenu ${r6}`);
+  const rm4 = deskewAngle(mask(-4), 200, 300); ok(Math.abs(rm4 - 4) < 0.8, `attendu ≈ 4°, obtenu ${rm4}`);
+  eq(deskewAngle(mask(0), 200, 300), 0); eq(deskewAngle(mask(30), 200, 300), 0, 'pose volontaire non corrigée');
+  const c = document.createElement('canvas'); c.width = 64; c.height = 64; c.getContext('2d').fillRect(0, 0, 32, 32);
+  const b = await encodeImage(c, 0.8);
+  eq(b.type, (await supportsWebP()) ? 'image/webp' : 'image/jpeg');
 });
 
 // ---------------- Exécution
