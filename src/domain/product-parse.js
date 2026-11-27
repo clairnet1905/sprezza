@@ -1,6 +1,6 @@
 // Lecture d'une fiche produit trouvée sur internet (titre, description copiée ou lien) → caractéristiques SPREZZA.
 // Fonction pure et testée : rien n'est appliqué sans validation, chaque champ proposé reste à confirmer.
-import { SUB_INFO, CATEGORIES, MATERIALS, PATTERNS, FITS } from '../data/taxonomy.js';
+import { SUB_INFO, CATEGORIES, MATERIALS, PATTERNS, FITS, STYLE_OPTS } from '../data/taxonomy.js';
 import { GARMENT_COLORS as ALL_COLORS } from '../data/colors.js';
 import { nearestColor } from './colors.js';
 
@@ -222,7 +222,7 @@ export function parseProduct(input, opts = {}) {
     for (const k of Object.keys(out)) if (!['found', 'sourceUrl'].includes(k)) delete out[k];
     if (fromUrl.brand) out.brand = fromUrl.brand;
     out.fromAssistant = true;
-    for (const k of ['name', 'brand', 'sub', 'category', 'color', 'colorHex', 'colorNearest', 'colorUnknown', 'color2', 'material', 'composition', 'pattern', 'fit', 'seasons', 'formality', 'warmth', 'size', 'price', 'ref', 'origin', 'sourceUrl', 'confidence', 'remark']) if (st[k] !== undefined) out[k] = st[k];
+    for (const k of ['name', 'brand', 'sub', 'category', 'color', 'colorHex', 'colorNearest', 'colorUnknown', 'color2', 'material', 'composition', 'pattern', 'fit', 'seasons', 'formality', 'warmth', 'size', 'price', 'ref', 'origin', 'sourceUrl', 'confidence', 'remark', 'styles', 'notes', 'measures', 'subGuessed']) if (st[k] !== undefined) out[k] = st[k];
     if (st.noBrand && !fromUrl.brand) delete out.brand;
     if (st.noColor2) delete out.color2;
     if (st.noComposition) delete out.composition;
@@ -318,15 +318,17 @@ export function assistantPrompt() {
 /** Clés JSON acceptées (français ou anglais, avec ou sans accents/majuscules) → clés internes. */
 const JSON_KEYS = {
   nom: 'nom', name: 'nom', titre: 'nom', title: 'nom', marque: 'marque', brand: 'marque',
-  type: 'type', sous_type: 'type', soustype: 'type', piece: 'type', categorie: 'type', category: 'type', sub: 'type', garment: 'type', item: 'type',
-  couleur: 'couleur', color: 'couleur', colour: 'couleur', couleur_principale: 'couleur', main_color: 'couleur', primary_color: 'couleur',
+  type: 'type', sous_type: 'type', soustype: 'type', piece: 'type', sub: 'type', garment: 'type', garment_type: 'type', item_type: 'type', subcategory: 'type', sub_category: 'type', sous_categorie: 'type', souscategorie: 'type', subtype: 'type', sub_type: 'type', product_type: 'type',
+  categorie: 'categorie', category: 'categorie', famille: 'categorie', modele: 'modele', model: 'modele',
+  couleur: 'couleur', color: 'couleur', colour: 'couleur', couleur_principale: 'couleur', main_color: 'couleur', primary_color: 'couleur', primary_colour: 'couleur',
   couleur_secondaire: 'couleur secondaire', color2: 'couleur secondaire', secondary_color: 'couleur secondaire',
   hex: 'hex', couleur_hex: 'hex', color_hex: 'hex', code_couleur: 'hex', hex_color: 'hex',
   motif: 'motif', pattern: 'motif', matiere: 'matiere', material: 'matiere', fabric: 'matiere', tissu: 'matiere', composition: 'composition',
-  coupe: 'coupe', fit: 'coupe', saisons: 'saisons', saison: 'saisons', seasons: 'saisons', season: 'saisons', formalite: 'formalite', formality: 'formalite',
-  chaleur: 'chaleur', warmth: 'chaleur', taille: 'taille', size: 'taille', prix: 'prix', price: 'prix', reference: 'reference', ref: 'reference', sku: 'reference',
-  fabrication: 'fabrication', origine: 'fabrication', origin: 'fabrication', made_in: 'fabrication', lien: 'lien', url: 'lien', link: 'lien', sourceurl: 'lien',
-  confiance: 'confiance', confidence: 'confiance', remarque: 'remarque', remark: 'remarque', notes: 'remarque', note: 'remarque', commentaire: 'remarque',
+  coupe: 'coupe', fit: 'coupe', saisons: 'saisons', saison: 'saisons', seasons: 'saisons', season: 'saisons', formalite: 'formalite', formality: 'formalite', formality_level: 'formalite', niveau_formalite: 'formalite',
+  styles: 'styles', style: 'styles', mesures: 'mesures', measurements: 'mesures',
+  chaleur: 'chaleur', warmth: 'chaleur', warmth_level: 'chaleur', taille: 'taille', size: 'taille', prix: 'prix', price: 'prix', current_price: 'prix', prix_actuel: 'prix', original_price: 'prix_origine', prix_origine: 'prix_origine', reference: 'reference', ref: 'reference', sku: 'reference', article_number: 'reference',
+  fabrication: 'fabrication', origine: 'fabrication', origin: 'fabrication', made_in: 'fabrication', country_of_origin: 'fabrication', lien: 'lien', url: 'lien', link: 'lien', sourceurl: 'lien', source_url: 'lien', product_url: 'lien', lien_produit: 'lien',
+  confiance: 'confiance', confidence: 'confiance', identification_confidence: 'confiance', remarque: 'remarque', remark: 'remarque', notes: 'notes', note: 'notes', commentaire: 'notes', description: 'notes',
 };
 /** Extrait un objet JSON d'un texte (bloc ```json, ou du premier « { » au dernier « } »). */
 export function extractJSON(text) {
@@ -346,26 +348,38 @@ export function parseStructured(text) {
   if (json) {
     const flat = { ...json, ...(json.vetement || json.garment || json.piece || json.item || {}) };
     for (const [k, v] of Object.entries(flat)) {
-      const key = JSON_KEYS[norm(k).replace(/[\s-]+/g, '_')];
-      if (!key || v === null || v === undefined || typeof v === 'object' && !Array.isArray(v)) continue;
-      map[key] = Array.isArray(v) ? v.join(', ') : String(v);
+      const key = JSON_KEYS[norm(k.replace(/([a-z])([A-Z])/g, '$1_$2')).replace(/[\s-]+/g, '_')]; // primaryColor → primary_color
+      if (!key || v === null || v === undefined || v === '' || map[key] !== undefined && key !== 'type') continue;
+      if (typeof v === 'object' && !Array.isArray(v)) {
+        // { "cotton": 99, "elastane": 1 } → « 99 % cotton, 1 % elastane » ; mesures { "waist": 76 } → « waist 76 »
+        map[key] = Object.entries(v).filter(([, x]) => x !== null && x !== '').map(([a, b]) => (key === 'composition' ? `${b} % ${a}` : `${a} ${b}`)).join(', ');
+      } else map[key] = Array.isArray(v) ? v.filter((x) => x !== null && typeof x !== 'object').join(', ') : String(v);
     }
   }
   for (const line of json ? [] : String(text || '').split(/\n/)) {
     const m = line.replace(/[*_`#>]/g, '').replace(/^\s*[-•]\s*/, '').match(/^\s*([A-Za-zÀ-ÿ ]{3,22}?)\s*:\s*(.+?)\s*$/);
     if (m) map[norm(m[1]).trim()] = m[2].replace(/^[«"“]\s*|\s*[»"”]$/g, '').trim();
   }
-  const KEYS = ['nom', 'marque', 'type', 'couleur', 'matiere', 'composition', 'coupe', 'motif', 'saisons', 'formalite'];
+  const KEYS = ['nom', 'marque', 'type', 'categorie', 'couleur', 'matiere', 'composition', 'coupe', 'motif', 'saisons', 'formalite'];
   if (KEYS.filter((k) => map[k] !== undefined).length < (json ? 2 : 3)) return null;
   const out = {};
   const known = (v) => v !== undefined && !UNKNOWN.test(norm(v));
   if (known(map.nom)) out.name = map.nom.slice(0, 70);
   if (map.marque !== undefined) { if (known(map.marque)) out.brand = map.marque.replace(/\s*\(.*\)\s*$/, '').trim(); else out.noBrand = true; }
-  if (known(map.type)) {
-    const v = norm(map.type).replace(/^.*[›>:]\s*/, '').trim();
-    const sub = ALL_SUBS.find((x) => norm(x.name) === v) || [...ALL_SUBS].sort((a, b) => b.name.length - a.name.length).find((x) => v.includes(norm(x.name))) || ALL_SUBS.find((x) => norm(x.name).includes(v)) || (() => { const id = firstMatch(SUB_RULES, v); return id && ALL_SUBS.find((x) => x.id === id); })();
-    if (sub) { out.sub = sub.id; out.category = sub.category; }
-  }
+  // Catégorie (« Bas », « Haut »…) : indice, jamais confondue avec un type. Type : nom exact > nom contenu (mot entier) > règles.
+  const catRaw = known(map.categorie) ? map.categorie : known(map.type) && CATEGORIES.some((c) => norm(c.name) === norm(map.type)) ? map.type : null;
+  const catHint = catRaw ? CATEGORIES.find((c) => norm(c.name) === norm(catRaw) || c.id === norm(catRaw) || ({ bottoms: 'bas', pants: 'bas', trousers: 'bas', tops: 'haut', top: 'haut', shirts: 'haut', jackets: 'veste', jacket: 'veste', outerwear: 'manteau', coats: 'manteau', coat: 'manteau', shoes: 'chaussures', footwear: 'chaussures', belts: 'ceinture', belt: 'ceinture', accessories: 'accessoire', accessoires: 'accessoire' })[norm(catRaw)] === c.id)?.id : null;
+  const findSub = (raw) => {
+    const v = norm(raw).replace(/^.*[›>:]\s*/, '').trim();
+    if (!v || CATEGORIES.some((c) => norm(c.name) === v)) return null; // « Bas » seul n'est pas un type
+    const pool = catHint ? ALL_SUBS.filter((x) => x.category === catHint) : ALL_SUBS;
+    const word = (name) => new RegExp(`(^|[^a-z])${norm(name).replace(/[/().-]/g, '.')}s?([^a-z]|$)`).test(v);
+    return pool.find((x) => norm(x.name) === v) || [...pool].sort((a, b) => b.name.length - a.name.length).find((x) => word(x.name))
+      || (() => { const id = firstMatch(SUB_RULES, v); const x = id && ALL_SUBS.find((y) => y.id === id); return x && (!catHint || x.category === catHint) ? x : null; })();
+  };
+  const sub = (known(map.type) && findSub(map.type)) || (known(map.modele) && findSub(map.modele)) || (known(map.nom) && findSub(map.nom)) || (known(map.categorie) && findSub(map.categorie));
+  if (sub) { out.sub = sub.id; out.category = sub.category; }
+  else if (catHint) { out.category = catHint; out.sub = CATEGORIES.find((c) => c.id === catHint).subs[0][0]; out.subGuessed = true; }
   const color = (v) => { const n = norm(v); return ALL_COLORS.find((c) => norm(c.name) === n)?.id || COLOR_RULES.find(([, re]) => re.test(n))?.[0] || null; };
   const hex = String(map.hex || '').match(/#?[0-9a-f]{6}\b/i)?.[0];
   // Nom exact de la palette > code hexadécimal (couleur réelle) > nom approché (« bleu glacier » → bleu).
@@ -380,15 +394,25 @@ export function parseStructured(text) {
   if (known(map.matiere)) out.material = MATERIALS.find((x) => norm(x) === norm(map.matiere)) || firstMatch(MATERIAL_RULES, norm(map.matiere)) || undefined;
   if (map.composition !== undefined) { const c = known(map.composition) ? parseComposition(map.composition) : null; if (c) out.composition = c.text; else out.noComposition = true; }
   if (known(map.coupe)) out.fit = FITS.find(([, n]) => norm(n) === norm(map.coupe))?.[0] || firstMatch(FIT_RULES, norm(map.coupe)) || undefined;
-  if (known(map.saisons)) { const v = norm(map.saisons); out.seasons = /toutes|all|4 saisons|toute l'annee|year/.test(v) ? [] : [...new Set(Object.entries(SEASONS_FR).filter(([k]) => v.includes(k)).map(([, id]) => id))]; }
+  if (known(map.saisons)) { const v = norm(map.saisons); const list = [...new Set(Object.entries(SEASONS_FR).filter(([k]) => v.includes(k)).map(([, id]) => id))]; out.seasons = /toutes|all|4 saisons|toute l'annee|year/.test(v) || list.length === 4 ? [] : list; }
   const w = Number(String(map.chaleur || '').match(/[1-5]/)?.[0]); if (w) out.warmth = w;
-  if (known(map.taille)) out.size = map.taille.slice(0, 12);
-  const pr = Number(String(map.prix || '').replace(',', '.').match(/\d+(?:\.\d+)?/)?.[0]); if (pr > 0 && pr < 10000) out.price = pr;
+  if (known(map.taille)) out.size = map.taille.slice(0, 24);
+  const pr = Number(String(map.prix || map.prix_origine || '').replace(',', '.').match(/\d+(?:\.\d+)?/)?.[0]); if (pr > 0 && pr < 10000) out.price = pr;
   if (known(map.reference)) out.ref = map.reference.slice(0, 30);
   if (known(map.fabrication)) out.origin = map.fabrication.slice(0, 30);
   if (map.lien && /^https?:\/\//.test(map.lien)) out.sourceUrl = map.lien;
   const f = Number(String(map.formalite || '').match(/[1-5]/)?.[0]); if (f) out.formality = f;
-  if (map.confiance) out.confidence = norm(map.confiance).match(/faible|moyenne|elevee|haute/)?.[0]?.replace('haute', 'elevee') || undefined;
+  if (map.confiance) { const n = Number(String(map.confiance).match(/\d+(?:[.,]\d+)?/)?.[0]?.replace(',', '.')); const pct = n <= 1 ? n * 100 : n; out.confidence = Number.isFinite(pct) && /\d/.test(map.confiance) ? (pct >= 80 ? 'elevee' : pct >= 50 ? 'moyenne' : 'faible') : norm(map.confiance).match(/faible|moyenne|elevee|haute|high|medium|low/)?.[0]?.replace(/haute|high/, 'elevee').replace('medium', 'moyenne').replace('low', 'faible') || undefined; }
+  if (known(map.styles)) { const v = norm(map.styles); const ALIAS = { italian: /italien|italian/, french: /french|francais/, british: /british|anglais/, quiet: /quiet/, scandi: /minimalis|scandinav/, mediterranean: /mediterran/, japanese: /japon|japan/, ivy: /ivy|preppy/, 'old-money': /old money/ }; out.styles = STYLE_OPTS.filter(([id, label]) => v.includes(norm(label)) || ALIAS[id]?.test(v)).map(([id]) => id); if (!out.styles.length) delete out.styles; }
+  if (known(map.notes)) out.notes = map.notes.slice(0, 600);
+  const free = `${map.notes || ''} ${map.remarque || ''} ${map.mesures || ''}`;
+  if (!out.origin) { const o = free.match(/(?:fabriqu[ée] (?:en|au|aux)|made in)\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ -]{2,20})/i); if (o) out.origin = ORIGINS[norm(o[1].trim().split(/\s+(?:et|and)\b|[.,;]/)[0])] || o[1].trim().split(/[.,;]/)[0]; }
+  const meas = {};
+  const mm = (re) => Number(free.match(re)?.[1]?.replace(',', '.')) || null;
+  meas.waist = mm(/(?:tour de taille|waist)\D{0,12}(\d{2,3}(?:[.,]\d)?)\s*cm/i); meas.inseam = mm(/(?:entrejambe|inseam)\D{0,12}(\d{2,3}(?:[.,]\d)?)\s*cm/i);
+  meas.chest = mm(/(?:poitrine|chest)\D{0,12}(\d{2,3}(?:[.,]\d)?)\s*cm/i); meas.shoulders = mm(/(?:[ée]paules|shoulders?)\D{0,12}(\d{2,3}(?:[.,]\d)?)\s*cm/i); meas.length = mm(/(?:longueur|length)\D{0,12}(\d{2,3}(?:[.,]\d)?)\s*cm/i);
+  Object.keys(meas).forEach((k) => meas[k] === null && delete meas[k]);
+  if (Object.keys(meas).length) out.measures = meas;
   if (known(map.remarque)) out.remark = map.remarque.slice(0, 240);
   Object.keys(out).forEach((k) => out[k] === undefined && delete out[k]);
   return out;

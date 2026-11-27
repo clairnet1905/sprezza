@@ -614,16 +614,23 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
     if (p.seasons) rows.push(['seasons', 'Saisons', p.seasons.length ? p.seasons.map((x) => SEASON_OPTS.find(([id]) => id === x)?.[1]).join(', ') : 'Toutes', p.seasons]);
     if (p.formality) rows.push(['formality', 'Formalité', `${p.formality}/5`, p.formality]);
     if (p.warmth) rows.push(['warmth', 'Chaleur', `${p.warmth}/5`, p.warmth]);
+    if (p.styles?.length) rows.push(['styles', 'Styles', p.styles.map((id) => STYLE_OPTS.find(([x]) => x === id)?.[1]).join(', '), p.styles]);
+    if (p.measures) rows.push(['measures', 'Mesures', Object.entries(p.measures).map(([k, v]) => `${MEASURE_FIELDS.find(([x]) => x === k)?.[1] || k} ${v} cm`).join(', '), p.measures]);
+    if (p.notes) rows.push(['notes', 'Notes', p.notes.length > 90 ? `${p.notes.slice(0, 90)}…` : p.notes, p.notes]);
     if (p.sourceUrl) rows.push(['sourceUrl', 'Lien d\'origine', p.sourceUrl.replace(/^https?:\/\/(www\d?\.)?/, '').slice(0, 48), p.sourceUrl]);
     // Remplissage immédiat, avec retour arrière possible.
     const before = Object.fromEntries(FIELDS.map((f) => [f, $(`#${f}`)?.value]));
-    before.formality = $('#formality').value; before.warmth = $('#warmth').value; before.seasons = [...main.querySelectorAll('input[name=seasons]')].filter((c) => c.checked).map((c) => c.value);
+    before.formality = $('#formality').value; before.warmth = $('#warmth').value; before.notes = $('#notes').value;
+    before.styles = [...main.querySelectorAll('input[name=styles]')].filter((c) => c.checked).map((c) => c.value);
+    before.measures = Object.fromEntries(MEASURE_FIELDS.map(([k]) => [k, $(`#m-${k}`)?.value ?? ''])); before.seasons = [...main.querySelectorAll('input[name=seasons]')].filter((c) => c.checked).map((c) => c.value);
     const setSeasons = (list) => main.querySelectorAll('input[name=seasons]').forEach((c) => { c.checked = list.includes(c.value); });
     for (const [f, , , val] of rows) {
       if (f === 'sub') { $('#category').value = p.category; setHTML($('#sub'), options(subOpts(p.category), p.sub)); syncSub(); }
       else if (f === 'color') { $('#color').value = val; syncColor(); }
       else if (f === 'colorcustom') { $('#color').value = 'custom'; $('#colorhex').value = val; $('#colorhint').textContent = colorHint(val); }
       else if (f === 'seasons') setSeasons(val);
+      else if (f === 'styles') main.querySelectorAll('input[name=styles]').forEach((c) => { c.checked = val.includes(c.value); });
+      else if (f === 'measures') Object.entries(val).forEach(([k, v]) => { const el = $(`#m-${k}`); if (el) el.value = v; });
       else if (f === 'formality' || f === 'warmth') { $(`#${f}`).value = val; $(`#${f}`).dispatchEvent(new Event('input')); }
       else { const el = $(`#${f}`); if (el) el.value = val; }
     }
@@ -631,6 +638,7 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
     setHTML(out, html`<div class="card-flat" style="margin-top:10px"><p class="small"><strong>${icon('check')} ${rows.length} champ(s) rempli(s)</strong>${url && !note ? ' depuis la page de l\'article' : ''} — vérifiez avant d'enregistrer.</p>
       <ul class="small" style="margin:6px 0 8px;padding-left:18px">${rows.map(([, l, v]) => html`<li>${l} : <strong>${v}</strong></li>`)}</ul>
       ${note ? html`<p class="small callout callout-warn">${note}</p>` : ''}
+      ${p.subGuessed ? html`<p class="small callout callout-warn">Seule la catégorie « ${CATEGORY_BY_ID[p.category].name} » est connue : précisez le type exact (jean, chino…).</p>` : ''}
       ${p.colorUnknown && !p.color && !p.colorHex ? html`<p class="small callout callout-warn">Couleur « ${p.colorUnknown} » non reconnue : choisissez la plus proche dans « Couleur principale », ou « Personnalisée… » pour la régler précisément.</p>` : ''}
       ${p.fromAssistant ? html`<p class="small ${p.confidence === 'faible' ? 'callout callout-warn' : 'muted'}">Confiance de l'assistant : <strong>${({ faible: 'faible', moyenne: 'moyenne', elevee: 'élevée' })[p.confidence] || 'non indiquée'}</strong>${p.remark ? html` — ${p.remark}` : ''}</p>` : ''}
       <p class="hint">La taille vient seulement de l'étiquette : indiquez la vôtre. La couleur choisie sur le site peut différer de votre pièce (vérifiez-la).</p>
@@ -638,7 +646,7 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
     out.querySelector('#webundo').onclick = () => {
       $('#category').value = before.category; setHTML($('#sub'), options(subOpts(before.category), before.sub));
       for (const f of FIELDS) if (!['category', 'sub'].includes(f) && $(`#${f}`)) $(`#${f}`).value = before[f] ?? '';
-      setSeasons(before.seasons); for (const f of ['formality', 'warmth']) { $(`#${f}`).value = before[f]; $(`#${f}`).dispatchEvent(new Event('input')); }
+      setSeasons(before.seasons); $('#notes').value = before.notes; main.querySelectorAll('input[name=styles]').forEach((c) => { c.checked = before.styles.includes(c.value); }); Object.entries(before.measures).forEach(([k, v]) => { const el = $(`#m-${k}`); if (el) el.value = v; }); for (const f of ['formality', 'warmth']) { $(`#${f}`).value = before[f]; $(`#${f}`).dispatchEvent(new Event('input')); }
       syncColor(); setHTML(out, html`<p class="small muted">Remplissage annulé.</p>`);
     };
     toast(`${rows.length} champ(s) rempli(s) — vérifiez puis enregistrez`);

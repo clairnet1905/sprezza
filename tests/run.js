@@ -469,6 +469,18 @@ test('Couleurs du dressing : palette étendue, JSON, code hexadécimal, couleur 
   ok(/Vert bouteille/.test(assistantPrompt()) && /couleur_hex/.test(assistantPrompt()), 'consigne sans les nouvelles couleurs');
 });
 
+test('JSON réel (jean NEXT) : catégorie « Bas » ≠ chaussures, sous-catégorie, clés camelCase, composition en objet, notes', () => {
+  const a = parseProduct("{\"name\": \"Jean bleu délavé NEXT Straight Fit\", \"brand\": \"NEXT\", \"model\": \"Blue Mid Tint Straight Fit Vintage Wash Denim Jeans\", \"reference\": \"AD0-970\", \"category\": \"Bas\", \"subcategory\": \"Jean\", \"size\": \"W30 / L29 (30S)\", \"fit\": \"Straight Fit\", \"primaryColor\": \"Bleu denim moyen délavé\", \"secondaryColor\": null, \"colorHex\": \"#486B83\", \"colorTone\": \"Froid\", \"pattern\": \"Uni avec délavage vintage\", \"material\": \"Denim stretch\", \"composition\": {\"cotton\": 99, \"elastane\": 1}, \"collection\": null, \"seasons\": [\"Printemps\", \"Été\", \"Automne\", \"Hiver\"], \"styles\": [\"Casual Chic\", \"Smart Casual\", \"Mediterranean Chic\", \"Élégance italienne décontractée\", \"Minimalisme\", \"Contemporary Classic\"], \"occasions\": [\"Quotidien\"], \"formalityLevel\": 2, \"originalPrice\": null, \"currentPrice\": null, \"currency\": \"EUR\", \"productUrl\": \"https://www.nextdirect.com/fr/en/style/st924502/ad0970\", \"imageUrls\": [], \"matchingColors\": [\"Écru\"], \"styleScore\": 82, \"identificationConfidence\": 99, \"identificationStatus\": \"verified\", \"sources\": [\"https://www.nextdirect.com/fr/en/style/st924502/ad0970\"], \"notes\": \"Référence complète sur étiquette AD0-970-138. Fabriqué au Pakistan. Tour de taille 76 cm et entrejambe 74 cm. Modèle et composition confirmés. Anciennes fiches commerciales redirigeant vers le catalogue. Code HEX estimé.\"}");
+  eq(a.category, 'bas'); eq(a.sub, 'jean'); eq(a.name, 'Jean bleu délavé NEXT Straight Fit'); eq(a.brand, 'NEXT'); eq(a.ref, 'AD0-970'); eq(a.size, 'W30 / L29 (30S)');
+  eq(a.fit, 'regular'); eq(a.color, undefined); eq(a.colorHex, '#486B83'); eq(a.pattern, 'Uni'); eq(a.material, 'Denim'); eq(a.composition, '99 % coton, 1 % élasthanne');
+  eq(a.seasons.length, 0); eq(a.formality, 2); eq(a.confidence, 'elevee'); eq(a.sourceUrl, 'https://www.nextdirect.com/fr/en/style/st924502/ad0970');
+  eq(a.origin, 'Pakistan'); eq(a.measures.waist, 76); eq(a.measures.inseam, 74); ok(a.styles.includes('casual-chic') && a.styles.includes('italian') && a.styles.includes('scandi'), a.styles.join());
+  ok(/Pakistan/.test(a.notes));
+  eq(parseProduct('{"category": "Bas", "color": "navy"}').sub, 'pantalon'); eq(parseProduct('{"category": "Bas", "color": "navy"}').subGuessed, true);
+  eq(parseStructured('Type : Bas\nCouleur : Marine\nMatière : Coton').category, 'bas');
+  eq(parseProduct('{"type": "Baskets", "couleur": "Blanc", "nom": "Baskets cuir"}').sub, 'baskets');
+});
+
 // ---------------- Exécution
 const out = document.getElementById('out'); let pass = 0; const fails = [];
 for (const t of tests) {
