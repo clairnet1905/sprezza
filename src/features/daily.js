@@ -9,9 +9,9 @@ import { manualWeather, weatherSummary, isStale, climateFeel } from '../domain/w
 import { MODE_STYLES } from '../domain/scoring.js';
 import { forecast } from '../services/weather.js';
 import { PERIODS, periodAt, nextChange, daysSinceChange, seasonalPlan } from '../domain/seasonal.js';
-import { outfitMannequin, piecesList, pieceRow, scoreBadge, idsToPieces, wearOutfit, addToCalendar, MODE_NAME, upgradeBlock, workKitBlock, pickRow, openDressingPicker } from './shared.js';
+import { outfitMannequin, piecesList, pieceRow, scoreBadge, idsToPieces, wearOutfit, addToCalendar, MODE_NAME, upgradeBlock, workKitBlock, pickRow, openDressingPicker, realisticButton } from './shared.js';
 
-const QUICK_OCCASIONS = ['daily', 'work-cleaning', 'client', 'office', 'restaurant', 'walk', 'elegant-dinner'];
+const QUICK_OCCASIONS = ['daily', 'work-cleaning', 'client-work', 'client', 'office', 'restaurant', 'walk', 'elegant-dinner'];
 const KEY = () => `daily:${pid()}`;
 
 /** Occasion par défaut : celle choisie aujourd'hui, sinon client en semaine (profil principal), promenade le week-end. */
@@ -92,11 +92,11 @@ export async function renderDaily(box, { onShowAll } = {}) {
     const occ = OCCASION_BY_ID[st.occasionId];
     const byIdG = Object.fromEntries(all.map((g) => [g.id, g]));
     let workDay = null; let imposed = st.imposed;
-    if (occ?.workwear && !Object.keys(st.imposed).length && st.offset === 0 && streak && dayDiff(streak.start, today) < (streak.days || 3)
+    if (occ?.workwear === true && !Object.keys(st.imposed).length && st.offset === 0 && streak && dayDiff(streak.start, today) < (streak.days || 3)
       && Object.values(streak.ids).every((id) => byIdG[id] && isAvailable(byIdG[id]))) { imposed = streak.ids; workDay = dayDiff(streak.start, today) + 1; }
     const res = recommend({ garments: all, occasionId: st.occasionId, weather: w0.w, prefs, offsets: { italian: st.offset, classic: st.offset, modern: st.offset }, profileId: pid(), date: now, proposed, imposed });
     const best = workDay ? (res.options.find((o) => ['top', 'bottom', 'shoes'].every((r) => o.pieces[r]?.id === imposed[r])) || pick(res)) : pick(res);
-    if (occ?.workwear && best && !workDay && !wornToday) {
+    if (occ?.workwear === true && best && !workDay && !wornToday) {
       const ids = Object.fromEntries(['top', 'bottom', 'shoes', 'layer'].filter((r) => best.pieces[r]).map((r) => [r, best.pieces[r].id]));
       if (JSON.stringify(streak?.ids) !== JSON.stringify(ids) || streak?.start !== today) { streak = { ids, start: today, days: streak?.days || 3 }; store.repo.kvSet(WORK_KEY, streak); }
       workDay = 1;
@@ -137,14 +137,14 @@ export async function renderDaily(box, { onShowAll } = {}) {
     setHTML(box, html`<section class="card card-accent" aria-labelledby="daily-h">
       <div class="small" style="margin-bottom:10px">${icon('today')} <strong>${fmtDate(today, { weekday: 'long', day: 'numeric', month: 'long' })}</strong> — ${wxLine(w0)}${(() => { const n = all.filter((g) => g.availability === 'to-wash').length; return n ? html` · <a href="#/wardrobe/care">${n} pièce${n > 1 ? 's' : ''} au panier à linge</a>` : ''; })()}</div>
       ${!all.length ? html`<h2 id="daily-h" style="margin-top:0">Votre tenue du jour vous attend</h2><p>Ajoutez quelques pièces (haut, bas, chaussures) : SPREZZA vous proposera chaque matin une tenue prête, adaptée à la météo et à votre journée.</p><div class="btn-row"><a class="btn btn-primary" href="#/wardrobe/quick">${icon('camera')} Ajout rapide</a><a class="btn" href="#/outfits/templates">Inspiration</a></div>`
-        : !pieces ? html`<h2 id="daily-h" style="margin-top:0">Pas encore de tenue complète${OCCASION_BY_ID[st.occasionId] ? ` — ${OCCASION_BY_ID[st.occasionId].name}` : ''}</h2>${occChips()}<p class="small">${res.info.missing.map((m) => m.text).join(' ') || 'Le dressing disponible ne permet pas de tenue complète pour cette occasion.'}</p>${OCCASION_BY_ID[st.occasionId]?.workwear ? workKitBlock(all) : ''}<a class="btn btn-primary" href="#/wardrobe/quick">${icon('camera')} Ajouter une pièce</a>`
+        : !pieces ? html`<h2 id="daily-h" style="margin-top:0">Pas encore de tenue complète${OCCASION_BY_ID[st.occasionId] ? ` — ${OCCASION_BY_ID[st.occasionId].name}` : ''}</h2>${occChips()}<p class="small">${res.info.missing.map((m) => m.text).join(' ') || 'Le dressing disponible ne permet pas de tenue complète pour cette occasion.'}</p>${OCCASION_BY_ID[st.occasionId]?.workwear === true ? workKitBlock(all) : ''}<a class="btn btn-primary" href="#/wardrobe/quick">${icon('camera')} Ajouter une pièce</a>`
         : html`<div id="daily-h">${head}</div>
           ${occChips()}
           <div class="grid-2" style="align-items:start">
             <div class="piece-list">${piecesList(pieces).map(([r, g]) => (best && pieces === best.pieces && ['top', 'bottom', 'layer', 'outer', 'shoes'].includes(r) ? pickRow(r, g) : pieceRow(r, g)))}</div>${best && pieces === best.pieces ? html`<p class="small muted" style="margin:6px 0 0">Touchez une pièce pour en choisir une autre dans votre dressing.</p>` : ''}
-            <div><div class="mannequin-wrap">${outfitMannequin(pieces)}</div><div class="schema-label">Aperçu avec vos pièces · touchez pour agrandir</div></div>
+            <div><div class="mannequin-wrap">${outfitMannequin(pieces)}</div><div class="schema-label">Aperçu avec vos pièces · touchez pour agrandir</div><div style="text-align:center;margin-top:4px">${realisticButton(pieces)}</div></div>
           </div>
-          ${best && !wornToday && !plannedToday || (best && st.showProposal) ? html`<p class="small" style="margin-top:10px">${best.reasons.slice(0, 2).join(' ')}</p>${best.warnings.length ? html`<div class="callout callout-warn small">${best.warnings[0]}</div>` : ''}${res.backup?.changes?.length ? html`<p class="small"><strong>Plan B :</strong> ${res.backup.changes.join(' ; ')}.</p>` : ''}${OCCASION_BY_ID[st.occasionId]?.workwear ? workKitBlock(all, { tips: false }) : upgradeBlock(best.upgrade)}` : ''}
+          ${best && !wornToday && !plannedToday || (best && st.showProposal) ? html`<p class="small" style="margin-top:10px">${best.reasons.slice(0, 2).join(' ')}</p>${best.warnings.length ? html`<div class="callout callout-warn small">${best.warnings[0]}</div>` : ''}${res.backup?.changes?.length ? html`<p class="small"><strong>Plan B :</strong> ${res.backup.changes.join(' ; ')}.</p>` : ''}${OCCASION_BY_ID[st.occasionId]?.workwear === true ? workKitBlock(all, { tips: false }) : upgradeBlock(best.upgrade)}` : ''}
           <div class="btn-row" style="margin-top:12px">${footer}</div>`}
     </section>
     ${seasonBanner}
@@ -160,16 +160,16 @@ export async function renderDaily(box, { onShowAll } = {}) {
       openDressingPicker({ role, pieces: best.pieces, garments: all, occasion: occ, weather: w0.w, mode: best.mode, onPick: async (g) => {
         const keep = {}; for (const r of ['top', 'bottom', 'shoes', 'layer', 'outer']) if (best.pieces[r] && r !== role) keep[r] = best.pieces[r].id;
         st.imposed = { ...keep, [role]: g ? g.id : null }; st.showProposal = true;
-        if (occ?.workwear) { const ids = Object.fromEntries(Object.entries(st.imposed).filter(([r, v]) => v && r !== 'outer')); streak = { ids, start: streak?.start && workDay ? streak.start : today, days: streak?.days || 3 }; await store.repo.kvSet(WORK_KEY, streak); }
+        if (occ?.workwear === true) { const ids = Object.fromEntries(Object.entries(st.imposed).filter(([r, v]) => v && r !== 'outer')); streak = { ids, start: streak?.start && workDay ? streak.start : today, days: streak?.days || 3 }; await store.repo.kvSet(WORK_KEY, streak); }
         draw();
       } });
     });
     box.querySelectorAll('[data-occ]').forEach((b) => b.onclick = async () => { st.occasionId = b.dataset.occ; st.offset = 0; st.imposed = {}; st.showProposal = true; await store.repo.kvSet(KEY(), { date: today, occasionId: st.occasionId }); draw(); });
     box.querySelectorAll('[data-d]').forEach((b) => b.onclick = async () => {
       const a = b.dataset.d;
-      if (a === 'wear' && best) { await wearOutfit(best.pieces, { occasionId: st.occasionId, keepDays: occ?.workwear ? (streak?.days || 3) : 0 }); renderDaily(box, { onShowAll }); }
+      if (a === 'wear' && best) { await wearOutfit(best.pieces, { occasionId: st.occasionId, keepDays: occ?.workwear === true ? (streak?.days || 3) : 0 }); renderDaily(box, { onShowAll }); }
       if (a === 'wear-planned') { await wearOutfit(pieces, { occasionId: plannedToday.occasionId, outfitId: plannedToday.outfitId }); renderDaily(box, { onShowAll }); }
-      if (a === 'other') { st.offset++; st.imposed = {}; if (occ?.workwear) { streak = null; await store.repo.kvSet(WORK_KEY, null); } draw(); }
+      if (a === 'other') { st.offset++; st.imposed = {}; if (occ?.workwear === true) { streak = null; await store.repo.kvSet(WORK_KEY, null); } draw(); }
       if (a === 'worknew') { streak = streak ? { ids: {}, start: '1970-01-01', days: streak.days } : null; await store.repo.kvSet(WORK_KEY, streak); st.offset++; st.imposed = {}; draw(); }
       if (a === 'propose') { st.showProposal = true; draw(); }
       if (a === 'all') onShowAll?.(st.occasionId);

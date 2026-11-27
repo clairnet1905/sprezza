@@ -101,7 +101,11 @@ export async function hydratePhotos(root) {
   // Photos découpées dans le mannequin habillé (SVG) : si la photo manque, la couleur de la pièce reste visible.
   const svgImgs = root.querySelectorAll('image[data-photo]');
   await Promise.all([...svgImgs].map(async (im) => {
-    const url = await photoURL(im.getAttribute('data-photo'), { thumb: true });
+    // Version boutique (fond propre, vêtement centré) en priorité quand elle existe
+    let id = im.getAttribute('data-photo');
+    const list = (im.getAttribute('data-photo-list') || '').split(',').filter(Boolean);
+    if (list.length > 1) { for (const pid2 of list) { const rec = await store.repo.get('photos', pid2); if (rec?.cutout) { id = pid2; break; } } }
+    const url = await photoURL(id, { thumb: true });
     if (url) im.setAttribute('href', url); else im.remove();
   }));
   const imgs = root.querySelectorAll('img[data-photo]');

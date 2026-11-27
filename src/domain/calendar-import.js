@@ -137,6 +137,10 @@ export function dayPlan(events, formalityOf) {
   const by = {};
   for (const e of events) (by[e.date] ||= []).push(e);
   return Object.entries(by).sort(([a], [b]) => a.localeCompare(b)).map(([date, list]) => {
+    // Un rendez-vous client ET du ménage le même jour : une seule tenue « Client + travail »
+    const client = list.find((x) => ['client', 'pro-meeting'].includes(x.occasionId));
+    const work = list.find((x) => x.occasionId === 'work-cleaning');
+    if (client && work) return { date, main: { ...client, occasionId: 'client-work', title: `${client.title} + ${work.title}` }, others: list.filter((x) => x !== client && x !== work), combined: true };
     const main = [...list].sort((a, b) => formalityOf(b.occasionId) - formalityOf(a.occasionId))[0];
     return { date, main, others: list.filter((x) => x !== main) };
   });

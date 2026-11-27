@@ -28,7 +28,9 @@ import { wardrobeAudit, wardrobeGaps } from '../src/domain/audit.js';
 import { detectCapsule, capsuleState } from '../src/domain/wardrobe-logic.js';
 import { workKitStatus, workwearIssue } from '../src/domain/recommend.js';
 import { evaluatePurchase } from '../src/domain/purchase.js';
-import { parseICS, parseAgendaText, occasionForEvent } from '../src/domain/calendar-import.js';
+import { parseICS, parseAgendaText, occasionForEvent, dayPlan } from '../src/domain/calendar-import.js';
+import { mapGoogleEvents } from '../src/services/google-calendar.js';
+import { mirror } from '../src/components/dressed.js';
 import { looksFor } from '../src/domain/explain.js';
 import { afterWear as afterWear2 } from '../src/domain/care.js';
 import { climateFeel } from '../src/domain/weather.js';
@@ -178,7 +180,7 @@ test('Questionnaire manuel : critères inconnus non pénalisés', () => {
 
 // ---------------- Données éditoriales
 test('15 styles, 5 écoles notées, 8 traditions, 20 occasions × 3, 20 erreurs, 4 saisons, 20 chapitres', () => {
-  eq(STYLES.length, 15); eq(SCHOOLS.length, 5); eq(TRADITIONS.length, 8); eq(OCCASIONS.length, 21); // 20 du guide + travail (ménage)
+  eq(STYLES.length, 15); eq(SCHOOLS.length, 5); eq(TRADITIONS.length, 8); eq(OCCASIONS.length, 22); // 20 du guide + travail (ménage) + client + travail
   OCCASIONS.forEach((o) => eq(o.outfits.length, 3, o.id)); eq(ERRORS.length, 20); eq(SEASONS.length, 4); eq(CHAPTERS.length, 20); eq(GRID.reduce((a, c) => a + c.max, 0), 100);
 });
 test('Notes historiques des écoles = somme des critères', () => SCHOOLS.forEach((s) => eq(Object.values(s.scores).reduce((a, b) => a + b, 0), s.total, s.name)));
@@ -710,6 +712,23 @@ test('Styles et raisons propres à l\'événement (pas les mêmes partout)', () 
   ok(c.options[0].reasons[0] !== w.options[0].reasons[0]);
   ok(/Pièce/.test(c.options[0].reasons[1]), c.options[0].reasons[1]);
   ok(!c.options[0].reasons.some((r) => /^Formalité/.test(r)), 'phrase générique de formalité');
+});
+
+test('Client + travail : une seule tenue nette et pratique, veste à enfiler pour le rendez-vous ; agenda combiné', () => {
+  let n = 0; const G = (category, sub, name, color, x = {}) => ({ id: `cw${++n}`, category, sub, name, color: { id: color }, availability: 'clean', ...x });
+  const W = [G('haut', 'polo-sport', 'Polo piqué marine', 'navy'), G('haut', 'col-roule', 'Col roulé mérinos', 'black', { material: 'Mérinos' }), G('haut', 'chemise', 'Oxford ciel', 'sky'),
+    G('bas', 'chino', 'Chino anthracite', 'charcoal'), G('bas', 'jogging', 'Jogging', 'mid-gray'), G('bas', 'pantalon', 'Pantalon laine', 'mid-gray', { material: 'Laine' }),
+    G('chaussures', 'baskets', 'Baskets noires', 'black'), G('chaussures', 'derbies', 'Derbies', 'chocolate'), G('veste', 'blazer', 'Blazer laine', 'navy', { material: 'Laine' })];
+  const r = recommend({ garments: W, occasionId: 'client-work', date: new Date(2026, 10, 27, 9) });
+  const o = r.options[0];
+  eq(o.pieces.bottom.sub, 'chino'); eq(o.pieces.shoes.sub, 'baskets'); ok(['polo-sport', 'chemise'].includes(o.pieces.top.sub), o.pieces.top.sub);
+  ok(r.options.every((x) => x.pieces.bottom.sub !== 'jogging' && x.pieces.top.sub !== 'col-roule'));
+  ok(!o.layer || o.reasons.some((x) => /enfilez/.test(x)));
+  const plan = dayPlan([{ date: '2026-12-01', title: 'Client Dupont', occasionId: 'client' }, { date: '2026-12-01', title: 'Ménage bureaux', occasionId: 'work-cleaning' }], () => 3);
+  eq(plan[0].main.occasionId, 'client-work'); eq(plan[0].main.title, 'Client Dupont + Ménage bureaux');
+  const g = mapGoogleEvents([{ id: 'x', summary: 'RDV client', start: { dateTime: '2026-12-02T14:00:00+01:00' } }, { id: 'y', summary: 'Mariage', start: { date: '2026-12-12' } }, { id: 'z', summary: 'Annulé', status: 'cancelled', start: { date: '2026-12-03' } }]);
+  eq(g.length, 2); eq(g[1].date, '2026-12-12'); eq(g[1].allDay, true); eq(g[0].date, '2026-12-02');
+  eq(mirror('M10 20 L30 40'), 'M210 20 L190 40');
 });
 
 test('Zara : pantalon « taille jogging » = chino, « marron clair chiné », prix soldé, taille et référence écrites', () => {

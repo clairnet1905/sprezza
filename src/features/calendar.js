@@ -25,7 +25,7 @@ export async function render(main) {
       <div class="btn-row"><button class="btn btn-primary" id="multi">${icon('calendar')} Préparer plusieurs jours</button><button class="btn" id="ics">${icon('download')} Exporter (.ics)</button></div></div>
     <section class="card card-accent" style="margin-bottom:16px"><div class="row-between" style="align-items:flex-start;gap:12px"><div><div class="eyebrow">Mon agenda</div><h2 style="margin:0">Synchroniser mes rendez-vous</h2>
       <p class="small" style="margin:6px 0 0">Importez vos événements : SPREZZA reconnaît le type de rendez-vous (client, ménage, dîner, mariage…) et prépare la tenue de chaque jour, pour le plus exigeant de la journée.</p></div></div>
-      <div class="btn-row" style="margin-top:10px"><label class="btn btn-primary" for="icsfile">${icon('upload')} Importer un fichier agenda (.ics)</label><input id="icsfile" type="file" accept=".ics,text/calendar" hidden><button class="btn" id="agpaste">${icon('edit')} Coller mes rendez-vous</button></div>
+      <div class="btn-row" style="margin-top:10px"><label class="btn btn-primary" for="icsfile">${icon('upload')} Importer un fichier agenda (.ics)</label><input id="icsfile" type="file" accept=".ics,text/calendar" hidden><button class="btn btn-gold" id="gcal">${icon('calendar')} Google Agenda (Gmail)</button><button class="btn" id="agpaste">${icon('edit')} Coller mes rendez-vous</button></div>
       <details class="disclosure"><summary>Comment récupérer mon agenda ?</summary><ul class="ticks small">
         <li><strong>Google Agenda</strong> (sur ordinateur) : Paramètres → Importer et exporter → Exporter. Décompressez le fichier .zip et importez le .ics ici.</li>
         <li><strong>Outlook</strong> : Paramètres → Calendrier → Calendriers partagés → Publier → lien ICS ; ouvrez ce lien, il télécharge le fichier .ics.</li>
@@ -49,6 +49,23 @@ export async function render(main) {
     e.target.value = '';
     if (!evs.length) { toast('Aucun événement à venir (60 prochains jours) dans ce fichier'); return; }
     reviewEvents(evs, { all, cal, main });
+  };
+  // Préchargement : la fenêtre Google doit s'ouvrir tout de suite après le toucher (sinon Safari la bloque)
+  let gClientId = ''; let gMod = null;
+  store.repo.kvGet('google:clientId', '').then(async (v) => { gClientId = v || ''; if (gClientId) { gMod = await import('../services/google-calendar.js'); gMod.preloadGoogle(); } });
+  main.querySelector('#gcal').onclick = async () => {
+    if (!gClientId) { googleSetup(() => render(main)); return; }
+    const btn = main.querySelector('#gcal'); btn.disabled = true; const label = btn.innerHTML; btn.textContent = 'Lecture de Google Agenda…';
+    try {
+      const m = gMod || await import('../services/google-calendar.js');
+      const evs = await m.googleEvents(gClientId, { days: 60 });
+      await store.repo.kvSet('google:lastSync', new Date().toISOString());
+      if (!evs.length) toast('Aucun rendez-vous dans les 60 prochains jours de votre Google Agenda');
+      else reviewEvents(evs, { all, cal, main });
+    } catch (e) {
+      openModal({ title: 'Google Agenda', body: html`<p>${e.message}</p><p class="small">Si c'est la première fois, vérifiez la configuration (identifiant client, adresse du site autorisée, votre adresse Gmail ajoutée comme testeur).</p><div class="btn-row"><button class="btn" data-cfg>Revoir la configuration</button></div>`,
+        onMount(b, close) { b.querySelector('[data-cfg]').onclick = () => { close(); googleSetup(() => render(main)); }; } });
+    } finally { btn.disabled = false; btn.innerHTML = label; }
   };
   main.querySelector('#agpaste').onclick = () => openModal({ title: 'Coller mes rendez-vous', body: html`<p class="small">Une ligne par rendez-vous : une date (28/11, 3 décembre, demain, lundi…), une heure si vous voulez, puis le rendez-vous.</p>
     <div class="field"><textarea id="agtext" rows="7" placeholder="28/11 14h rendez-vous client Dupont&#10;demain 8h ménage bureaux Mérignac&#10;samedi 20h dîner restaurant avec Léa&#10;12 décembre mariage de Paul"></textarea></div><button class="btn btn-primary" id="agok">Analyser</button>`,
@@ -169,5 +186,31 @@ async function reviewEvents(evs, { all, cal, main }) {
       if (incomplete.length) openModal({ title: 'Rendez-vous sans tenue complète', body: html`<p>Votre dressing n'a pas encore de quoi s'habiller pour :</p><ul class="ticks">${incomplete.map((x) => html`<li>${x}</li>`)}</ul><p class="small">Ils sont notés dans le calendrier. Le <a href="#/wardrobe/bilan">Bilan du dressing</a> indique quoi ajouter (et le kit de travail pour le ménage).</p>` });
       render(main);
     };
+  } });
+}
+
+
+/** Configuration unique de Google Agenda : l'utilisateur crée son identifiant client OAuth (gratuit) et le colle ici. */
+async function googleSetup(then) {
+  const cur = await store.repo.kvGet('google:clientId', '');
+  const origin = location.origin;
+  openModal({ title: 'Relier Google Agenda (une seule fois)', wide: true, body: html`<p class="small">Google demande que chaque application déclare un « identifiant client ». C'est gratuit et prend environ 5 minutes, sur ordinateur, avec votre compte Gmail. Ensuite, un bouton suffit.</p>
+    <ol class="small" style="padding-left:18px;line-height:1.55">
+      <li>Ouvrez <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud</a> et créez un projet (nom libre, ex. « SPREZZA »).</li>
+      <li>Activez l'<a href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com" target="_blank" rel="noopener">API Google Calendar</a> (bouton « Activer »).</li>
+      <li><a href="https://console.cloud.google.com/auth/branding" target="_blank" rel="noopener">Écran de consentement</a> : type « Externe », nom « SPREZZA », votre e-mail. Dans « Audience », laissez « En test » et <strong>ajoutez votre adresse Gmail comme utilisateur test</strong>.</li>
+      <li><a href="https://console.cloud.google.com/auth/clients" target="_blank" rel="noopener">Clients</a> → « Créer un client » → type <strong>Application Web</strong> → « Origines JavaScript autorisées » : <code>${origin}</code> → Créer.</li>
+      <li>Copiez l'<strong>ID client</strong> (il se termine par <code>.apps.googleusercontent.com</code>) et collez-le ci-dessous.</li>
+    </ol>
+    <div class="field"><label for="gcid">ID client Google</label><input id="gcid" value="${cur}" placeholder="123456789-abc….apps.googleusercontent.com" autocomplete="off"></div>
+    <p class="small muted">Accès en <strong>lecture seule</strong> à votre agenda principal ; SPREZZA ne modifie rien et le jeton n'est jamais enregistré. Google affichera « application non validée » : c'est normal pour une application personnelle en test (« Continuer »). Vous pouvez retirer l'accès à tout moment dans votre compte Google.</p>
+    <div class="btn-row"><button class="btn btn-primary" id="gsave">Enregistrer et se connecter</button>${cur ? html`<button class="btn btn-ghost" id="gforget">Oublier l'identifiant</button>` : ''}</div>`,
+  onMount(b, close) {
+    b.querySelector('#gsave').onclick = async () => {
+      const v = b.querySelector('#gcid').value.trim();
+      if (!/^[\w-]+\.apps\.googleusercontent\.com$/.test(v)) { toast('Collez l\'ID client complet (…apps.googleusercontent.com)'); return; }
+      await store.repo.kvSet('google:clientId', v); close(); toast('Identifiant enregistré : touchez « Google Agenda (Gmail) » pour vous connecter'); then?.();
+    };
+    b.querySelector('#gforget')?.addEventListener('click', async () => { await store.repo.kvSet('google:clientId', ''); const { googleDisconnect } = await import('../services/google-calendar.js'); googleDisconnect(); close(); toast('Google Agenda déconnecté'); });
   } });
 }

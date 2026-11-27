@@ -1,6 +1,6 @@
 // Composants et actions partagés entre écrans (cartes, propositions, sauvegarde, port).
 import { html, raw } from '../lib/html.js';
-import { icon, swatch, toast, todayISO, scoreLabel10, openModal } from '../components/ui.js';
+import { icon, swatch, toast, todayISO, scoreLabel10, openModal, copyText } from '../components/ui.js';
 import { garmentGlyph, mannequinSVG } from '../components/mannequin.js';
 import { dressedMannequinSVG } from '../components/dressed.js';
 import { ROLE_LABELS, ROLE_ORDER, AVAILABILITY, CATEGORY_BY_ID, SUB_INFO } from '../data/taxonomy.js';
@@ -73,7 +73,7 @@ export function piecesList(pieces) {
 
 export function outfitMannequin(pieces, label) {
   const tie = (pieces.accessories || []).find((a) => a.sub === 'cravate');
-  const P = (g) => (g ? { sub: g.sub, hex: g.color?.hex || colorHex(g.color?.id), photo: g.photoIds?.[0] || null } : null);
+  const P = (g) => (g ? { sub: g.sub, hex: g.color?.hex || colorHex(g.color?.id), photos: g.photoIds || [] } : null);
   return dressedMannequinSVG({ top: P(pieces.top), bottom: P(pieces.bottom), layer: P(pieces.layer), outer: P(pieces.outer), shoes: P(pieces.shoes), belt: P(pieces.belt), tie: P(tie) }, { label: label || 'Mannequin habillé avec les pièces de la tenue' });
 }
 // Toucher le mannequin l'agrandit (une seule écoute pour toute l'application).
@@ -83,6 +83,42 @@ if (typeof document !== 'undefined' && !window.__mannequinZoom) {
     const w = e.target.closest?.('.mannequin-wrap');
     if (!w || !w.querySelector('svg.dressed') || w.closest('.modal')) return;
     openModal({ title: 'Aperçu de la tenue', body: html`<div class="mannequin-big">${raw(w.innerHTML)}</div><p class="small muted" style="text-align:center">Chaque vêtement est découpé dans la photo de votre pièce (ou rempli de sa couleur sans photo) : un aperçu, pas une photo portée.</p>` });
+  });
+}
+/** Bouton « Photo réaliste » : envoie les photos des pièces et une consigne à ChatGPT (ou une autre app d'images). */
+export function realisticButton(pieces) {
+  const ids = ['outer', 'layer', 'top', 'bottom', 'belt', 'shoes'].map((r) => pieces[r]?.id).filter(Boolean);
+  return ids.length ? html`<button type="button" class="btn btn-sm btn-ghost realistic-btn" data-realistic="${ids.join(',')}">${icon('camera')} Photo réaliste avec ChatGPT</button>` : '';
+}
+const ROLE_FR = { outer: 'Manteau', layer: 'Veste', top: 'Haut', bottom: 'Bas', belt: 'Ceinture', shoes: 'Chaussures' };
+export function realisticPrompt(list) {
+  const who = store.profile?.kind === 'woman' ? 'une femme' : store.profile?.kind === 'child' ? 'un enfant' : 'un homme';
+  return `Crée une photo réaliste, en pied, d'${who} (style catalogue de mode, fond clair uni, lumière douce, pose naturelle) portant exactement ces vêtements, d'après les photos jointes :\n${list.map(([r, g], i) => `${i + 1}. ${ROLE_FR[r]} : ${g.name}${g.color?.name ? ` (${g.color.name.toLowerCase()}${g.material ? `, ${g.material.toLowerCase()}` : ''})` : ''}`).join('\n')}\nRespecte fidèlement les couleurs, les motifs, les matières et les coupes de chaque pièce. Pas de logo ajouté, pas d'accessoire en plus.`;
+}
+if (typeof document !== 'undefined' && !window.__realisticBtn) {
+  window.__realisticBtn = true;
+  document.addEventListener('click', async (e) => {
+    const b = e.target.closest?.('[data-realistic]'); if (!b) return;
+    e.stopPropagation();
+    const ids = b.dataset.realistic.split(',');
+    const gs = (await Promise.all(ids.map((id) => store.repo.get('garments', id)))).filter(Boolean);
+    const list = gs.map((g) => [['outer', 'layer', 'top', 'bottom', 'belt', 'shoes'].find((r) => roleOf(g) === r) || 'top', g]);
+    const prompt = realisticPrompt(list);
+    // Photos : version boutique si elle existe, sinon la photo principale
+    const files = [];
+    for (const g of gs) {
+      let rec = null;
+      for (const pid2 of g.photoIds || []) { const r = await store.repo.get('photos', pid2); if (r?.cutout) { rec = r; break; } if (!rec) rec = r; }
+      if (rec?.blob) files.push(new File([rec.blob], `${g.name.replace(/[^\p{L}\p{N}]+/gu, '-').slice(0, 40)}.${(rec.blob.type || 'image/jpeg').split('/')[1].replace('jpeg', 'jpg')}`, { type: rec.blob.type || 'image/jpeg' }));
+    }
+    await copyText(prompt);
+    if (files.length && navigator.canShare?.({ files })) {
+      try { await navigator.share({ files, text: prompt, title: 'Ma tenue' }); return; } catch (err) { if (err?.name === 'AbortError') return; }
+    }
+    openModal({ title: 'Photo réaliste de la tenue', body: html`<p>La consigne est <strong>copiée</strong>. ${files.length ? `Ce navigateur ne peut pas partager les ${files.length} photo(s) directement :` : 'Aucune de ces pièces n\'a de photo :'} ouvrez ChatGPT, joignez les photos de vos pièces (depuis votre galerie ou le dressing), puis collez la consigne.</p>
+      <pre class="small" style="white-space:pre-wrap;background:var(--surface-2);padding:10px;border-radius:8px">${prompt}</pre>
+      <div class="btn-row"><a class="btn btn-primary" href="https://chatgpt.com/" target="_blank" rel="noopener">Ouvrir ChatGPT</a></div>
+      <p class="small muted">ChatGPT génère une image à partir de vos photos : le rendu est une illustration réaliste, pas une vraie photo de vous. Vos photos sont envoyées à ChatGPT seulement si vous les joignez.</p>` });
   });
 }
 /** Légende sous le mannequin. */
@@ -161,7 +197,7 @@ export function proposalCard(opt, idx, { actions = true, title } = {}) {
       <div class="piece-list">${piecesList(p).map(([role, g]) => pieceRow(role, g, { actions: actions && role !== 'accessory' && role !== 'belt' ? html`<div class="row" style="gap:4px"><button class="btn btn-ghost btn-icon btn-sm" data-act="replace" data-role="${role}" aria-label="Remplacer cette pièce : ${g.name}" title="Remplacer cette pièce">${icon('swap')}</button><button class="btn btn-ghost btn-icon btn-sm" data-act="keep" data-role="${role}" data-id="${g.id}" aria-label="Garder cette pièce : ${g.name}" title="Garder cette pièce">${icon('lock')}</button></div>` : '' }))}
         ${opt.missing.map((m) => html`<div class="piece piece-missing"><div class="piece-info"><div class="piece-role">Manquant</div><div class="piece-name">${m}</div><div class="small muted">Non possédé — aucune pièce inventée.</div></div>${actions ? html`<a class="btn btn-sm" href="#/shopping?q=${encodeURIComponent(m)}">Chercher</a>` : ''}</div>`)}
       </div>
-      <div><div class="mannequin-wrap">${outfitMannequin(p)}</div><div class="schema-label">${MANNEQUIN_NOTE}</div></div>
+      <div><div class="mannequin-wrap">${outfitMannequin(p)}</div><div class="schema-label">${MANNEQUIN_NOTE}</div><div style="text-align:center;margin-top:4px">${realisticButton(p)}</div></div>
     </div>
     <ul class="ticks">${opt.reasons.map((r) => html`<li>${r}</li>`)}</ul>
     ${upgradeBlock(opt.upgrade)}

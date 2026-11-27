@@ -18,13 +18,18 @@ const PROTECTIVE_SHOES = ['randonnee', 'bottines'];
 const WORK_SHOES = ['chaussures-travail', 'baskets', 'randonnee'];
 const FRAGILE = /cachemire|mérinos|merinos|laine|soie|\blin\b|daim|suède|suede|nubuck|velours|flanelle|tweed/i;
 /** Pourquoi une pièce ne convient pas au ménage (null si elle convient). */
-export function workwearIssue(g, role = roleOf(g)) {
+export function workwearIssue(g, role = roleOf(g), { light = false } = {}) {
   if (['accessory', 'belt'].includes(role)) return null;
+  // « Client + travail » : la veste s'enfile seulement pour le rendez-vous, elle ne travaille pas
+  if (light && ['layer', 'outer'].includes(role)) return null;
   if (FRAGILE.test(`${g.material || ''} ${g.composition || ''}`)) return 'matière fragile pour le ménage (laine, lin, daim…)';
   if (garmentFormality(g) >= 4) return 'trop habillée pour le ménage';
-  if (['chemise', 'chemise-lin', 'polo', 'col-roule', 'cardigan'].includes(g.sub)) return 'peu pratique pour le ménage (à garder pour la ville)';
+  if (!light && ['chemise', 'chemise-lin', 'polo', 'col-roule', 'cardigan'].includes(g.sub)) return 'peu pratique pour le ménage (à garder pour la ville)';
+  if (light && ['chemise-lin', 'col-roule', 'cardigan'].includes(g.sub)) return 'peu pratique pour travailler';
+  if (light && ['jogging', 'sweat', 'polaire'].includes(g.sub)) return 'pas assez présentable pour le rendez-vous client';
   if (role === 'shoes' && !WORK_SHOES.includes(g.sub) && !(g.tags || []).some((t) => /travail|sécurité|securite|antidérapant/i.test(t))) return 'chaussures non adaptées au ménage (fermées et antidérapantes)';
-  if ((g.price ?? 0) > (WORK_PRICE_CAP[role] ?? 50)) return `pièce trop chère pour le ménage (plus de ${WORK_PRICE_CAP[role] ?? 50} €) : gardez-la pour la ville`;
+  const cap = (WORK_PRICE_CAP[role] ?? 50) * (light ? 1.5 : 1);
+  if ((g.price ?? 0) > cap) return `pièce trop chère pour travailler (plus de ${Math.round(cap)} €) : gardez-la pour la ville`;
   return null;
 }
 /** Kit de travail : ce que l'on a déjà (pièces dédiées ou ordinaires qui conviennent) et ce qui manque. */
@@ -69,6 +74,8 @@ export const OCCASION_TASTE = {
   religious: { subs: { ...DRESSY, 'veste-costume': 3.5, 'pantalon-costume': 3 }, layer: 4 },
   // Travail : propre et stylé mais pas cher — polo piqué, chino stretch foncé, baskets nettes ; couleurs sombres.
   'work-cleaning': { subs: { 'tee-shirt-travail': 3.5, 'polo-sport': 3.5, 'tee-shirt': 2.5, sweat: 1.5, polaire: 1.5, 'pantalon-travail': 4, chino: 2, 'pantalon-technique': 2.5, jogging: 0.5, jean: 1, 'chaussures-travail': 5, baskets: 2, randonnee: 0.5, 'veste-travail': 3, surchemise: 2.5, 'veste-technique': 1.5 }, dark: 1.5, light: -1.5, layer: 0 },
+  // Client + travail : net pour le client, pratique pour travailler ; une veste à enfiler pour le rendez-vous
+  'client-work': { subs: { 'polo-sport': 3, polo: 2.5, chemise: 2, 'tee-shirt': 0.5, 'tee-shirt-travail': 1, sweat: -1, polaire: -1, chino: 4, 'pantalon-travail': 1.5, jean: 1.5, 'pantalon-technique': 0.5, jogging: -4, baskets: 2.5, 'chaussures-travail': 3, surchemise: 3, blazer: 2, 'veste-travail': 1, 'veste-technique': 0 }, dark: 1, light: -1, layer: 2.5 },
   mountain: { subs: { pull: 2, polaire: 2, 'pantalon-technique': 2, jean: 0.5, 'veste-technique': 2, parka: 1, doudoune: 1, chemise: -1, pantalon: -2 } },
 };
 const tasteOf = (occasion) => OCCASION_TASTE[occasion?.id] || {};
@@ -141,7 +148,7 @@ export function hardFilter(garments, { occasion, env, profileId }) {
     if (occasion && ['top', 'bottom', 'shoes'].includes(role)) {
       if (f < occasion.formality[0] - (occasion.strict ? 0 : 1) || f > occasion.formality[1] + 1) { excluded.push([g, `formalité ${f}/5 incompatible avec « ${occasion.name} »`]); continue; }
     }
-    if (occasion?.workwear) { const why = workwearIssue(g, role); if (why) { excluded.push([g, why]); continue; } }
+    if (occasion?.workwear) { const why = workwearIssue(g, role, { light: occasion.workwear === 'light' }); if (why) { excluded.push([g, why]); continue; } }
     if (env.hot && ['top', 'bottom'].includes(role) && warmthOf(g) >= 4) { excluded.push([g, 'trop chaud pour la météo']); continue; }
     if (env.hot && role === 'outer') { excluded.push([g, 'manteau inutile par forte chaleur']); continue; }
     if (!env.hot && env.feel < 16 && ['short', 'bermuda', 'sandales', 'espadrilles'].includes(g.sub)) { excluded.push([g, 'trop léger pour la température']); continue; }
@@ -344,7 +351,7 @@ export function recommend(input) {
     options.push(decorate(pick, { occasion, env, pools, list, ctxBase }));
   }
   // « La pièce qui manque à cette tenue » (non possédée), sauf pour les calculs internes.
-  if (!input.noUpgrade && !occasion.workwear) for (const o of options) o.upgrade = missingPieceFor(o, garments, { occasionId: occasion.id, weather, season: input.season, date: input.date || new Date(now), prefs });
+  if (!input.noUpgrade && occasion.workwear !== true) for (const o of options) o.upgrade = missingPieceFor(o, garments, { occasionId: occasion.id, weather, season: input.season, date: input.date || new Date(now), prefs });
   const distinct = new Set(options.map((o) => comboKey(o.pieces))).size;
   info.distinct = distinct;
   if (distinct < 3) info.note = `Le dressing disponible permet ${distinct} combinaison${distinct > 1 ? 's' : ''} réellement distincte${distinct > 1 ? 's' : ''} pour cette occasion (${combos} combinaisons évaluées).`;
@@ -445,8 +452,8 @@ export function missingPieceFor(option, garments = [], { occasionId = 'daily', w
   const owned = new Set(garments.map((g) => `${g.sub}|${g.color?.id}`));
   const before = styleRank(option.pieces, ctx);
   let best = null;
-  const kit = occasion.workwear ? workKitStatus(garments) : null;
-  for (const c of occasion.workwear ? WORK_KIT : CAPSULE) {
+  const kit = occasion.workwear === true ? workKitStatus(garments) : null;
+  for (const c of occasion.workwear === true ? WORK_KIT : CAPSULE) {
     if (!['top', 'bottom', 'layer', 'outer', 'shoes'].includes(c.role)) continue;
     const sub = CAPSULE_SUB[c.sub] || c.sub;
     if (kit) { if (kit.find((k) => k.item.id === c.id).ok) continue; } else

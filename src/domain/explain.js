@@ -8,7 +8,7 @@ export const GROUP = {
   restaurant: 'evening', 'elegant-dinner': 'evening', date: 'evening', 'chic-party': 'evening', birthday: 'evening',
   wedding: 'ceremony', religious: 'ceremony',
   daily: 'casual', walk: 'casual', cafe: 'casual', city: 'casual', travel: 'casual', home: 'casual',
-  sea: 'summer', mountain: 'outdoor', 'work-cleaning': 'work',
+  sea: 'summer', mountain: 'outdoor', 'work-cleaning': 'work', 'client-work': 'clientwork',
 };
 const groupOf = (occ) => GROUP[occ?.id] || 'casual';
 
@@ -36,6 +36,7 @@ export const LOOKS = {
   home: [['modern', 'Maison confortable', 'Doux et pratique.'], ['italian', 'Maison soignée', 'Confort sans négligé.'], ['classic', 'Maison simple', 'Basiques propres.']],
   sea: [['italian', 'Riviera', 'Lin, tons clairs, légèreté.'], ['modern', 'Bord de mer moderne', 'Simple et frais.'], ['classic', 'Bord de mer classique', 'Polo et bateau.']],
   mountain: [['modern', 'Montagne pratique', 'Chaleur et sécurité d\'abord.'], ['italian', 'Montagne chic', 'Mailles chaudes, cuir robuste.'], ['classic', 'Montagne classique', 'Couches efficaces.']],
+  'client-work': [['italian', 'Pro polyvalent', 'Net pour le client, pratique pour travailler : une seule tenue pour la journée.'], ['modern', 'Smart pratique', 'Polo, chino foncé, baskets nettes : sobre et efficace.'], ['classic', 'Sobre et efficace', 'Chemise ou polo, une couche à enfiler pour le rendez-vous.']],
   'work-cleaning': [['modern', 'Travail propre et net', 'Pratique, sombre, impeccable devant les clients.'], ['italian', 'Travail soigné', 'Une touche de style sans risque pour vos belles pièces.'], ['classic', 'Uniforme sobre', 'Deux couleurs, toujours assorti.']],
 };
 export function looksFor(occ) { return (LOOKS[occ?.id] || LOOKS.daily).map(([mode, name, idea]) => ({ mode, name, idea })); }
@@ -93,6 +94,7 @@ const INTENT = {
   casual: ['Pour {occ}, confort et allure.', '{Occ} : décontracté mais jamais négligé.', 'Une tenue facile pour {occ}, qui reste soignée.'],
   summer: ['Pour {occ}, légèreté avant tout.'],
   outdoor: ['Pour {occ}, protection et confort d\'abord.'],
+  clientwork: ['Une seule tenue pour le client et le travail : soignée au rendez-vous, pratique ensuite.', 'Rendez-vous client puis travail : on reste présentable sans craindre de se salir.'],
   work: ['Au travail : pratique, et impeccable devant les clients.', 'Tenue de travail propre et nette, sans risquer vos belles pièces.', 'Pour le ménage : des pièces qui ne craignent rien et restent soignées.'],
 };
 /** L'occasion dans une phrase (« pour le restaurant », « pour une rencontre client »). */
@@ -100,7 +102,7 @@ const OCC_PHRASE = {
   daily: 'la journée', city: 'une sortie en ville', walk: 'une promenade', restaurant: 'le restaurant', cafe: 'un café entre amis', date: 'un rendez-vous amoureux',
   'pro-meeting': 'un rendez-vous professionnel', office: 'le bureau', client: 'une rencontre client', 'important-meeting': 'une réunion importante', interview: 'un entretien d\'embauche',
   travel: 'un voyage', sea: 'la mer', mountain: 'la montagne', 'elegant-dinner': 'un dîner élégant', wedding: 'un mariage', religious: 'une cérémonie religieuse',
-  birthday: 'un anniversaire', 'chic-party': 'une soirée chic', home: 'la maison', 'work-cleaning': 'le travail',
+  birthday: 'un anniversaire', 'chic-party': 'une soirée chic', home: 'la maison', 'work-cleaning': 'le travail', 'client-work': 'une journée client + travail',
 };
 const cap = (t) => String(t || '').charAt(0).toUpperCase() + String(t || '').slice(1);
 
@@ -115,12 +117,13 @@ export function explainOutfit(pieces, { occasion, env = {}, mode, fitOf = () => 
   const list = roles.map((r) => [r, pieces[r]]).filter(([, x]) => x);
   // Pièces clés : celles qui comptent le plus pour cet événement
   const ranked = [...list].sort((a, b) => fitOf(b[1]) - fitOf(a[1]));
-  const why = (x) => { const w = WHY[x.sub] || {}; return w[g] || w.all || w.casual || null; };
+  const why = (x) => { const w = WHY[x.sub] || {}; return w[g] || (g === 'clientwork' ? (w.business || w.work) : null) || w.all || w.casual || null; };
   const keyParts = ranked.filter(([r, x]) => why(x) && !(r === 'outer' && !env.cold && !env.rain)).slice(0, 2).map(([, x]) => `${x.name} : ${why(x)}`);
   const occName = OCC_PHRASE[occasion?.id] || lc(occasion?.name || 'la journée');
   const intent = pickVariant(INTENT[g] || INTENT.casual, `${seed}|${occasion?.id}|intent`).replace('{occ}', occName).replace('{Occ}', occasion?.name || 'La journée');
   const reasons = [`${cap(intent)} ${look.idea}`];
   if (keyParts.length) reasons.push(`Pièce${keyParts.length > 1 ? 's' : ''} clé${keyParts.length > 1 ? 's' : ''} — ${keyParts.join(' ; ')}.`);
+  if (g === 'clientwork' && pieces.layer) reasons.push(`Pour le rendez-vous, enfilez : ${lc(pieces.layer.name)} ; à retirer pour travailler.`);
   // Météo : seulement quand elle change vraiment la tenue
   if (pieces.outer && (env.cold || env.rain)) reasons.push(`${pieces.outer.name} : ${env.rain ? 'pluie prévue' : `${Math.round(env.feel)} °C ressentis`}, ${WHY[pieces.outer.sub]?.all || 'pour rester au chaud'}.`);
   else if (env.hot) reasons.push(`Chaleur (${Math.round(env.feel)} °C) : matières légères, pas de couche superflue.`);
