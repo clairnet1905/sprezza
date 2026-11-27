@@ -520,6 +520,26 @@ test('Lien produit : photos de l\'article et coloris proposés (Mango, Uniqlo)',
   ok(imagesForColor(ui, '06', '69').every((i) => /goods_69_450259/.test(i.url)));
 });
 
+test('Occasions : chaque moment de la journée a sa propre tenue (le style ne l\'emporte plus sur l\'occasion)', () => {
+  const C = (id) => ({ id }); let n = 0;
+  const G = (category, sub, name, color) => ({ id: `o${++n}`, category, sub, name, color: C(color), availability: 'clean' });
+  const W = [
+  G('haut', 'chemise', 'Chemise blanche', 'white'), G('haut', 'chemise', 'Oxford ciel', 'sky'), G('haut', 'polo', 'Polo maille marine', 'navy'),
+  G('haut', 'pull', 'Pull taupe', 'taupe'), G('haut', 'tee-shirt', 'Tee-shirt blanc', 'white'), G('haut', 'col-roule', 'Col roulé noir', 'black'), G('haut', 'sweat', 'Sweat gris', 'mid-gray'),
+  G('bas', 'chino', 'Chino cognac', 'camel'), G('bas', 'chino', 'Chino taupe Zara', 'taupe'), G('bas', 'jean', 'Jean NEXT', 'denim'), G('bas', 'pantalon', 'Pantalon gris', 'mid-gray'),
+  G('veste', 'blazer', 'Blazer marine', 'navy'), G('veste', 'veste-costume', 'Veste costume anthracite', 'charcoal'), G('bas', 'pantalon-costume', 'Pantalon costume anthracite', 'charcoal'), G('veste', 'surchemise', 'Surchemise olive', 'olive'),
+  G('chaussures', 'mocassins', 'Mocassins marron', 'chocolate'), G('chaussures', 'baskets', 'Baskets blanches', 'white'), G('chaussures', 'derbies', 'Derbies noires', 'black'), G('chaussures', 'chelsea', 'Chelsea daim', 'chocolate'),
+  G('manteau', 'manteau', 'Manteau camel', 'camel'),
+  G('ceinture', 'ceinture-cuir', 'Ceinture marron', 'chocolate'),
+];
+  const best = (occ) => { const r = recommend({ garments: W, occasionId: occ, season: 'autumn', date: new Date('2026-11-27') }); return r.options.find((o) => o.mode === 'italian') || r.options[0]; };
+  const keys = ['daily', 'client', 'office', 'restaurant', 'walk', 'elegant-dinner'].map((o) => best(o));
+  ok(new Set(keys.map((o) => ['top', 'bottom', 'layer', 'shoes'].map((k) => o.pieces[k]?.id).join('|'))).size === 6, 'des occasions donnent la même tenue');
+  ok(['blazer', 'veste-costume'].includes(keys[5].pieces.layer?.sub), 'dîner élégant sans veste');
+  ok(keys[5].pieces.top.sub !== 'polo' && keys[1].pieces.layer, 'client/dîner trop décontractés');
+  ok(['baskets', 'bottines', 'chelsea'].includes(keys[4].pieces.shoes.sub), 'promenade trop habillée');
+});
+
 test('Zara : pantalon « taille jogging » = chino, « marron clair chiné », prix soldé, taille et référence écrites', () => {
   const r = readerToText({ title: 'PANTALON TAILLE JOGGING EASY CARE', description: '', content: '# PANTALON TAILLE JOGGING EASY CARE\n\n~~35,95 EUR~~-40,00%21,57 EUR\n\nComposition : 77% polyester 20% viscose 3% élasthanne' });
   eq(r.text.includes('21,57 €'), true, r.text);

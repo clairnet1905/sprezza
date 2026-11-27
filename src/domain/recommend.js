@@ -17,6 +17,43 @@ export function roleOf(g) { return SUB_INFO[g.sub]?.role || ({ haut: 'top', bas:
 export function isAvailable(g) { return AVAILABLE_STATES.includes(g.availability || 'clean'); }
 function warmthOf(g) { return g.warmth ?? SUB_INFO[g.sub]?.warmth ?? 2; }
 function inSeason(g, season) { return !g.seasons?.length || g.seasons.includes(season); }
+/**
+ * Caractère propre à chaque occasion : pièces attendues (bonus) ou déplacées (malus), envie d'une veste,
+ * goût pour les teintes sombres du soir. Sans cela, le style (italien…) l'emportait et toutes les occasions
+ * proches donnaient la même tenue.
+ */
+const CASUAL = { 'tee-shirt': 1.5, sweat: 1, pull: 1, jean: 2, chino: 1, pantalon: -1.5, 'pantalon-costume': -4, flanelle: -1, baskets: 2.5, bottines: 1, derbies: -1.5, richelieus: -3, surchemise: 2, 'veste-denim': 2, 'veste-cuir': 1, blazer: -1.5, 'veste-costume': -4, chemise: -0.5 };
+const DRESSY = { chemise: 2, 'col-roule': 1.5, polo: -1, 'tee-shirt': -4, sweat: -5, polaire: -5, pantalon: 2, flanelle: 2, 'pantalon-costume': 1.5, chino: -0.5, jean: -2.5, derbies: 2, richelieus: 2, chelsea: 1, mocassins: 0.5, baskets: -4, blazer: 3, 'veste-costume': 2.5, 'veste-daim': 1, surchemise: -2 };
+const BUSINESS = { chemise: 2.5, polo: 0.5, pull: 0.5, 'tee-shirt': -3, sweat: -5, pantalon: 2, 'pantalon-costume': 1.5, flanelle: 1.5, chino: 1, jean: -2.5, derbies: 2, richelieus: 1.5, mocassins: 1, baskets: -3, blazer: 3, 'veste-costume': 2, surchemise: -1.5 };
+export const OCCASION_TASTE = {
+  daily: { subs: { polo: 0.5, chino: 0.5, pull: 0.5 } },
+  city: { subs: { pull: 1, 'col-roule': 1, jean: 1, chino: 0.5, chelsea: 1, bottines: 1, surchemise: 1, 'veste-daim': 1, blazer: 0.5 }, layer: 1 },
+  walk: { subs: CASUAL },
+  cafe: { subs: { ...CASUAL, chemise: 0.5, polo: 1, mocassins: 0.5, pantalon: -1 } },
+  travel: { subs: { ...CASUAL, pull: 1.5, cardigan: 1 } },
+  home: { subs: { ...CASUAL, jogging: 3, sweat: 2.5, 'tee-shirt': 2 }, layer: -2 },
+  sea: { subs: { 'chemise-lin': 3, polo: 1.5, 'tee-shirt': 1.5, bermuda: 2, short: 1.5, chino: 1, espadrilles: 3, bateau: 2.5, sandales: 1.5, jean: -1 }, layer: -2 },
+  office: { subs: { chemise: 1.5, pull: 1, polo: 0.5, cardigan: 0.5, pantalon: 1.5, flanelle: 1, chino: 1, derbies: 1.5, mocassins: 0.5, jean: -1, 'tee-shirt': -1.5, baskets: -1.5, sweat: -3 }, layer: 0.5 },
+  restaurant: { subs: { 'col-roule': 2, chemise: 1, pull: 1, polo: 0.5, pantalon: 1, flanelle: 1, jean: 0.5, chelsea: 2, bottines: 1, mocassins: 1, 'tee-shirt': -1.5, sweat: -3, baskets: -1 }, dark: 1, layer: 0.5 },
+  date: { subs: { chemise: 1.5, 'col-roule': 1.5, pull: 0.5, pantalon: 1, jean: 0.5, chelsea: 1.5, mocassins: 1, 'veste-daim': 1.5, blazer: 1, sweat: -4, 'tee-shirt': -1.5 }, dark: 0.8, layer: 1.5 },
+  birthday: { subs: { polo: 1, chemise: 1, pull: 0.5, chino: 1, jean: 0.5, mocassins: 1, surchemise: 1 }, layer: 0.5 },
+  client: { subs: BUSINESS, layer: 3 },
+  'pro-meeting': { subs: BUSINESS, layer: 3 },
+  'important-meeting': { subs: { ...BUSINESS, 'veste-costume': 3, 'pantalon-costume': 2.5, polo: -2, pull: -1 }, layer: 4 },
+  interview: { subs: { ...BUSINESS, 'veste-costume': 3, 'pantalon-costume': 2.5, polo: -2 }, layer: 4 },
+  'elegant-dinner': { subs: DRESSY, dark: 1.5, layer: 3 },
+  'chic-party': { subs: { ...DRESSY, 'veste-costume': 3, 'pantalon-costume': 2.5 }, dark: 1.5, layer: 4 },
+  wedding: { subs: { ...DRESSY, 'veste-costume': 3.5, 'pantalon-costume': 3 }, layer: 4 },
+  religious: { subs: { ...DRESSY, 'veste-costume': 3.5, 'pantalon-costume': 3 }, layer: 4 },
+  mountain: { subs: { pull: 2, polaire: 2, 'pantalon-technique': 2, jean: 0.5, 'veste-technique': 2, parka: 1, doudoune: 1, chemise: -1, pantalon: -2 } },
+};
+const tasteOf = (occasion) => OCCASION_TASTE[occasion?.id] || {};
+const isDark = (g) => luminance(colorHex(g?.color?.id)) < 0.12;
+/** Bonus/malus d'une pièce pour l'occasion (sans la veste, gérée à part). */
+export function occasionFit(g, occasion) {
+  const t = tasteOf(occasion);
+  return (t.subs?.[g.sub] ?? 0) + (t.dark && g.color?.id ? (isDark(g) ? t.dark * 0.6 : 0) : 0);
+}
 const byId = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 const daysSince = (iso, now) => (iso ? (now - new Date(iso).getTime()) / 864e5 : Infinity);
 
@@ -65,8 +102,9 @@ export function hardFilter(garments, { occasion, env, profileId }) {
 }
 
 function unaryScore(g, role, mode, { occasion, env, prefs, now }) {
-  let s = (SUB_AFFINITY[g.sub]?.[mode] ?? 0) * 1.4;
-  if (occasion) s -= Math.abs(garmentFormality(g) - (occasion.target + (prefs.formalityBias || 0))) * 0.8;
+  let s = (SUB_AFFINITY[g.sub]?.[mode] ?? 0) * 0.9;
+  if (occasion) s -= Math.abs(garmentFormality(g) - (occasion.target + (prefs.formalityBias || 0))) * 0.9;
+  if (occasion) s += occasionFit(g, occasion) * 1.5;
   if (env.cold && ['top', 'layer', 'outer'].includes(role)) s += (warmthOf(g) - 2) * 0.4;
   if (env.hot) s -= (warmthOf(g) - 1) * 0.4;
   if (env.rain && (role === 'outer' || role === 'shoes')) s += (g.rainResistance ?? 0) * 0.6;
@@ -211,7 +249,13 @@ export function recommend(input) {
       const recent = pieceList.filter((g) => daysSince(g.lastWornAt, now) < 2).length;
       if (recent) { rank -= recent * 2; bonus.push(`−${recent * 2} pièces portées très récemment`); }
       const aff = pieceList.reduce((a, g) => a + (SUB_AFFINITY[g.sub]?.[mode] ?? 0), 0);
-      rank += aff * 1.5;
+      rank += aff * 0.8;
+      // L'occasion façonne la tenue : pièces attendues, veste souhaitée ou non, formalité visée.
+      const taste = tasteOf(occasion);
+      rank += [top, bottom, layer, sh].filter(Boolean).reduce((a, g) => a + occasionFit(g, occasion), 0) * 2.5;
+      if (taste.layer) rank += layer ? taste.layer * 1.5 : (taste.layer > 0 ? -taste.layer : 0);
+      const ofr = outfitFormality(pieces);
+      if (ofr !== null) rank -= Math.abs(ofr - (occasion.target + (prefs.formalityBias || 0))) * 3;
       if (prefs.likedCombos?.includes(comboKey(pieces))) { rank += 3; bonus.push('+3 tenue aimée'); }
       if (needsOuter(env) && !outer) { rank -= 4; bonus.push('−4 couche extérieure manquante'); }
       scored.push({ pieces, score: sc, rank: Math.round(rank * 100) / 100, bonus, mode });
