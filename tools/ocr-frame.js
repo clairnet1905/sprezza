@@ -6,7 +6,6 @@ async function getWorker(reply) {
   worker = await Tesseract.createWorker(['fra', 'eng'], 1, {
     workerPath: `${CDN}tesseract.js@5.1.1/dist/worker.min.js`,
     corePath: `${CDN}tesseract.js-core@5.1.1`,
-    langPath: `${CDN}@tesseract.js-data/`,
     logger: (m) => reply({ type: 'progress', key: m.status, pct: typeof m.progress === 'number' ? Math.round(m.progress * 100) : null }),
   });
   return worker;

@@ -23,8 +23,13 @@ export function readLabel(blob, onProgress = () => {}) {
   onProgress({ step: 'Chargement du module de lecture', pct: null });
   return getFrame().then((f) => new Promise((resolve, reject) => {
     const id = ++seq;
+    let idle = null;
+    const arm = () => { clearTimeout(idle); idle = setTimeout(() => { window.removeEventListener('message', onMsg); ready = null; f.remove(); reject(new Error('la lecture ne progresse plus (réseau ?)')); }, 60000); };
+    arm();
     const onMsg = (e) => {
       if (e.source !== f.contentWindow || e.origin !== location.origin || e.data?.id !== id) return;
+      arm();
+      if (e.data.type !== 'progress') clearTimeout(idle);
       if (e.data.type === 'progress') onProgress({ step: STEPS[e.data.key] || 'Préparation', pct: e.data.pct });
       else { window.removeEventListener('message', onMsg); e.data.type === 'done' ? resolve({ text: e.data.text, confidence: e.data.confidence }) : reject(new Error(e.data.message)); }
     };
