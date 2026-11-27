@@ -26,6 +26,16 @@ export function parseOpenMeteo(json, { dayIndex = 0, place = '', fetchedAt = new
   return enrich(w);
 }
 
+/**
+ * Température ressentie moyenne en journée à Bordeaux, mois par mois (normales climatiques arrondies),
+ * interpolée selon le jour : sert quand la météo réelle n'est pas activée.
+ */
+const CLIMATE_FEEL = [6, 7, 10, 13, 16, 20, 22, 22, 19, 15, 10, 7];
+export function climateFeel(d = new Date()) {
+  const m = d.getMonth(); const t = (d.getDate() - 15) / 30;
+  const other = CLIMATE_FEEL[(m + (t >= 0 ? 1 : 11)) % 12];
+  return Math.round(CLIMATE_FEEL[m] + (other - CLIMATE_FEEL[m]) * Math.abs(t));
+}
 export function manualWeather({ temp, rain = false, wind = false, date }) {
   return enrich({ date, place: 'Saisie manuelle', tMin: temp, tMax: temp, feelsMin: temp, feelsMax: temp, precip: rain ? 3 : 0, precipProb: rain ? 80 : 0, wind: wind ? 45 : 10, source: 'Saisie manuelle', fetchedAt: new Date().toISOString(), manual: true });
 }

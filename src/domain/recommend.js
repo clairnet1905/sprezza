@@ -4,8 +4,8 @@ import { AVAILABLE_STATES, SUB_INFO, ROLE_LABELS, isEveryday } from '../data/tax
 import { OCCASION_BY_ID, OUTFIT_MODES } from '../data/occasions.js';
 import { COLOR_TRAITS } from '../data/colors.js';
 import { scoreOutfit, SUB_AFFINITY, garmentFormality, outfitFormality } from './scoring.js';
-import { classifyHarmony, colorName, luminance, colorHex } from './colors.js';
-import { seasonFromDate } from './weather.js';
+import { classifyHarmony, colorName, luminance, colorHex, hexToRgb } from './colors.js';
+import { seasonFromDate, climateFeel } from './weather.js';
 import { CAPSULE } from '../data/capsule.js';
 
 const TOP_K = 6;
@@ -71,15 +71,35 @@ export function styleRank(pieces, { mode, occasion, env, prefs = {} }, sc = null
 }
 const byId = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 const daysSince = (iso, now) => (iso ? (now - new Date(iso).getTime()) / 864e5 : Infinity);
+/** Malus de rotation selon l'ancienneté du dernier port (une pièce portée hier ne revient pas aujourd'hui). */
+export function recencyPenalty(g, now) {
+  const d = daysSince(g.lastWornAt, now);
+  return d < 1 ? 5 : d < 2 ? 3.5 : d < 4 ? 2 : d < 7 ? 1 : 0;
+}
+/** Pièce proposée ou portée ces derniers jours (historique de la semaine) : chaque apparition compte. */
+function proposedPenalty(g, proposed, now) {
+  const v = proposed?.[g.id]; if (!v) return 0;
+  const last = g.lastWornAt ? new Date(g.lastWornAt).toDateString() : null;
+  const dates = (Array.isArray(v) ? v : [v]).filter((at) => new Date(at).toDateString() !== last); // le dernier port est déjà compté
+  // Chaque apparition des 7 derniers jours compte : deux pièces ne peuvent plus simplement alterner un jour sur deux.
+  return dates.reduce((a, at) => a + recencyPenalty({ lastWornAt: at }, now) * 0.8 + (daysSince(at, now) < 7 ? 0.8 : 0), 0);
+}
+/** Variation du jour : petit écart stable pour une pièce et une date, pour que deux pièces presque équivalentes alternent. */
+export function dayJitter(id, now) {
+  const day = new Date(now); const key = `${id}|${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`;
+  let h = 2166136261; for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return ((h >>> 0) / 4294967295) * 2 - 1;
+}
 
 /** Contexte environnemental normalisé. */
 export function buildEnv({ weather, season, date = new Date(), prefs = {} }) {
-  const s = season || seasonFromDate(date instanceof Date ? date : new Date(date));
-  const feel = weather?.feel ?? ({ spring: 15, summer: 24, autumn: 13, winter: 7 })[s];
+  const d = date instanceof Date ? date : new Date(date);
+  const s = season || seasonFromDate(d);
+  const feel = weather?.feel ?? (season ? ({ spring: 15, summer: 24, autumn: 13, winter: 7 })[s] : climateFeel(d));
   const adjFeel = feel - (prefs.warmthBias || 0) * 2; // « trop chaud » → on raisonne comme s'il faisait plus chaud
   return {
     season: s, feel: adjFeel, rain: !!weather?.rain, windy: !!weather?.windy,
-    cold: adjFeel < 11, veryCold: adjFeel < 4, hot: adjFeel >= 24, dropRisk: !!weather?.dropRisk, fromWeather: !!weather,
+    cold: adjFeel < 11, veryCold: adjFeel < 4, hot: adjFeel >= 24, mild: adjFeel < 16, dropRisk: !!weather?.dropRisk, fromWeather: !!weather,
   };
 }
 
@@ -116,7 +136,7 @@ export function hardFilter(garments, { occasion, env, profileId }) {
   return { pools, excluded };
 }
 
-function unaryScore(g, role, mode, { occasion, env, prefs, now }) {
+function unaryScore(g, role, mode, { occasion, env, prefs, now, proposed }) {
   let s = (SUB_AFFINITY[g.sub]?.[mode] ?? 0) * 0.9;
   if (occasion) s -= Math.abs(garmentFormality(g) - (occasion.target + (prefs.formalityBias || 0))) * 0.9;
   if (occasion) s += occasionFit(g, occasion) * 1.5;
@@ -125,8 +145,11 @@ function unaryScore(g, role, mode, { occasion, env, prefs, now }) {
   if (env.rain && (role === 'outer' || role === 'shoes')) s += (g.rainResistance ?? 0) * 0.6;
   if (g.favorite) s += 0.3;
   if (g.availability === 'worn') s -= 0.2;
-  const d = daysSince(g.lastWornAt, now);
-  if (d < 2) s -= 0.6; else if (d > 21) s += 0.3; // rotation du dressing
+  if (env.cold && role === 'top' && warmthOf(g) <= 2 && !['chemise'].includes(g.sub)) s -= 1; // polo/tee-shirt seul par temps froid
+  if (env.cold && role === 'bottom' && warmthOf(g) <= 1) s -= 1.5;
+  s -= (recencyPenalty(g, now) + proposedPenalty(g, proposed, now)) * 0.6; // rotation du dressing
+  if (daysSince(g.lastWornAt, now) > 21) s += 0.3;
+  s += dayJitter(g.id, now) * 0.6;
   if (prefs.dislikedFit?.[g.id]) s -= 2;
   if (mode === 'italian' && ['ecru', 'beige', 'chocolate', 'olive', 'taupe', 'navy', 'camel'].includes(g.color?.id)) s += 0.4;
   if (mode === 'classic' && ['navy', 'white', 'sky', 'mid-gray', 'light-gray', 'charcoal'].includes(g.color?.id)) s += 0.4;
@@ -238,7 +261,7 @@ export function recommend(input) {
     missingRoles.forEach((r) => info.missing.push({ role: r, text: `Aucune pièce « ${ROLE_LABELS[r]} » disponible et compatible.` }));
     return { options: [], backup: null, info, combos: 0 };
   }
-  const ctxBase = { occasion, env, prefs, now };
+  const ctxBase = { occasion, env, prefs, now, proposed: input.proposed || null };
   const results = [];
   let combos = 0;
   const seen = new Set();
@@ -247,7 +270,7 @@ export function recommend(input) {
     const tops = cand('top'); const bottoms = cand('bottom'); const shoes = cand('shoes');
     const layersAll = cand('layer', 3);
     const layerOpts = forced.layer ? [forced.layer] : needsLayer(occasion) ? layersAll.filter((g) => garmentFormality(g) >= 4) : [null, ...layersAll];
-    const outerOpts = forced.outer ? [forced.outer] : needsOuter(env) && pools.outer.length ? cand('outer', 2) : [null];
+    const outerOpts = forced.outer ? [forced.outer] : needsOuter(env) && pools.outer.length ? cand('outer', 2) : env.mild && pools.outer.length ? [null, ...cand('outer', 2)] : [null];
     const scored = [];
     for (const top of tops) for (const bottom of bottoms) for (const sh of shoes) for (const layer of (layerOpts.length ? layerOpts : [null])) for (const outer of outerOpts) {
       if (layer && top && layer.id === top.id) continue;
@@ -261,11 +284,16 @@ export function recommend(input) {
       const pieceList = [top, bottom, layer, outer, sh].filter(Boolean);
       const reuse = pieceList.filter((g) => daysSince(g.lastWornAt, now) > 14).length;
       if (reuse) { rank += reuse * 0.8; bonus.push(`+${(reuse * 0.8).toFixed(1)} réutilisation de pièces peu portées`); }
-      const recent = pieceList.filter((g) => daysSince(g.lastWornAt, now) < 2).length;
-      if (recent) { rank -= recent * 2; bonus.push(`−${recent * 2} pièces portées très récemment`); }
+      const rec = pieceList.filter((g) => ['top', 'bottom', 'shoes'].includes(roleOf(g))).reduce((a, g) => a + recencyPenalty(g, now), 0);
+      if (rec) { rank -= rec; bonus.push(`−${rec} pièces portées récemment (rotation)`); }
+      const prop = pieceList.filter((g) => ['top', 'bottom', 'shoes'].includes(roleOf(g))).reduce((a, g) => a + proposedPenalty(g, input.proposed, now), 0);
+      if (prop) { rank -= prop; bonus.push(`−${prop.toFixed(1)} déjà proposées ces derniers jours`); }
+      rank += pieceList.reduce((a, g) => a + dayJitter(g.id, now), 0) * 1.2;
+      if (env.cold) rank += [top, layer].filter(Boolean).reduce((a, g) => a + (warmthOf(g) - 2), 0) * 0.8;
       rank += styleRank(pieces, { mode, occasion, env, prefs }, sc) - base;
       if (prefs.likedCombos?.includes(comboKey(pieces))) { rank += 3; bonus.push('+3 tenue aimée'); }
       if (needsOuter(env) && !outer) { rank -= 4; bonus.push('−4 couche extérieure manquante'); }
+      if (!needsOuter(env) && env.mild && outer) { const fit = env.feel < 14 && warmthOf(outer) <= 4 ? 1.5 : -2; rank += fit; if (fit > 0) bonus.push('+1.5 couche légère pour la fraîcheur'); }
       scored.push({ pieces, score: sc, rank: Math.round(rank * 100) / 100, bonus, mode });
       combos++;
     }
@@ -370,6 +398,7 @@ export function outfitsUnlocked(hypo, garments, { occasionIds = ['daily', 'clien
 }
 
 /** Sous-catégorie de l'app pour une pièce de la capsule (« col roulé » → col-roule). */
+const hexDist = (a, b) => { const x = hexToRgb(colorHex(a)); const y = hexToRgb(colorHex(b)); return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]); };
 const CAPSULE_SUB = { 'col roulé': 'col-roule' };
 const ROLE_NAME = { top: 'le haut', bottom: 'le bas', layer: 'la veste', outer: 'le manteau', shoes: 'les chaussures' };
 /**
@@ -391,6 +420,8 @@ export function missingPieceFor(option, garments = [], { occasionId = 'daily', w
     if (!['top', 'bottom', 'layer', 'outer', 'shoes'].includes(c.role)) continue;
     const sub = CAPSULE_SUB[c.sub] || c.sub;
     if (owned.has(`${sub}|${c.color}`)) continue;
+    // Quasi-doublon : même type dans une teinte très proche (noir/anthracite), ou un manteau de plus.
+    if (garments.some((x) => x.sub === sub && (c.role === 'outer' || hexDist(x.color?.id, c.color) < 70))) continue;
     const g = { id: `__capsule_${c.id}`, name: c.name, category: c.category, sub, color: { id: c.color }, material: c.material, availability: 'clean' };
     // Mêmes contraintes que pour le dressing réel (saison, météo, formalité de l'occasion).
     const { pools } = hardFilter([g], { occasion, env });

@@ -5,7 +5,7 @@ import { store, pid, garments as loadGarments, prefs as loadPrefs, savePrefs, sa
 import { OCCASIONS, OCCASION_BY_ID, OCCASION_NOTES } from '../data/occasions.js';
 import { STYLE_OPTS, ROLE_LABELS } from '../data/taxonomy.js';
 import { recommend, roleOf, isAvailable, comboKey } from '../domain/recommend.js';
-import { manualWeather, weatherSummary, isStale, seasonFromDate, SEASON_NAMES } from '../domain/weather.js';
+import { manualWeather, weatherSummary, isStale, seasonFromDate, SEASON_NAMES, climateFeel } from '../domain/weather.js';
 import { forecast, geocode, currentPosition } from '../services/weather.js';
 import { buildQuery } from '../domain/wardrobe-logic.js';
 import { MODE_STYLES } from '../domain/scoring.js';
@@ -19,7 +19,7 @@ export async function render(main) {
   const saved = await store.repo.kvGet(KEY(), {});
   const st = {
     occasionId: saved.occasionId || 'daily', place: saved.place || '', style: saved.style || '', dayOffset: 0,
-    manual: saved.manual || { temp: 14, rain: false, wind: false }, imposed: {}, offsets: {}, weather: null, weatherError: null,
+    manual: saved.manual?.date === todayISO() ? saved.manual : { temp: climateFeel(new Date()), rain: false, wind: false, date: todayISO() }, imposed: {}, offsets: {}, weather: null, weatherError: null,
   };
   const all = await loadGarments();
   const profile = store.profile;
@@ -80,7 +80,7 @@ export async function render(main) {
       <div class="form-grid"><div class="field"><label for="mtemp">Température ressentie (°C)</label><input id="mtemp" type="number" inputmode="numeric" value="${st.manual.temp}"></div>
       <div class="field" style="display:flex;flex-direction:column;justify-content:flex-end"><label class="check"><input type="checkbox" id="mrain" ${st.manual.rain ? raw('checked') : ''}> Pluie prévue</label><label class="check"><input type="checkbox" id="mwind" ${st.manual.wind ? raw('checked') : ''}> Vent fort</label></div></div>
       ${store.profile.consents?.weather ? html`<button class="btn btn-sm" id="wxback">Revenir à la météo automatique</button>` : html`<button class="btn btn-sm" id="wxon">Activer la météo automatique</button>`}`);
-    const upd = () => { st.manual = { temp: Number($('#mtemp').value || 0), rain: $('#mrain').checked, wind: $('#mwind').checked }; persist(); };
+    const upd = () => { st.manual = { temp: Number($('#mtemp').value || 0), rain: $('#mrain').checked, wind: $('#mwind').checked, date: todayISO() }; persist(); };
     ['#mtemp', '#mrain', '#mwind'].forEach((s) => $(s).addEventListener('change', upd));
     $('#wxon')?.addEventListener('click', askConsent);
     $('#wxback')?.addEventListener('click', () => { st.forceManual = false; renderWx(); });

@@ -156,20 +156,42 @@ export function classifyHarmony(ids) {
 }
 
 /** Note indicative /10 d'une association (pas un score d'élégance de la personne). */
+/**
+ * Accord haut/bas hors des listes de la matrice : on raisonne avec les principes (neutres, contraste, couleurs affirmées)
+ * au lieu de pénaliser d'office une association correcte (ex. pull taupe sur chino beige).
+ */
+function genericPair(top, bottom, notes) {
+  const tt = COLOR_TRAITS[top] || {}; const bt = COLOR_TRAITS[bottom] || {};
+  const lt = luminance(colorHex(top)); const lb = luminance(colorHex(bottom));
+  const ratio = (Math.max(lt, lb) + 0.05) / (Math.min(lt, lb) + 0.05);
+  if (top === bottom) { notes.push('Même couleur en haut et en bas : un camaïeu demande des matières différentes.'); return -0.2; }
+  if (tt.neutral && bt.neutral) {
+    if (ratio >= 1.6) { notes.push('Deux neutres bien contrastés : association sûre.'); return 0.5; }
+    notes.push('Deux neutres proches : camaïeu doux, jouer sur les matières.'); return 0.3;
+  }
+  if (tt.neutral || bt.neutral) { notes.push('Une couleur affirmée équilibrée par un neutre.'); return ratio >= 1.4 ? 0.3 : 0.1; }
+  notes.push('Haut absent des conseils prioritaires pour ce bas.'); return -0.6;
+}
+
 export function paletteNote({ bottom, top, jacket, shoe, belt }) {
   const ids = [top, bottom, jacket, shoe].filter(Boolean);
   const hexes = new Set(ids.map((id) => colorHex(id).toUpperCase()));
   const matched = PALETTES_20.filter((p) => p.hex.filter((h) => hexes.has(h.toUpperCase())).length >= 3 || (ids.length <= 3 && p.hex.every((h) => hexes.has(h.toUpperCase()))));
   const notes = [];
   let n = 8.4;
-  const row = BOTTOMS.find((b) => b.id === bottom);
+  // Bas hors table (nouvelles couleurs, denim indigo…) : on prend la ligne de la couleur la plus proche.
+  const dist = (a, b) => { const x = hexToRgb(colorHex(a)); const y = hexToRgb(colorHex(b)); return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]); };
+  let row = BOTTOMS.find((b) => b.id === bottom);
+  if (!row && bottom) { const near = [...BOTTOMS].sort((a, b) => dist(a.id, bottom) - dist(b.id, bottom))[0]; if (near && dist(near.id, bottom) < 60) row = near; }
   if (row && top) {
-    const t = row.tops.find((x) => x.id === top);
-    if (t) { n += 0.9 - t.rank * 0.1; notes.push(`Haut conseillé n° ${t.rank + 1} pour ce bas (${row.origin === 'matrix' ? 'matrice du guide' : 'règle ajoutée'}).`); }
-    else { n -= 0.6; notes.push('Haut absent des conseils prioritaires pour ce bas.'); }
+    let t = row.tops.find((x) => x.id === top);
+    let approx = false;
+    if (!t) { const near = row.tops.filter((x) => x.id).sort((a, b) => dist(a.id, top) - dist(b.id, top))[0]; if (near && dist(near.id, top) < 45) { t = near; approx = true; } }
+    if (t) { n += 0.9 - t.rank * 0.1 - (approx ? 0.2 : 0); notes.push(`Haut conseillé n° ${t.rank + 1} pour ce bas (${row.origin === 'matrix' ? 'matrice du guide' : 'règle ajoutée'}${approx ? ', teinte proche' : ''}).`); }
+    else n += genericPair(top, bottom, notes);
     if (shoe && row.shoe.id === shoe) { n += 0.3; notes.push('Chaussures recommandées par la matrice.'); }
     if (jacket && row.jacket.id === jacket) { n += 0.2; notes.push('Veste recommandée par la matrice.'); }
-  }
+  } else if (top && bottom) n += genericPair(top, bottom, notes);
   const nonNeutral = ids.filter((id) => COLOR_TRAITS[id] && !COLOR_TRAITS[id].neutral);
   if (nonNeutral.length > 1) { n -= 0.4 * (nonNeutral.length - 1); notes.push('Plusieurs couleurs affirmées : elles se concurrencent.'); }
   if (shoe && belt) {

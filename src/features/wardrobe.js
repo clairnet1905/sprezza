@@ -6,7 +6,7 @@ import { uid } from '../repositories/db.js';
 import { isEveryday, CATEGORIES, CATEGORY_BY_ID, SUB_INFO, PATTERNS, FITS, SEASON_OPTS, CONDITIONS, AVAILABILITY, PHOTO_KINDS, MATERIALS, STYLE_OPTS, MEASURE_FIELDS } from '../data/taxonomy.js';
 import { GARMENT_COLORS, COLOR_BY_ID } from '../data/colors.js';
 import { CAPSULE } from '../data/capsule.js';
-import { nearestColor, colorIdFromHex } from '../domain/colors.js';
+import { nearestColor, colorIdFromHex, luminance, colorHex } from '../domain/colors.js';
 import { isAvailable, pairingsFor } from '../domain/recommend.js';
 import { costPerWear, wardrobeStats } from '../domain/wardrobe-logic.js';
 import { versatility, reviewGarment, keyThresholdOf, VERDICTS } from '../domain/review.js';
@@ -23,7 +23,7 @@ import { cutout, CUTOUT_DOWNLOAD_MB } from '../services/cutout.js';
 import { garmentCard, AVAIL_LABEL, deleteGarment, proposalCard, saveOutfit, wearOutfit } from './shared.js';
 import { navigate } from '../app.js';
 
-const filters = { q: '', cat: '', color: '', material: '', season: '', availableOnly: false, fav: false, sort: 'recent' };
+const filters = { q: '', cat: '', color: '', material: '', season: '', availableOnly: false, fav: false, sort: 'closet' };
 
 export async function render(main, params, query) {
   const [a, b] = params;
@@ -63,6 +63,29 @@ function presetFromQuery(query) {
 function notFound(main) { setHTML(main, emptyState('Pièce introuvable', 'Elle a peut-être été supprimée.', html`<a class="btn" href="#/wardrobe">Retour au dressing</a>`)); }
 
 // ---------------------------------------------------------------- Liste
+/**
+ * Rangement « penderie » : par catégorie (hauts, bas, vestes, manteaux, chaussures…), puis par type
+ * (chemises ensemble, pulls ensemble…) et, dans chaque type, du plus clair au plus foncé.
+ */
+const PLURAL = { haut: 'Hauts', bas: 'Bas', veste: 'Vestes', manteau: 'Manteaux', chaussures: 'Chaussures', ceinture: 'Ceintures', accessoire: 'Accessoires' };
+const SUB_ORDER = Object.fromEntries(CATEGORIES.flatMap((c) => c.subs.map(([id], i) => [id, i])));
+const lightness = (g) => luminance(colorHex(g.color?.id));
+export function closetOrder(list) {
+  const catIdx = Object.fromEntries(CATEGORIES.map((c, i) => [c.id, i]));
+  return [...list].sort((a, b) => (catIdx[a.category] ?? 99) - (catIdx[b.category] ?? 99) || (SUB_ORDER[a.sub] ?? 99) - (SUB_ORDER[b.sub] ?? 99)
+    || lightness(b) - lightness(a) || a.name.localeCompare(b.name));
+}
+function closetSections(list, cards) {
+  const sorted = closetOrder(list);
+  return CATEGORIES.map((c) => {
+    const items = sorted.filter((g) => g.category === c.id);
+    if (!items.length) return '';
+    const subs = [...new Set(items.map((g) => g.sub || ''))];
+    return html`<section class="closet-section"><h2 class="closet-h">${PLURAL[c.id] || c.name} <span class="muted">· ${items.length}</span></h2>
+      ${subs.length > 1 ? subs.map((sub) => { const l = items.filter((g) => (g.sub || '') === sub); return html`<h3 class="closet-sub">${SUB_INFO[sub]?.name || 'Autres'} <span class="muted">· ${l.length}</span></h3>${cards(l)}`; }) : cards(items)}</section>`;
+  });
+}
+
 async function renderList(main) {
   const all = await loadGarments();
   const materials = [...new Set(all.map((g) => g.material).filter(Boolean))].sort();
@@ -79,12 +102,12 @@ async function renderList(main) {
       <div class="form-grid">
         <div class="field"><label for="wmat">Matière</label><select id="wmat">${options(materials, filters.material, { empty: 'Toutes' })}</select></div>
         <div class="field"><label for="wseason">Saison</label><select id="wseason">${options(SEASON_OPTS, filters.season, { empty: 'Toutes' })}</select></div>
-        <div class="field"><label for="wsort">Trier</label><select id="wsort">${options([['recent', 'Ajout récent'], ['name', 'Nom'], ['worn', 'Moins porté récemment'], ['category', 'Catégorie']], filters.sort)}</select></div>
+        <div class="field"><label for="wsort">Trier</label><select id="wsort">${options([['closet', 'Rangé (comme une penderie)'], ['recent', 'Ajout récent'], ['name', 'Nom'], ['worn', 'Moins porté récemment']], filters.sort)}</select></div>
         <div class="field" style="display:flex;flex-direction:column;justify-content:flex-end"><label class="check"><input type="checkbox" id="wavail" ${filters.availableOnly ? raw('checked') : ''}> Disponibles uniquement</label><label class="check"><input type="checkbox" id="wfav" ${filters.fav ? raw('checked') : ''}> Favoris</label></div>
       </div>
     </div>
     <p class="small muted" id="wcount" aria-live="polite"></p>
-    <div class="grid-cards" id="wgrid"></div>` : emptyState('Votre dressing est vide', 'Ajoutez vos vêtements (photo ou saisie manuelle) : le styliste ne proposera que des pièces réellement possédées.', html`<a class="btn btn-primary" href="#/wardrobe/new">${icon('plus')} Ajouter une pièce</a><a class="btn" href="#/wardrobe/import">Import multiple</a><a class="btn" href="#/capsule">Partir de la capsule</a>`)}`);
+    <div id="wgrid"></div>` : emptyState('Votre dressing est vide', 'Ajoutez vos vêtements (photo ou saisie manuelle) : le styliste ne proposera que des pièces réellement possédées.', html`<a class="btn btn-primary" href="#/wardrobe/new">${icon('plus')} Ajouter une pièce</a><a class="btn" href="#/wardrobe/import">Import multiple</a><a class="btn" href="#/capsule">Partir de la capsule</a>`)}`);
   if (!all.length) return;
   const grid = main.querySelector('#wgrid');
   const vmap = versatility(all);
@@ -95,9 +118,11 @@ async function renderList(main) {
       && (!filters.availableOnly || isAvailable(g)) && (!filters.fav || g.favorite)
       && (!q || [g.name, g.brand, g.material, g.composition, g.notes, ...(g.tags || []), g.color?.name, SUB_INFO[g.sub]?.name].join(' ').toLowerCase().includes(q)));
     const sorters = { recent: (x, y) => (y.createdAt || '').localeCompare(x.createdAt || ''), name: (x, y) => x.name.localeCompare(y.name), worn: (x, y) => (x.lastWornAt || '').localeCompare(y.lastWornAt || ''), category: (x, y) => x.category.localeCompare(y.category) || x.name.localeCompare(y.name) };
-    list = list.sort(sorters[filters.sort]);
     main.querySelector('#wcount').textContent = `${list.length} résultat${list.length > 1 ? 's' : ''}`;
-    setHTML(grid, list.length ? list.map((g) => garmentCard(g, { versatility: vmap[g.id] })) : html`<div class="empty" style="grid-column:1/-1">Aucune pièce ne correspond à ces filtres.</div>`);
+    const cards = (l) => html`<div class="grid-cards">${l.map((g) => garmentCard(g, { versatility: vmap[g.id] }))}</div>`;
+    if (!list.length) setHTML(grid, html`<div class="empty">Aucune pièce ne correspond à ces filtres.</div>`);
+    else if (filters.sort === 'closet') setHTML(grid, closetSections(list, cards));
+    else setHTML(grid, cards(list.sort(sorters[filters.sort] || sorters.recent)));
     hydratePhotos(grid);
   };
   main.querySelector('#wq').addEventListener('input', (e) => { filters.q = e.target.value; apply(); });

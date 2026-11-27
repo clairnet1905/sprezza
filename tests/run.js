@@ -23,6 +23,8 @@ import { versatility, reviewGarment, keyThresholdOf } from '../src/domain/review
 import { defaultOccasion, preferredMode } from '../src/features/daily.js';
 import { chooseAccessories, missingPieceFor } from '../src/domain/recommend.js';
 import { shortQuery } from '../src/features/shopping.js';
+import { closetOrder } from '../src/features/wardrobe.js';
+import { climateFeel } from '../src/domain/weather.js';
 import { inspirationQuery, colorsQuery, searchPhotos } from '../src/services/pexels.js';
 import { alphaBounds, deskewAngle, keepMainRegions } from '../src/services/cutout.js';
 import { encodeImage, supportsWebP } from '../src/services/image.js';
@@ -556,6 +558,41 @@ test('La pièce qui manque : blazer suggéré pour un dîner élégant sans vest
   r2.options.forEach((o) => ok(!(o.upgrade && o.upgrade.item.sub === 'blazer' && o.upgrade.item.color === 'navy'), 'blazer marine déjà possédé proposé'));
   // Tenue déjà complète et juste : pas de suggestion forcée.
   ok(missingPieceFor(r2.options[0], W2, { occasionId: 'elegant-dinner', season: 'autumn', minGain: 99 }) === null);
+});
+
+test('Rotation : sur 14 jours sans noter les ports, les pantalons et les hauts tournent, et le manteau sort en novembre', () => {
+  let n = 0;
+  const G = (category, sub, name, color) => ({ id: `r${++n}`, category, sub, name, color: { id: color }, availability: 'clean' });
+  const W = () => { n = 0; return [
+  G('haut', 'chemise', 'Chemise blanche', 'white'), G('haut', 'chemise', 'Oxford ciel', 'sky'), G('haut', 'polo', 'Polo maille marine', 'navy'),
+  G('haut', 'pull', 'Pull taupe', 'taupe'), G('haut', 'tee-shirt', 'Tee-shirt blanc', 'white'), G('haut', 'col-roule', 'Col roulé noir', 'black'), G('haut', 'pull', 'Pull bordeaux', 'burgundy'),
+  G('bas', 'chino', 'Chino cognac', 'camel'), G('bas', 'chino', 'Chino taupe Zara', 'taupe'), G('bas', 'jean', 'Jean NEXT', 'indigo'), G('bas', 'pantalon', 'Pantalon gris', 'mid-gray'), G('bas', 'chino', 'Chino beige', 'beige'), G('bas', 'chino', 'Chino olive', 'olive'),
+  G('veste', 'blazer', 'Blazer marine', 'navy'), G('veste', 'surchemise', 'Surchemise olive', 'olive'),
+  G('chaussures', 'mocassins', 'Mocassins marron', 'chocolate'), G('chaussures', 'baskets', 'Baskets blanches', 'white'), G('chaussures', 'chelsea', 'Chelsea daim', 'chocolate'), G('chaussures', 'derbies', 'Derbies noires', 'black'),
+  G('manteau', 'manteau', 'Manteau camel', 'camel'), G('manteau', 'trench', 'Trench beige', 'beige'),
+]; };
+  const gs = W(); const proposed = {}; const bottoms = {}; const tops = {}; let coats = 0;
+  for (let d = 0; d < 14; d++) {
+    const date = new Date(2026, 10, 16 + d, 8);
+    const r = recommend({ garments: gs, occasionId: 'daily', date, now: date.getTime(), proposed });
+    const o = r.options.find((x) => x.mode === 'italian') || r.options[0];
+    bottoms[o.pieces.bottom.name] = (bottoms[o.pieces.bottom.name] || 0) + 1; tops[o.pieces.top.name] = (tops[o.pieces.top.name] || 0) + 1; if (o.pieces.outer) coats++;
+    for (const k of ['top', 'bottom', 'shoes']) (proposed[o.pieces[k].id] ||= []).push(date.toISOString());
+  }
+  ok(Object.keys(bottoms).length >= 4, JSON.stringify(bottoms));
+  ok(Math.max(...Object.values(bottoms)) <= 7, JSON.stringify(bottoms));
+  ok(Object.keys(tops).length >= 4, JSON.stringify(tops));
+  eq(coats, 14);
+  ok(climateFeel(new Date(2026, 10, 27)) <= 10 && climateFeel(new Date(2026, 6, 15)) >= 20);
+});
+test('Couleurs : un pull taupe sur un chino beige n\'est plus pénalisé ; un jean indigo profite de la matrice', () => {
+  ok(paletteNote({ top: 'taupe', bottom: 'beige' }).note >= 8.4);
+  ok(paletteNote({ top: 'white', bottom: 'indigo' }).note > 8.4);
+});
+test('Dressing rangé : catégories dans l\'ordre, types groupés, du clair au foncé', () => {
+  const g = (id, category, sub, color) => ({ id, name: id, category, sub, color: { id: color } });
+  const o = closetOrder([g('a', 'chaussures', 'baskets', 'white'), g('b', 'haut', 'pull', 'navy'), g('c', 'haut', 'chemise', 'navy'), g('d', 'haut', 'chemise', 'white'), g('e', 'accessoire', 'montre', 'black'), g('f', 'bas', 'chino', 'beige')]).map((x) => x.id).join('');
+  eq(o, 'dcbfae');
 });
 
 test('Zara : pantalon « taille jogging » = chino, « marron clair chiné », prix soldé, taille et référence écrites', () => {

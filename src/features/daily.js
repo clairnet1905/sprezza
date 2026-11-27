@@ -5,7 +5,7 @@ import { icon, toast, todayISO, fmtDate } from '../components/ui.js';
 import { store, pid, garments as loadGarments, wearlog as loadWearlog, calendar as loadCalendar, outfits as loadOutfits, prefs as loadPrefs, hydratePhotos } from '../state.js';
 import { OCCASION_BY_ID, OUTFIT_MODES } from '../data/occasions.js';
 import { recommend, comboKey } from '../domain/recommend.js';
-import { manualWeather, weatherSummary, isStale, seasonFromDate } from '../domain/weather.js';
+import { manualWeather, weatherSummary, isStale, climateFeel } from '../domain/weather.js';
 import { MODE_STYLES } from '../domain/scoring.js';
 import { forecast } from '../services/weather.js';
 import { PERIODS, periodAt, nextChange, daysSinceChange, seasonalPlan } from '../domain/seasonal.js';
@@ -13,7 +13,6 @@ import { outfitMannequin, piecesList, pieceRow, scoreBadge, idsToPieces, wearOut
 
 const QUICK_OCCASIONS = ['daily', 'client', 'office', 'restaurant', 'walk', 'elegant-dinner'];
 const KEY = () => `daily:${pid()}`;
-const SEASON_TEMP = { spring: 15, summer: 24, autumn: 13, winter: 7 };
 
 /** Occasion par défaut : celle choisie aujourd'hui, sinon client en semaine (profil principal), promenade le week-end. */
 export function defaultOccasion(date = new Date(), kind = 'main') {
@@ -38,8 +37,9 @@ async function weatherFor(offset) {
     catch { /* repli saisonnier ci-dessous */ }
   }
   const saved = await store.repo.kvGet(`today:${pid()}`, {});
-  const temp = offset === 0 && saved.manual?.temp !== undefined ? saved.manual.temp : SEASON_TEMP[seasonFromDate(d)];
-  return { w: manualWeather({ temp, rain: offset === 0 ? !!saved.manual?.rain : false, date: todayISO(d) }), real: false };
+  const manualToday = offset === 0 && saved.manual?.date === todayISO(d) ? saved.manual : null; // une saisie manuelle ne vaut que pour son jour
+  const temp = manualToday?.temp ?? climateFeel(d);
+  return { w: manualWeather({ temp, rain: !!manualToday?.rain, date: todayISO(d) }), real: false };
 }
 
 export async function renderDaily(box, { onShowAll } = {}) {
@@ -55,6 +55,14 @@ export async function renderDaily(box, { onShowAll } = {}) {
   const plannedTomorrow = cal.find((c) => c.date === tomorrow);
   const outBy = Object.fromEntries(outs.map((o) => [o.id, o]));
 
+  // Propositions des jours précédents (rotation même sans « Je la porte »).
+  const PROP_KEY = `proposed:${pid()}`;
+  const propHist = await store.repo.kvGet(PROP_KEY, {});
+  const proposed = {};
+  for (const [d, ids] of Object.entries(propHist)) if (d < today) for (const id of ids) (proposed[id] ||= []).push(`${d}T12:00:00`);
+  const weekAgo = todayISO(new Date(Date.now() - 7 * 864e5));
+  for (const w of wl) if (w.date >= weekAgo && w.date < today) for (const id of w.garmentIds || []) { const at = `${w.date}T12:00:00`; if (!(proposed[id] ||= []).includes(at)) proposed[id].push(at); }
+  const withToday = (prop, b) => { const out = { ...prop }; if (b) for (const r of ['top', 'bottom', 'shoes']) { const id = b.pieces[r]?.id; if (id) out[id] = [...(out[id] || []), `${today}T12:00:00`]; } return out; };
   const pick = (res, avoidKey) => {
     const opts = res.options;
     return opts.find((o) => o.mode === mode && comboKey(o.pieces) !== avoidKey) || opts.find((o) => comboKey(o.pieces) !== avoidKey) || opts[0] || null;
@@ -71,10 +79,18 @@ export async function renderDaily(box, { onShowAll } = {}) {
   }
   const draw = () => {
     const occ = OCCASION_BY_ID[st.occasionId];
-    const res = recommend({ garments: all, occasionId: st.occasionId, weather: w0.w, prefs, offsets: { italian: st.offset, classic: st.offset, modern: st.offset }, profileId: pid(), date: now });
+    const res = recommend({ garments: all, occasionId: st.occasionId, weather: w0.w, prefs, offsets: { italian: st.offset, classic: st.offset, modern: st.offset }, profileId: pid(), date: now, proposed });
     const best = pick(res);
-    const resT = recommend({ garments: all, occasionId: defaultOccasion(tomorrowD, store.profile.kind), weather: w1.w, prefs, profileId: pid(), date: tomorrowD });
+    const resT = recommend({ garments: all, occasionId: defaultOccasion(tomorrowD, store.profile.kind), weather: w1.w, prefs, profileId: pid(), date: tomorrowD, now: tomorrowD.getTime(), proposed: withToday(proposed, best) });
     const bestT = pick(resT, best ? comboKey(best.pieces) : null);
+    // Mémorise la proposition principale du jour (7 derniers jours gardés).
+    if (best && !wornToday && st.offset === 0 && st.occasionId === defaultOccasion(now, store.profile.kind)) {
+      const ids = ['top', 'bottom', 'shoes'].map((r) => best.pieces[r]?.id).filter(Boolean);
+      if (JSON.stringify(propHist[today] || []) !== JSON.stringify(ids)) {
+        const keep = Object.fromEntries(Object.entries(propHist).filter(([d]) => d >= todayISO(new Date(Date.now() - 7 * 864e5))));
+        keep[today] = ids; Object.assign(propHist, keep); store.repo.kvSet(PROP_KEY, keep);
+      }
+    }
     const wxLine = (w) => html`${weatherSummary(w.w)} <span class="small muted">· ${w.real ? `${w.w.place}, ${w.w.source}` : 'estimation saisonnière — activez la météo pour plus de précision'}</span>`;
 
     let head; let pieces = null; let footer = '';
