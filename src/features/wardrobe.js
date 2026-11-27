@@ -629,7 +629,7 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
     setHTML(out, html`<div class="card-flat" style="margin-top:10px"><p class="small"><strong>${icon('check')} ${rows.length} champ(s) rempli(s)</strong>${url && !note ? ' depuis la page de l\'article' : ''} — vérifiez avant d'enregistrer.</p>
       <ul class="small" style="margin:6px 0 8px;padding-left:18px">${rows.map(([, l, v]) => html`<li>${l} : <strong>${v}</strong></li>`)}</ul>
       ${note ? html`<p class="small callout callout-warn">${note}</p>` : ''}
-      ${p.fromAssistant ? html`<p class="small ${p.confidence === 'faible' ? 'callout callout-warn' : 'muted'}">Confiance de l'assistant : <strong>${p.confidence || 'non indiquée'}</strong>${p.remark ? html` — ${p.remark}` : ''}</p>` : ''}
+      ${p.fromAssistant ? html`<p class="small ${p.confidence === 'faible' ? 'callout callout-warn' : 'muted'}">Confiance de l'assistant : <strong>${({ faible: 'faible', moyenne: 'moyenne', elevee: 'élevée' })[p.confidence] || 'non indiquée'}</strong>${p.remark ? html` — ${p.remark}` : ''}</p>` : ''}
       <p class="hint">La taille vient seulement de l'étiquette : indiquez la vôtre. La couleur choisie sur le site peut différer de votre pièce (vérifiez-la).</p>
       <button class="btn btn-sm btn-ghost" type="button" id="webundo">Annuler le remplissage</button></div>`);
     out.querySelector('#webundo').onclick = () => {
