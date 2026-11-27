@@ -42,6 +42,7 @@ export async function render(main, params, query) {
 /** Préremplissage depuis la capsule ou la liste d'envies (#/wardrobe/new?capsule=6 ou ?name=…&category=…). */
 function presetFromQuery(query) {
   if (!query) return {};
+  if (query.get('web')) focusWeb = true;
   if (query.get('set') && pendingPreset) { const p = pendingPreset; pendingPreset = null; return p; }
   const cid = Number(query.get('capsule'));
   if (cid) {
@@ -69,7 +70,7 @@ async function renderList(main) {
   setHTML(main, html`
     <div class="page-head row-between"><div><div class="eyebrow">Dressing numérique</div><h1>Mon dressing</h1>
       <p class="lede">${all.length} pièce${all.length > 1 ? 's' : ''} · ${all.filter(isAvailable).length} disponible${all.filter(isAvailable).length > 1 ? 's' : ''} immédiatement. Vos photos restent privées sur cet appareil.</p></div>
-      <div class="btn-row"><a class="btn btn-primary" href="#/wardrobe/quick">${icon('camera')} Ajout rapide</a><a class="btn" href="#/wardrobe/new">${icon('plus')} Fiche complète</a><a class="btn" href="#/wardrobe/import">${icon('upload')} Import multiple</a><a class="btn" href="#/wardrobe/care">${icon('rotate')} Lessive & entretien${all.filter((g) => g.availability === 'to-wash').length ? ` (${all.filter((g) => g.availability === 'to-wash').length})` : ''}</a><a class="btn" href="#/wardrobe/season">Rangement saisonnier</a><a class="btn" href="#/wardrobe/review">Revue du dressing</a><a class="btn" href="#/wardrobe/stats">Statistiques</a></div></div>
+      <div class="btn-row"><a class="btn btn-primary" href="#/wardrobe/quick">${icon('camera')} Ajout rapide</a><a class="btn btn-gold" href="#/wardrobe/new?web=1">${icon('search')} Ajouter depuis un lien ou ChatGPT</a><a class="btn" href="#/wardrobe/new">${icon('plus')} Fiche complète</a><a class="btn" href="#/wardrobe/import">${icon('upload')} Import multiple</a><a class="btn" href="#/wardrobe/care">${icon('rotate')} Lessive & entretien${all.filter((g) => g.availability === 'to-wash').length ? ` (${all.filter((g) => g.availability === 'to-wash').length})` : ''}</a><a class="btn" href="#/wardrobe/season">Rangement saisonnier</a><a class="btn" href="#/wardrobe/review">Revue du dressing</a><a class="btn" href="#/wardrobe/stats">Statistiques</a></div></div>
     ${all.length ? html`
     <div class="card" style="margin-bottom:16px">
       <div class="field"><label for="wq">Rechercher</label><input id="wq" type="search" placeholder="Nom, marque, matière, tag…" value="${filters.q}"></div>
@@ -441,7 +442,7 @@ async function renderEditor(main, existing, preset = {}) {
   setupWebIdentify(main, state, { subOpts, syncSub, syncColor });
   setupExtraPhotos(main, state);
   $('#shopstyle')?.addEventListener('change', (e) => store.repo.kvSet('pref:cutout', e.target.checked));
-  if (focusWeb) { focusWeb = false; setTimeout(() => $('#webid').scrollIntoView({ behavior: 'smooth', block: 'start' }), 150); }
+  if (focusWeb) { focusWeb = false; setTimeout(() => { $('#webid').scrollIntoView({ behavior: 'smooth', block: 'start' }); $('#webid').classList.add('flash'); }, 150); }
 
   form.onsubmit = async (e) => {
     e.preventDefault();
@@ -979,6 +980,7 @@ async function renderQuick(main) {
   const draw = () => {
     setHTML(main, html`<a href="#/wardrobe" class="small">← Dressing</a>
       <div class="page-head" style="margin-top:8px"><div class="eyebrow">Ajout rapide</div><h1>Une pièce en 10 secondes</h1>
+      <p class="lede"><a href="#/wardrobe/new?web=1">Vous avez le lien de l'article ou une réponse ChatGPT ? Ajoutez plutôt depuis le lien →</a></p>
       <p class="lede">Photo, type, couleur : c'est tout. La pièce est marquée « à compléter » ; affinez la fiche plus tard. ${added ? html`<strong>${added} pièce${added > 1 ? 's' : ''} ajoutée${added > 1 ? 's' : ''} pendant cette session.</strong>` : ''}</p></div>
       <div class="card stack">
         <div class="btn-row"><label class="btn btn-primary" for="qcam">${icon('camera')} Prendre la photo</label><input id="qcam" type="file" accept="image/*" capture="environment" class="sr-only"><label class="btn" for="qfile">${icon('upload')} Choisir une photo</label><input id="qfile" type="file" accept="image/*" class="sr-only"><button class="btn btn-ghost" id="qnophoto">Sans photo</button></div>
