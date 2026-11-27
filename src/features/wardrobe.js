@@ -442,7 +442,7 @@ async function renderEditor(main, existing, preset = {}) {
   setupWebIdentify(main, state, { subOpts, syncSub, syncColor });
   setupExtraPhotos(main, state);
   $('#shopstyle')?.addEventListener('change', (e) => store.repo.kvSet('pref:cutout', e.target.checked));
-  if (focusWeb) { focusWeb = false; setTimeout(() => { $('#webid').scrollIntoView({ behavior: 'smooth', block: 'start' }); $('#webid').classList.add('flash'); }, 150); }
+  if (focusWeb) { focusWeb = false; setTimeout(() => { const top = $('#webid').getBoundingClientRect().top + window.scrollY - (document.querySelector('.topbar, header')?.offsetHeight || 64) - 12; window.scrollTo({ top, behavior: 'smooth' }); $('#webid').classList.add('flash'); }, 150); }
 
   form.onsubmit = async (e) => {
     e.preventDefault();
