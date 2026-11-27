@@ -1,6 +1,7 @@
 // Traitement d'image côté client : contrôle MIME + signature, rotation, recadrage, compression,
 // miniature et suppression des métadonnées EXIF (ré-encodage via canvas).
 import { rgbToHex, nearestColor } from '../domain/colors.js';
+import { GARMENT_COLORS } from '../data/colors.js';
 
 export const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
 const SIGNATURES = [
@@ -83,7 +84,7 @@ export function dominantColors(canvas, k = 3) {
   const total = [...buckets.values()].reduce((a, e) => a + e.n, 0) || 1;
   return [...buckets.values()].sort((a, b) => b.n - a.n).slice(0, k).map((e) => {
     const hex = rgbToHex([e.r / e.n, e.g / e.n, e.b / e.n]);
-    const near = nearestColor(hex);
+    const near = nearestColor(hex, GARMENT_COLORS);
     return { hex, share: e.n / total, nearestId: near.id, nearestName: near.name, confidence: near.confidence };
   });
 }

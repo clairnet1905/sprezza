@@ -4,7 +4,7 @@ import { icon, toast, options, emptyState, fmtDate, confirmDialog, swatch } from
 import { store, pid, garments as loadGarments, analyses as loadAnalyses, prefs as loadPrefs, hydratePhotos } from '../state.js';
 import { uid } from '../repositories/db.js';
 import { OCCASIONS, OCCASION_BY_ID } from '../data/occasions.js';
-import { ALL_COLORS, COLOR_BY_ID } from '../data/colors.js';
+import { GARMENT_COLORS as ALL_COLORS, COLOR_BY_ID } from '../data/colors.js';
 import { STYLE_OPTS } from '../data/taxonomy.js';
 import { GRID, ERRORS } from '../data/guide.js';
 import { finalizeCriteria, COVERAGE_THRESHOLD } from '../domain/scoring.js';

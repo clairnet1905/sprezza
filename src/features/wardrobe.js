@@ -4,7 +4,7 @@ import { icon, toast, confirmDialog, swatch, emptyState, readForm, options, fmtD
 import { store, pid, garments as loadGarments, hydratePhotos, forgetPhotoURL, wearlog as loadWearlog, outfits as loadOutfits } from '../state.js';
 import { uid } from '../repositories/db.js';
 import { isEveryday, CATEGORIES, CATEGORY_BY_ID, SUB_INFO, PATTERNS, FITS, SEASON_OPTS, CONDITIONS, AVAILABILITY, PHOTO_KINDS, MATERIALS, STYLE_OPTS, MEASURE_FIELDS } from '../data/taxonomy.js';
-import { ALL_COLORS, COLOR_BY_ID } from '../data/colors.js';
+import { GARMENT_COLORS, COLOR_BY_ID } from '../data/colors.js';
 import { CAPSULE } from '../data/capsule.js';
 import { nearestColor, colorIdFromHex } from '../domain/colors.js';
 import { isAvailable, pairingsFor } from '../domain/recommend.js';
@@ -65,7 +65,7 @@ function notFound(main) { setHTML(main, emptyState('Pièce introuvable', 'Elle a
 async function renderList(main) {
   const all = await loadGarments();
   const materials = [...new Set(all.map((g) => g.material).filter(Boolean))].sort();
-  const usedColors = ALL_COLORS.filter((c) => all.some((g) => g.color?.id === c.id));
+  const usedColors = GARMENT_COLORS.filter((c) => all.some((g) => g.color?.id === c.id));
   setHTML(main, html`
     <div class="page-head row-between"><div><div class="eyebrow">Dressing numérique</div><h1>Mon dressing</h1>
       <p class="lede">${all.length} pièce${all.length > 1 ? 's' : ''} · ${all.filter(isAvailable).length} disponible${all.filter(isAvailable).length > 1 ? 's' : ''} immédiatement. Vos photos restent privées sur cet appareil.</p></div>
@@ -212,7 +212,7 @@ async function renderEditor(main, existing, preset = {}) {
   const state = { source: null, rotation: 0, crop: { x: 0, y: 0, w: 1, h: 1 }, aspect: 'free', dominant: [], photoKind: preset.photoKind || 'single', removePhotos: new Set(), extras: [], pasteLabel: false, savedPhotoId: null };
   const ai = await aiStatus();
   const consentAI = store.profile.consents?.ai && store.profile.kind !== 'child';
-  const colorOpts = ALL_COLORS.map((c) => [c.id, `${c.name}${c.aux ? ' (aux.)' : ''}`]).concat([['custom', 'Personnalisée…']]);
+  const colorOpts = GARMENT_COLORS.map((c) => [c.id, c.name]).concat([['custom', 'Personnalisée…']]);
   const subOpts = (cat) => CATEGORY_BY_ID[cat].subs.map(([id, name]) => [id, name]);
   setHTML(main, html`
     <a href="${existing ? `#/wardrobe/${existing.id}` : '#/wardrobe'}" class="small">← Annuler</a>
@@ -276,7 +276,7 @@ async function renderEditor(main, existing, preset = {}) {
       <div class="field"><label for="category">Catégorie *</label><select id="category" name="category">${options(CATEGORIES.map((c) => [c.id, c.name]), g.category)}</select></div>
       <div class="field"><label for="sub">Type *</label><select id="sub" name="sub">${options(subOpts(g.category), g.sub)}</select></div>
       <div class="field"><label for="color">Couleur principale *</label><div class="row" style="flex-wrap:nowrap"><select id="color" name="color">${options(colorOpts, g.color?.custom ? 'custom' : g.color?.id || 'navy')}</select><input type="color" id="colorhex" value="${g.color?.hex || '#22344E'}" aria-label="Couleur personnalisée"></div><p class="hint" id="colorhint">Couleur représentative, pas une mesure sous éclairage contrôlé.</p></div>
-      <div class="field"><label for="color2">Couleur secondaire</label><select id="color2" name="color2">${options(ALL_COLORS.map((c) => [c.id, c.name]), g.color2?.id || '', { empty: 'Aucune' })}</select></div>
+      <div class="field"><label for="color2">Couleur secondaire</label><select id="color2" name="color2">${options(GARMENT_COLORS.map((c) => [c.id, c.name]), g.color2?.id || '', { empty: 'Aucune' })}</select></div>
       <div class="field"><label for="pattern">Motif</label><select id="pattern" name="pattern">${options(PATTERNS, g.pattern || 'Uni')}</select></div>
       <div class="field"><label for="brand">Marque</label><input id="brand" name="brand" type="text" value="${g.brand || ''}"></div>
       <label class="check span-2"><input type="checkbox" id="isset" name="isset" ${g.setId ? raw('checked') : ''}> Fait partie d'un ensemble (costume : veste + pantalon assortis)</label>
@@ -386,7 +386,7 @@ async function renderEditor(main, existing, preset = {}) {
     err.classList.add('hidden');
     $('#savebtn').disabled = true;
     try {
-      const colorVal = v.color === 'custom' ? (() => { const hex = $('#colorhex').value.toUpperCase(); const n = nearestColor(hex); return { id: n.id, name: `Personnalisée (≈ ${n.name})`, hex, custom: true }; })() : { id: v.color, name: COLOR_BY_ID[v.color].name, hex: COLOR_BY_ID[v.color].hex };
+      const colorVal = v.color === 'custom' ? (() => { const hex = $('#colorhex').value.toUpperCase(); const n = nearestColor(hex, GARMENT_COLORS); return { id: n.id, name: `Personnalisée (≈ ${n.name})`, hex, custom: true }; })() : { id: v.color, name: COLOR_BY_ID[v.color].name, hex: COLOR_BY_ID[v.color].hex };
       const measures = Object.fromEntries(MEASURE_FIELDS.map(([k]) => [k, v[`m_${k}`] ?? null]));
       let photoIds = (existing?.photoIds || []).filter((p) => !state.removePhotos.has(p));
       for (const ph of state.removePhotos) { await store.repo.remove('photos', ph); forgetPhotoURL(ph); }
@@ -601,6 +601,7 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
     if (p.brand) rows.push(['brand', 'Marque', p.brand, p.brand]);
     if (p.sub) rows.push(['sub', 'Type', `${CATEGORY_BY_ID[p.category].name} › ${SUB_INFO[p.sub].name}`, p.sub]);
     if (p.color) rows.push(['color', 'Couleur principale', COLOR_BY_ID[p.color].name, p.color]);
+    else if (p.colorHex) rows.push(['colorcustom', 'Couleur principale', `${p.colorUnknown ? `${p.colorUnknown} ` : ''}${p.colorHex} (≈ ${COLOR_BY_ID[p.colorNearest]?.name || 'personnalisée'})`, p.colorHex]);
     if (p.color2) rows.push(['color2', 'Couleur secondaire', COLOR_BY_ID[p.color2].name, p.color2]);
     if (p.material) rows.push(['material', 'Matière', p.material, p.material]);
     if (p.composition) rows.push(['composition', 'Composition', p.composition, p.composition]);
@@ -621,6 +622,7 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
     for (const [f, , , val] of rows) {
       if (f === 'sub') { $('#category').value = p.category; setHTML($('#sub'), options(subOpts(p.category), p.sub)); syncSub(); }
       else if (f === 'color') { $('#color').value = val; syncColor(); }
+      else if (f === 'colorcustom') { $('#color').value = 'custom'; $('#colorhex').value = val; $('#colorhint').textContent = colorHint(val); }
       else if (f === 'seasons') setSeasons(val);
       else if (f === 'formality' || f === 'warmth') { $(`#${f}`).value = val; $(`#${f}`).dispatchEvent(new Event('input')); }
       else { const el = $(`#${f}`); if (el) el.value = val; }
@@ -629,6 +631,7 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
     setHTML(out, html`<div class="card-flat" style="margin-top:10px"><p class="small"><strong>${icon('check')} ${rows.length} champ(s) rempli(s)</strong>${url && !note ? ' depuis la page de l\'article' : ''} — vérifiez avant d'enregistrer.</p>
       <ul class="small" style="margin:6px 0 8px;padding-left:18px">${rows.map(([, l, v]) => html`<li>${l} : <strong>${v}</strong></li>`)}</ul>
       ${note ? html`<p class="small callout callout-warn">${note}</p>` : ''}
+      ${p.colorUnknown && !p.color && !p.colorHex ? html`<p class="small callout callout-warn">Couleur « ${p.colorUnknown} » non reconnue : choisissez la plus proche dans « Couleur principale », ou « Personnalisée… » pour la régler précisément.</p>` : ''}
       ${p.fromAssistant ? html`<p class="small ${p.confidence === 'faible' ? 'callout callout-warn' : 'muted'}">Confiance de l'assistant : <strong>${({ faible: 'faible', moyenne: 'moyenne', elevee: 'élevée' })[p.confidence] || 'non indiquée'}</strong>${p.remark ? html` — ${p.remark}` : ''}</p>` : ''}
       <p class="hint">La taille vient seulement de l'étiquette : indiquez la vôtre. La couleur choisie sur le site peut différer de votre pièce (vérifiez-la).</p>
       <button class="btn btn-sm btn-ghost" type="button" id="webundo">Annuler le remplissage</button></div>`);
@@ -671,7 +674,7 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
   });
 }
 
-function colorHint(hex) { const n = nearestColor(hex); return n ? `Couleur la plus proche : ${n.name} (proximité ${n.confidence}). La proximité numérique n'est pas une certitude stylistique.` : ''; }
+function colorHint(hex) { const n = nearestColor(hex, GARMENT_COLORS); return n ? `Couleur la plus proche : ${n.name} (proximité ${n.confidence}). La proximité numérique n'est pas une certitude stylistique.` : ''; }
 
 async function aiRecognize(main, state) {
   const out = main.querySelector('#aiout');
@@ -731,7 +734,7 @@ async function renderImport(main) {
           <div class="field"><label>Nom</label><input type="text" data-f="name" value="${it.name}"></div>
           <div class="field"><label>Catégorie</label><select data-f="category">${options(CATEGORIES.map((c) => [c.id, c.name]), 'haut')}</select></div>
           <div class="field"><label>Type</label><select data-f="sub">${options(CATEGORY_BY_ID.haut.subs.map(([id, n]) => [id, n]), '')}</select></div>
-          <div class="field"><label>Couleur (estimée, à confirmer)</label><select data-f="color">${options(ALL_COLORS.map((c) => [c.id, c.name]), it.color)}</select></div>
+          <div class="field"><label>Couleur (estimée, à confirmer)</label><select data-f="color">${options(GARMENT_COLORS.map((c) => [c.id, c.name]), it.color)}</select></div>
         </div></div></div>`)}
       ${items.some((x) => !x.error) ? html`<button class="btn btn-primary" id="saveall">${icon('check')} Enregistrer les pièces cochées</button>` : ''}`);
     batch.querySelectorAll('[data-f="category"]').forEach((sel) => sel.onchange = () => { const s = sel.closest('.card').querySelector('[data-f="sub"]'); setHTML(s, options(CATEGORY_BY_ID[sel.value].subs.map(([id, n]) => [id, n]), '')); });
@@ -847,7 +850,7 @@ async function renderQuick(main) {
             <div class="field" style="margin-top:10px"><label for="qsub">Précision</label><select id="qsub" disabled><option value="">Choisissez d'abord le type</option></select></div>
           </div></div>
           <p class="small muted" style="margin:8px 0 6px">Couleur <span id="qhint"></span></p>
-          <div class="chips" id="qcols">${ALL_COLORS.filter((c) => !c.aux || ['mid-gray', 'cognac', 'mid-blue'].includes(c.id)).map((c) => html`<button type="button" class="color-btn" data-col="${c.id}" aria-pressed="false">${swatch(c.hex)} ${c.name}</button>`)}</div>
+          <div class="chips" id="qcols">${GARMENT_COLORS.filter((c) => !['suede-brown', 'dark-brown'].includes(c.id)).map((c) => html`<button type="button" class="color-btn" data-col="${c.id}" aria-pressed="false">${swatch(c.hex)} ${c.name}</button>`)}</div>
           <div class="btn-row" style="margin-top:14px"><button class="btn btn-primary" id="qsave" disabled>${icon('check')} Enregistrer et suivante</button><button class="btn" id="qdone" disabled>Enregistrer et terminer</button><button class="btn btn-gold" id="qweb" disabled>${icon('search')} Enregistrer et chercher sur internet</button></div>
           <p class="hint">« Chercher sur internet » ouvre la fiche complète : recherche par photo (Google Lens) ou collage du lien de l'article pour tout remplir.</p>
         </div>

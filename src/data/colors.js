@@ -28,7 +28,38 @@ export const AUX_COLORS = [
 ];
 
 export const ALL_COLORS = [...MAIN_COLORS, ...AUX_COLORS];
-export const COLOR_BY_ID = Object.fromEntries(ALL_COLORS.map((c) => [c.id, c]));
+
+/**
+ * Couleurs supplémentaires du dressing : pour enregistrer fidèlement toute pièce (y compris hors palette conseillée).
+ * Elles ne s'ajoutent pas au générateur de couleurs (qui suit le guide), mais servent aux fiches, à l'import JSON et aux photos.
+ */
+export const EXTRA_COLORS = [
+  { id: 'forest', name: 'Vert forêt', hex: '#2F4A3A', extra: true },
+  { id: 'bottle-green', name: 'Vert bouteille', hex: '#1F3B2D', extra: true },
+  { id: 'green', name: 'Vert', hex: '#3E7B4F', extra: true },
+  { id: 'sage', name: 'Vert sauge', hex: '#9CAF94', extra: true },
+  { id: 'khaki', name: 'Kaki', hex: '#8B8658', extra: true },
+  { id: 'indigo', name: 'Indigo (denim brut)', hex: '#2E3F66', extra: true },
+  { id: 'royal-blue', name: 'Bleu roi', hex: '#2F4DA0', extra: true },
+  { id: 'petrol', name: 'Bleu pétrole', hex: '#1F5662', extra: true },
+  { id: 'turquoise', name: 'Turquoise', hex: '#3AA6A0', extra: true },
+  { id: 'red', name: 'Rouge', hex: '#B23A3A', extra: true },
+  { id: 'rust', name: 'Rouille', hex: '#A0522D', extra: true },
+  { id: 'terracotta', name: 'Terracotta', hex: '#C0683F', extra: true },
+  { id: 'orange', name: 'Orange', hex: '#D9822B', extra: true },
+  { id: 'mustard', name: 'Moutarde', hex: '#C9A227', extra: true },
+  { id: 'yellow', name: 'Jaune', hex: '#E5C84A', extra: true },
+  { id: 'pale-pink', name: 'Rose pâle', hex: '#F0D3D6', extra: true },
+  { id: 'pink', name: 'Rose', hex: '#E3A5B3', extra: true },
+  { id: 'lavender', name: 'Lavande', hex: '#B7A6D3', extra: true },
+  { id: 'purple', name: 'Violet', hex: '#5E3A6E', extra: true },
+  { id: 'sand', name: 'Sable', hex: '#D6C3A0', extra: true },
+  { id: 'silver', name: 'Argent / acier', hex: '#C0C0C4', extra: true },
+  { id: 'gold', name: 'Doré', hex: '#C8A24A', extra: true },
+];
+/** Toutes les couleurs possibles d'une pièce (palette du guide + auxiliaires + supplémentaires). */
+export const GARMENT_COLORS = [...ALL_COLORS, ...EXTRA_COLORS];
+export const COLOR_BY_ID = Object.fromEntries(GARMENT_COLORS.map((c) => [c.id, c]));
 
 /** Familles utiles aux règles (neutres, chaleur, famille de cuir). */
 export const COLOR_TRAITS = {
@@ -50,6 +81,14 @@ export const COLOR_TRAITS = {
   'mid-blue': { family: 'blue', temp: 'cold', neutral: false },
   'suede-brown': { family: 'brown', temp: 'warm', neutral: true },
   'dark-brown': { family: 'brown', temp: 'warm', neutral: true },
+  forest: { family: 'green', temp: 'cold', neutral: true }, 'bottle-green': { family: 'green', temp: 'cold', neutral: false }, green: { family: 'green', temp: 'cold', neutral: false },
+  sage: { family: 'green', temp: 'cold', neutral: false }, khaki: { family: 'green', temp: 'warm', neutral: true }, indigo: { family: 'blue', temp: 'cold', neutral: true },
+  'royal-blue': { family: 'blue', temp: 'cold', neutral: false }, petrol: { family: 'blue', temp: 'cold', neutral: false }, turquoise: { family: 'blue', temp: 'cold', neutral: false },
+  red: { family: 'red', temp: 'warm', neutral: false }, rust: { family: 'brown', temp: 'warm', neutral: false }, terracotta: { family: 'red', temp: 'warm', neutral: false },
+  orange: { family: 'orange', temp: 'warm', neutral: false }, mustard: { family: 'yellow', temp: 'warm', neutral: false }, yellow: { family: 'yellow', temp: 'warm', neutral: false },
+  'pale-pink': { family: 'pink', temp: 'warm', neutral: false }, pink: { family: 'pink', temp: 'warm', neutral: false }, lavender: { family: 'purple', temp: 'cold', neutral: false },
+  purple: { family: 'purple', temp: 'cold', neutral: false }, sand: { family: 'cream', temp: 'warm', neutral: true }, silver: { family: 'gray', temp: 'cold', neutral: true },
+  gold: { family: 'yellow', temp: 'warm', neutral: false },
 };
 
 /** 20 palettes intemporelles — ordre et notes du guide conservés. */

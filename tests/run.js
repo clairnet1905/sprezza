@@ -1,6 +1,6 @@
 // Mini-exécuteur de tests (navigateur, sans dépendance). Ouvrir /tests/ sur le serveur local.
 import { suggestPalette, isValidHex, paletteNote, classifyHarmony, nearestColor, BOTTOM_IDS } from '../src/domain/colors.js';
-import { MAIN_COLORS, ALL_COLORS, PALETTES_20, ORIGINAL_MATRIX } from '../src/data/colors.js';
+import { MAIN_COLORS, ALL_COLORS, PALETTES_20, ORIGINAL_MATRIX, GARMENT_COLORS, COLOR_TRAITS, COLOR_BY_ID } from '../src/data/colors.js';
 import { scoreOutfit, finalizeCriteria } from '../src/domain/scoring.js';
 import { recommend, outfitsUnlocked } from '../src/domain/recommend.js';
 import { manualWeather, parseOpenMeteo, isStale } from '../src/domain/weather.js';
@@ -454,6 +454,19 @@ test('JSON collé (ChatGPT) : clés françaises ou anglaises, bloc de code, vale
   ok(/```json/.test(assistantPrompt()), 'la consigne doit demander du JSON');
   eq(parseStructured(assistantPrompt()), null);
   eq(parseStructured('{"type": "pull col roulé", "couleur": "écru"}').sub, 'col-roule');
+});
+
+test('Couleurs du dressing : palette étendue, JSON, code hexadécimal, couleur inconnue signalée', () => {
+  GARMENT_COLORS.forEach((c) => { ok(isValidHex(c.hex), c.id); ok(COLOR_TRAITS[c.id], `traits manquants : ${c.id}`); eq(COLOR_BY_ID[c.id].name, c.name); });
+  eq(new Set(GARMENT_COLORS.map((c) => c.id)).size, GARMENT_COLORS.length, 'identifiants en double');
+  const j = (o) => parseProduct(JSON.stringify({ nom: 'x', type: 'Pull', ...o }));
+  eq(j({ couleur: 'Vert bouteille' }).color, 'bottle-green'); eq(j({ couleur: 'rose pâle' }).color, 'pale-pink'); eq(j({ couleur: 'Bordeaux' }).color, 'burgundy');
+  eq(j({ color: 'mustard yellow' }).color, 'mustard'); eq(j({ couleur: 'Kaki' }).color, 'khaki'); eq(j({ couleur: 'Rouille' }).color, 'rust'); eq(j({ couleur: 'violet' }).color, 'purple');
+  const h = j({ couleur: 'Bleu glacier', couleur_hex: '#a8c8d8' });
+  eq(h.color, undefined); eq(h.colorHex, '#A8C8D8'); eq(h.colorNearest, 'sky'); eq(h.colorUnknown, 'Bleu glacier');
+  const u = j({ couleur: 'chartreuse fluo' }); eq(u.color, undefined); eq(u.colorUnknown, 'chartreuse fluo');
+  eq(parseProduct('Pull col rond en laine vert').color, 'green'); eq(parseProduct('Jean droit indigo brut').color, 'indigo'); eq(parseProduct('Montre bracelet acier').color, 'silver');
+  ok(/Vert bouteille/.test(assistantPrompt()) && /couleur_hex/.test(assistantPrompt()), 'consigne sans les nouvelles couleurs');
 });
 
 // ---------------- Exécution

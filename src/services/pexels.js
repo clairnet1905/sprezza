@@ -6,7 +6,7 @@ import { store } from '../state.js';
 const API = 'https://api.pexels.com/v1/search';
 const CACHE_DAYS = 7;
 
-const EN_COLORS = { navy: 'navy', ecru: 'cream', beige: 'beige', chocolate: 'brown', charcoal: 'charcoal', 'light-gray': 'light grey', olive: 'olive', sky: 'light blue', camel: 'camel', taupe: 'taupe', burgundy: 'burgundy', white: 'white', black: 'black', 'mid-gray': 'grey', cognac: 'cognac', 'mid-blue': 'blue', 'suede-brown': 'brown suede', 'dark-brown': 'dark brown' };
+const EN_COLORS = { navy: 'navy', ecru: 'cream', beige: 'beige', chocolate: 'brown', charcoal: 'charcoal', 'light-gray': 'light grey', olive: 'olive', sky: 'light blue', camel: 'camel', taupe: 'taupe', burgundy: 'burgundy', white: 'white', black: 'black', 'mid-gray': 'grey', cognac: 'cognac', 'mid-blue': 'blue', 'suede-brown': 'brown suede', 'dark-brown': 'dark brown', forest: 'forest green', 'bottle-green': 'bottle green', green: 'green', sage: 'sage green', khaki: 'khaki', indigo: 'indigo denim', 'royal-blue': 'royal blue', petrol: 'teal', turquoise: 'turquoise', red: 'red', rust: 'rust', terracotta: 'terracotta', orange: 'orange', mustard: 'mustard', yellow: 'yellow', 'pale-pink': 'pale pink', pink: 'pink', lavender: 'lavender', purple: 'purple', sand: 'sand', silver: 'silver', gold: 'gold' };
 const EN_SUBS = {
   chemise: 'shirt', 'chemise-lin': 'linen shirt', polo: 'knit polo', 'polo-sport': 'polo shirt', pull: 'sweater', 'col-roule': 'turtleneck', cardigan: 'cardigan', 'tee-shirt': 't-shirt', sweat: 'sweatshirt',
   pantalon: 'trousers', 'pantalon-costume': 'suit trousers', chino: 'chinos', jean: 'jeans', flanelle: 'flannel trousers', bermuda: 'shorts', short: 'shorts', jupe: 'skirt',

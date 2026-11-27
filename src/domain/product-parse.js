@@ -1,7 +1,8 @@
 // Lecture d'une fiche produit trouvée sur internet (titre, description copiée ou lien) → caractéristiques SPREZZA.
 // Fonction pure et testée : rien n'est appliqué sans validation, chaque champ proposé reste à confirmer.
 import { SUB_INFO, CATEGORIES, MATERIALS, PATTERNS, FITS } from '../data/taxonomy.js';
-import { ALL_COLORS } from '../data/colors.js';
+import { GARMENT_COLORS as ALL_COLORS } from '../data/colors.js';
+import { nearestColor } from './colors.js';
 
 const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
@@ -80,9 +81,26 @@ const SUB_RULES = [
 
 /** Couleurs (ids SPREZZA). */
 const COLOR_RULES = [
+  ['forest', /vert foret|forest green|vert anglais|british racing/],
+  ['bottle-green', /vert bouteille|bottle green|vert sapin|vert fonce|dark green|hunter green/],
+  ['sage', /vert sauge|\bsauge\b|\bsage\b|vert de gris|vert amande|mint|menthe/],
+  ['royal-blue', /bleu roi|bleu electrique|royal blue|cobalt|bleu vif/],
+  ['petrol', /bleu petrole|petrol|\bteal\b|bleu canard|bleu paon/],
+  ['turquoise', /turquoise|\baqua\b|lagon/],
+  ['indigo', /indigo|denim brut|raw denim|bleu brut|selvedge/],
+  ['pale-pink', /rose pale|rose poudre|vieux rose|blush|light pink|pale pink|dusty pink/],
+  ['lavender', /lavande|lavender|lilas|lilac|\bmauve\b|parme/],
+  ['purple', /violet|purple|\bprune\b|aubergine|\bplum\b|morado|viola\b/],
+  ['rust', /rouille|\brust\b|cuivre|copper/],
+  ['terracotta', /terracotta|terre cuite|brique|\bbrick\b/],
+  ['mustard', /moutarde|mustard|\bocre\b|ochre|curry/],
+  ['silver', /\bargente?\b|\bsilver\b|acier|\bsteel\b|chrome/],
+  ['gold', /\bdoree?\b|golden|\bgold\b|laiton|brass/],
+  ['sand', /\bsable\b|\bsand\b|\bstone\b|mastic/],
+  ['khaki', /\bkaki\b|\bkhaki\b/],
   ['navy', /bleu marine|\bmarine\b|\bnavy\b|azul marino|blu navy|bleu nuit|midnight/],
   ['sky', /bleu ciel|bleu clair|ciel\b|sky blue|light blue|celeste|azzurro/],
-  ['mid-blue', /bleu moyen|bleu indigo|indigo|\bbleu\b|\bblue\b|\bazul\b|\bblu\b/],
+  ['mid-blue', /bleu moyen|\bbleu\b|\bblue\b|\bazul\b|\bblu\b/],
   ['ecru', /ecru|creme|cream|off-?white|ivoire|ivory|blanc casse|crudo|naturel|\bnatural\b|sable clair/],
   ['white', /\bblanc\b|\bwhite\b|\bblanco\b|\bbianco\b/],
   ['black', /\bnoir\b|\bblack\b|\bnegro\b|\bnero\b/],
@@ -93,11 +111,16 @@ const COLOR_RULES = [
   ['cognac', /cognac|tan\b|fauve/],
   ['beige', /beige|sable|\bsand\b|stone|kaki clair|mastic|greige|tostado/],
   ['taupe', /taupe/],
-  ['olive', /olive|kaki|khaki|vert militaire|vert armee/],
+  ['olive', /olive|vert militaire|vert armee/],
   ['burgundy', /bordeaux|burgundy|grenat|lie de vin|granate|bordo/],
   ['suede-brown', /daim marron(?! (tres )?fonce)/],
   ['dark-brown', /marron (tres )?fonce|dark brown|espresso|cafe\b/],
   ['chocolate', /chocolat|chocolate|\bmarron\b|\bbrun\b|\bbrown\b|marron|\bmarron\b|tabac|moka/],
+  ['green', /\bvert\b|\bverte\b|\bgreen\b|\bverde\b/],
+  ['red', /\brouge\b|\bred\b|\brojo\b|\brosso\b|ecarlate|carmin|cerise/],
+  ['orange', /\borange\b|naranja|arancione|corail|coral/],
+  ['yellow', /\bjaune\b|\byellow\b|amarillo|giallo|citron/],
+  ['pink', /\brose\b|\bpink\b|fuchsia|framboise|\brosa\b/],
 ];
 
 /** Matières (libellés de la liste MATERIALS). */
@@ -152,7 +175,7 @@ export function parseProduct(input, opts = {}) {
   const colorScope = t.replace(/jean|denim/g, ' ');
   const hits = COLOR_RULES.map(([id, re]) => { const m = re.exec(colorScope); return m ? { id, at: m.index } : null; }).filter(Boolean).sort((a, c) => a.at - c.at);
   // Nom générique suivi d'une précision (« gris anthracite », « bleu nuit ») : la précision l'emporte.
-  const GENERIC = ['mid-blue', 'mid-gray', 'chocolate'];
+  const GENERIC = ['mid-blue', 'mid-gray', 'chocolate', 'green', 'red', 'pink', 'yellow', 'orange'];
   if (hits.length > 1 && GENERIC.includes(hits[0].id)) { const sp = hits.find((h) => !GENERIC.includes(h.id) && h.at - hits[0].at <= 12); if (sp) hits.unshift(...hits.splice(hits.indexOf(sp), 1)); }
   if (hits.length) { out.color = hits[0].id; const second = hits.find((h) => h.id !== hits[0].id && Math.abs(h.at - hits[0].at) > 3); if (second && /et|and|&|\/|bicolore|two-tone/.test(colorScope.slice(hits[0].at, second.at + 1))) out.color2 = second.id; }
   else if (out.sub === 'jean') out.color = 'mid-blue';
@@ -199,7 +222,7 @@ export function parseProduct(input, opts = {}) {
     for (const k of Object.keys(out)) if (!['found', 'sourceUrl'].includes(k)) delete out[k];
     if (fromUrl.brand) out.brand = fromUrl.brand;
     out.fromAssistant = true;
-    for (const k of ['name', 'brand', 'sub', 'category', 'color', 'color2', 'material', 'composition', 'pattern', 'fit', 'seasons', 'formality', 'warmth', 'size', 'price', 'ref', 'origin', 'sourceUrl', 'confidence', 'remark']) if (st[k] !== undefined) out[k] = st[k];
+    for (const k of ['name', 'brand', 'sub', 'category', 'color', 'colorHex', 'colorNearest', 'colorUnknown', 'color2', 'material', 'composition', 'pattern', 'fit', 'seasons', 'formality', 'warmth', 'size', 'price', 'ref', 'origin', 'sourceUrl', 'confidence', 'remark']) if (st[k] !== undefined) out[k] = st[k];
     if (st.noBrand && !fromUrl.brand) delete out.brand;
     if (st.noColor2) delete out.color2;
     if (st.noComposition) delete out.composition;
@@ -269,6 +292,7 @@ export function assistantPrompt() {
     marque: 'seulement si lisible ou certaine, sinon inconnue',
     type: 'un seul choix exact parmi la liste des types',
     couleur: 'un seul choix exact parmi la liste des couleurs',
+    couleur_hex: 'code hexadécimal approché de la couleur réelle, ex. #2F4A3A',
     couleur_secondaire: 'même liste, ou aucune',
     motif: `parmi : ${PATTERNS.join(', ')}`,
     matiere: `parmi : ${MATERIALS.join(', ')}`,
@@ -285,7 +309,7 @@ export function assistantPrompt() {
     'Réponds UNIQUEMENT avec un bloc de code JSON valide, en français, sans aucun texte avant ou après, avec exactement ces clés (remplace chaque description par la valeur) :',
     '```json', JSON.stringify(tpl, null, 2), '```',
     `Types possibles : ${types}`,
-    `Couleurs possibles : ${ALL_COLORS.map((c) => c.name).join(', ')}`,
+    `Couleurs possibles : ${ALL_COLORS.map((c) => c.name).join(', ')} (si aucune ne convient, choisis la plus proche et donne le code hexadécimal exact)`,
     'N\'invente jamais la marque, la composition ni la taille : écris « inconnue » si ce n\'est pas visible.',
   ].join('\n');
 }
@@ -297,6 +321,7 @@ const JSON_KEYS = {
   type: 'type', sous_type: 'type', soustype: 'type', piece: 'type', categorie: 'type', category: 'type', sub: 'type', garment: 'type', item: 'type',
   couleur: 'couleur', color: 'couleur', colour: 'couleur', couleur_principale: 'couleur', main_color: 'couleur', primary_color: 'couleur',
   couleur_secondaire: 'couleur secondaire', color2: 'couleur secondaire', secondary_color: 'couleur secondaire',
+  hex: 'hex', couleur_hex: 'hex', color_hex: 'hex', code_couleur: 'hex', hex_color: 'hex',
   motif: 'motif', pattern: 'motif', matiere: 'matiere', material: 'matiere', fabric: 'matiere', tissu: 'matiere', composition: 'composition',
   coupe: 'coupe', fit: 'coupe', saisons: 'saisons', saison: 'saisons', seasons: 'saisons', season: 'saisons', formalite: 'formalite', formality: 'formalite',
   chaleur: 'chaleur', warmth: 'chaleur', taille: 'taille', size: 'taille', prix: 'prix', price: 'prix', reference: 'reference', ref: 'reference', sku: 'reference',
@@ -342,7 +367,14 @@ export function parseStructured(text) {
     if (sub) { out.sub = sub.id; out.category = sub.category; }
   }
   const color = (v) => { const n = norm(v); return ALL_COLORS.find((c) => norm(c.name) === n)?.id || COLOR_RULES.find(([, re]) => re.test(n))?.[0] || null; };
-  if (known(map.couleur)) { const c = color(map.couleur); if (c) out.color = c; }
+  const hex = String(map.hex || '').match(/#?[0-9a-f]{6}\b/i)?.[0];
+  // Nom exact de la palette > code hexadécimal (couleur réelle) > nom approché (« bleu glacier » → bleu).
+  if (known(map.couleur) || hex) {
+    const exact = known(map.couleur) && ALL_COLORS.find((c) => norm(c.name) === norm(map.couleur))?.id;
+    if (exact) out.color = exact;
+    else if (hex) { out.colorHex = `#${hex.replace('#', '').toUpperCase()}`; out.colorNearest = nearestColor(out.colorHex, ALL_COLORS)?.id; if (known(map.couleur)) out.colorUnknown = map.couleur.slice(0, 40); }
+    else { const c = color(map.couleur); if (c) out.color = c; else out.colorUnknown = map.couleur.slice(0, 40); }
+  }
   if (map['couleur secondaire'] !== undefined) { const c = known(map['couleur secondaire']) ? color(map['couleur secondaire']) : null; if (c && c !== out.color) out.color2 = c; else out.noColor2 = true; }
   if (known(map.motif)) out.pattern = PATTERNS.find((x) => norm(x) === norm(map.motif)) || firstMatch(PATTERN_RULES, norm(map.motif)) || (/uni/.test(norm(map.motif)) ? 'Uni' : undefined);
   if (known(map.matiere)) out.material = MATERIALS.find((x) => norm(x) === norm(map.matiere)) || firstMatch(MATERIAL_RULES, norm(map.matiere)) || undefined;
