@@ -112,15 +112,15 @@ async function renderList(main) {
 }
 
 // ---------------------------------------------------------------- Galerie photo (défilement)
-const PHOTO_LABEL = (p) => (p.cutout ? 'Présentation boutique' : ({ product: 'Photo de l\'article', real: 'Photo réelle', back: 'Dos', detail: 'Détail', label: 'Étiquette', worn: 'Portée', wardrobe: 'Photo réelle', single: 'Photo réelle' })[p.kind] || 'Photo');
+const PHOTO_LABEL = (p) => (p.cutout ? 'Version boutique' : ({ product: 'Photo de l\'article', real: 'Photo réelle', back: 'Dos', detail: 'Détail', label: 'Étiquette', worn: 'Portée', wardrobe: 'Photo réelle', single: 'Photo réelle' })[p.kind] || 'Photo');
 function gallery(photos, name) {
   return html`<div class="gallery" id="gallery">
-    <div class="gallery-track" tabindex="0" aria-label="Photos de ${name} (faites défiler)">${photos.map((p, i) => html`<figure class="gallery-slide" data-i="${i}"><img data-photo="${p.id}" data-full alt="${name} — ${PHOTO_LABEL(p)}"><figcaption>${PHOTO_LABEL(p)}${photos.length > 1 ? ` · ${i + 1}/${photos.length}` : ''}</figcaption></figure>`)}</div>
+    <div class="gallery-track" tabindex="0" aria-label="Photos de ${name} (faites défiler)">${photos.map((p, i) => html`<figure class="gallery-slide" data-i="${i}"><img data-photo="${p.id}" data-full alt="${name} — ${PHOTO_LABEL(p)}"><figcaption>${i === 0 && photos.length > 1 ? '★ ' : ''}${PHOTO_LABEL(p)}${photos.length > 1 ? ` · ${i + 1}/${photos.length}` : ''}</figcaption></figure>`)}</div>
     ${photos.length > 1 ? html`<button type="button" class="gallery-nav prev" aria-label="Photo précédente">‹</button><button type="button" class="gallery-nav next" aria-label="Photo suivante">›</button>
       <div class="gallery-dots">${photos.map((p, i) => html`<button type="button" data-dot="${i}" aria-label="${PHOTO_LABEL(p)}" aria-current="${i === 0}"></button>`)}</div>` : ''}
   </div>`;
 }
-function setupGallery(main) {
+function setupGallery(main, onMakeMain) {
   const box = main.querySelector('#gallery'); if (!box) return;
   const track = box.querySelector('.gallery-track'); const n = track.children.length;
   const cur = () => Math.round(track.scrollLeft / Math.max(1, track.clientWidth));
@@ -128,7 +128,10 @@ function setupGallery(main) {
   box.querySelector('.prev')?.addEventListener('click', () => go(cur() - 1));
   box.querySelector('.next')?.addEventListener('click', () => go(cur() + 1));
   box.querySelectorAll('[data-dot]').forEach((d) => d.onclick = () => go(+d.dataset.dot));
-  track.addEventListener('scroll', () => { const i = cur(); box.querySelectorAll('[data-dot]').forEach((d) => d.setAttribute('aria-current', String(+d.dataset.dot === i))); }, { passive: true });
+  const mm = main.querySelector('#makemain');
+  const sync = () => { const i = cur(); box.querySelectorAll('[data-dot]').forEach((d) => d.setAttribute('aria-current', String(+d.dataset.dot === i))); mm?.classList.toggle('hidden', i === 0); };
+  track.addEventListener('scroll', sync, { passive: true });
+  if (mm && onMakeMain) mm.onclick = () => onMakeMain(cur());
   track.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight') go(cur() + 1); if (e.key === 'ArrowLeft') go(cur() - 1); });
   // Toucher une photo : plein écran pour bien voir la matière (zoom avec deux doigts).
   track.querySelectorAll('img').forEach((img) => img.addEventListener('click', () => {
@@ -150,11 +153,12 @@ async function renderDetail(main, g) {
     const realId = uid('ph');
     await store.repo.put('photos', { id: realId, ownerId: g.id, profileId: g.profileId, blob: ph0.originalBlob, thumb: ph0.originalThumb || ph0.originalBlob, mime: ph0.originalBlob.type || 'image/jpeg', kind: 'real', private: true, rights: 'user_owned', alt: `${g.name} — photo réelle` });
     await store.repo.put('photos', { ...ph0, originalBlob: null, originalThumb: null });
-    const next = { ...g, photoIds: [ph0.id, realId, ...g.photoIds.slice(1)] };
+    const next = { ...g, photoIds: [realId, ph0.id, ...g.photoIds.slice(1)] }; // la vraie photo d'abord
     await store.repo.put('garments', next);
     return renderDetail(main, next);
   }
-  const real = photos.find((p) => p.kind === 'real');
+  const shop = photos.find((p) => p.cutout) || null;
+  const real = photos.find((p) => !p.cutout && ['real', 'single', 'wardrobe', 'worn', undefined].includes(p.kind)) || null;
   const cpw = costPerWear(g);
   setHTML(main, html`
     <a href="#/wardrobe" class="small">← Dressing</a>
@@ -166,8 +170,10 @@ async function renderDetail(main, g) {
     <div class="grid-2" style="align-items:start">
       <div class="stack">
         ${photos.length ? gallery(photos, g.name) : html`<div class="card-flat small muted">Aucune photo. Ajoutez-en une depuis « Modifier ».</div>`}
-        ${ph0 ? html`<div class="card-flat"><div class="btn-row"><button class="btn btn-sm" id="cutbtn">${ph0.cutout ? 'Refaire la présentation boutique' : 'Présentation boutique (fond ivoire, redressée)'}</button>${ph0.cutout && (real || ph0.originalBlob) ? html`<button class="btn btn-sm btn-ghost" id="uncut">Retirer la présentation boutique</button>` : ''}</div>
-          <p class="small muted" id="cutmsg" aria-live="polite">Traitement sur votre appareil, aucune photo envoyée. ${ph0.cutout ? '' : `Premier usage : téléchargement unique d'environ ${CUTOUT_DOWNLOAD_MB} Mo.`}</p></div>` : ''}
+        ${photos.length > 1 ? html`<button class="btn btn-sm btn-ghost hidden" type="button" id="makemain">★ Mettre cette photo en principale</button>` : ''}
+        ${real || shop ? html`<div class="card-flat"><p class="small" style="margin-top:0"><strong>Version boutique</strong> (facultative) : fond ivoire, pièce détourée et redressée. Votre vraie photo reste toujours gardée.</p>
+          <div class="btn-row"><button class="btn btn-sm" id="cutbtn">${shop ? 'Refaire la version boutique' : 'Créer la version boutique'}</button>${shop && (real || shop.originalBlob) ? html`<button class="btn btn-sm btn-ghost" id="uncut">Supprimer la version boutique</button>` : ''}</div>
+          <p class="small muted" id="cutmsg" aria-live="polite">Traitement sur votre appareil, aucune photo envoyée. ${shop ? '' : `Premier usage : téléchargement unique d'environ ${CUTOUT_DOWNLOAD_MB} Mo.`}</p></div>` : ''}
         ${g.setId ? html`<div class="card"><h3>Ensemble</h3>${mates.length ? html`<p class="small">Se porte avec : ${mates.map((m, i) => html`${i ? ', ' : ''}<a href="#/wardrobe/${m.id}">${m.name}</a>`)}.</p>` : html`<p class="small">La pièce assortie n'a pas encore de fiche. <a href="#/wardrobe/${g.id}/edit">Modifier</a> puis enregistrer pour la créer.</p>`}
           <p class="small muted">Ensemble complet pour les occasions habillées ; séparément le reste du temps (la veste en blazer avec un chino ou un jean, le pantalon avec un pull fin). Lavez et pressez les deux pièces ensemble pour garder la même teinte.</p></div>` : ''}
         <div class="card"><h3>Disponibilité</h3><div class="chips">${AVAILABILITY.map(([id, label]) => html`<button class="chip" data-avail="${id}" aria-pressed="${(g.availability || 'clean') === id}">${label}</button>`)}</div>
@@ -194,34 +200,37 @@ async function renderDetail(main, g) {
     <div class="grid-2" id="pairings"><p class="muted"><span class="loader"></span> Calcul…</p></div>`);
   function row(label, value) { return value === null || value === undefined || value === '' ? '' : html`<dt class="muted">${label}</dt><dd style="margin:0">${value}</dd>`; }
   hydratePhotos(main);
-  setupGallery(main);
+  setupGallery(main, async (i) => { // photo principale = celle des cartes, tenues et listes
+    const ids = [g.photoIds[i], ...g.photoIds.filter((_, j) => j !== i)];
+    await store.repo.put('garments', { ...g, photoIds: ids }); toast('Photo principale changée'); navigate(`#/wardrobe/${g.id}`);
+  });
   main.querySelector('#cutbtn')?.addEventListener('click', async (e) => {
     const btn = e.currentTarget; const msg = main.querySelector('#cutmsg'); btn.disabled = true;
     try {
-      const source = real?.blob || ph0.originalBlob || ph0.blob;
+      const source = real?.blob || shop?.originalBlob || shop?.blob;
       const out = await cutout(source, ({ step, pct }) => { msg.textContent = `${step}${pct !== null ? ` — ${pct} %` : '…'}`; });
-      if (ph0.cutout) { // nouvelle présentation à partir de la vraie photo
-        await store.repo.put('photos', { ...ph0, blob: out.blob, thumb: out.thumb, mime: out.blob.type, width: out.width, height: out.height });
-        forgetPhotoURL(ph0.id);
-      } else { // la photo actuelle devient la « photo réelle », la présentation boutique passe en tête
+      if (shop) { // nouvelle version boutique à partir de la vraie photo
+        await store.repo.put('photos', { ...shop, blob: out.blob, thumb: out.thumb, mime: out.blob.type, width: out.width, height: out.height });
+        forgetPhotoURL(shop.id);
+      } else { // la vraie photo reste en premier ; la version boutique est ajoutée juste après
         const shopId = uid('ph');
-        await store.repo.put('photos', { id: shopId, ownerId: g.id, profileId: g.profileId, blob: out.blob, thumb: out.thumb, mime: out.blob.type, width: out.width, height: out.height, kind: 'single', cutout: true, private: true, rights: 'user_owned', alt: g.name });
-        await store.repo.put('photos', { ...ph0, kind: 'real', alt: `${g.name} — photo réelle` });
-        await store.repo.put('garments', { ...g, photoIds: [shopId, ...g.photoIds] });
+        await store.repo.put('photos', { id: shopId, ownerId: g.id, profileId: g.profileId, blob: out.blob, thumb: out.thumb, mime: out.blob.type, width: out.width, height: out.height, kind: 'single', cutout: true, private: true, rights: 'user_owned', alt: `${g.name} — version boutique` });
+        if (real.kind !== 'real') await store.repo.put('photos', { ...real, kind: 'real', alt: `${g.name} — photo réelle` });
+        const at = g.photoIds.indexOf(real.id) + 1;
+        await store.repo.put('garments', { ...g, photoIds: [...g.photoIds.slice(0, at), shopId, ...g.photoIds.slice(at)] });
       }
       toast(out.straightened ? `Présentation boutique prête (redressée de ${Math.abs(out.straightened)}°)` : 'Présentation boutique prête'); navigate(`#/wardrobe/${g.id}`);
     } catch (err) { msg.textContent = err.message; btn.disabled = false; }
   });
   main.querySelector('#uncut')?.addEventListener('click', async () => {
-    if (real) { // on garde la vraie photo, la présentation est supprimée
-      await store.repo.remove('photos', ph0.id); forgetPhotoURL(ph0.id);
-      await store.repo.put('photos', { ...real, kind: 'single', alt: g.name });
-      await store.repo.put('garments', { ...g, photoIds: g.photoIds.filter((id) => id !== ph0.id) });
+    if (real) { // on garde la vraie photo, la version boutique est supprimée
+      await store.repo.remove('photos', shop.id); forgetPhotoURL(shop.id);
+      await store.repo.put('garments', { ...g, photoIds: g.photoIds.filter((id) => id !== shop.id) });
     } else {
-      await store.repo.put('photos', { ...ph0, blob: ph0.originalBlob, thumb: ph0.originalThumb, originalBlob: null, originalThumb: null, cutout: false });
-      forgetPhotoURL(ph0.id);
+      await store.repo.put('photos', { ...shop, blob: shop.originalBlob, thumb: shop.originalThumb, originalBlob: null, originalThumb: null, cutout: false });
+      forgetPhotoURL(shop.id);
     }
-    toast('Présentation boutique retirée : la photo réelle est conservée'); navigate(`#/wardrobe/${g.id}`);
+    toast('Version boutique supprimée : la vraie photo est conservée'); navigate(`#/wardrobe/${g.id}`);
   });
   main.querySelector('#goweb')?.addEventListener('click', () => { focusWeb = true; navigate(`#/wardrobe/${g.id}/edit`); });
   main.querySelector('#fav').onclick = async () => { await store.repo.put('garments', { ...g, favorite: !g.favorite }); navigate(`#/wardrobe/${g.id}`); };
@@ -266,7 +275,6 @@ async function renderEditor(main, existing, preset = {}) {
   const g = existing || { id: null, category: preset.category || 'haut', sub: preset.sub || 'chemise', seasons: [], styles: [], tags: [], measures: {}, availability: 'clean', condition: 'good', photoIds: [], rainResistance: 0, windResistance: 0, ...preset };
   const state = { source: null, rotation: 0, crop: { x: 0, y: 0, w: 1, h: 1 }, aspect: 'free', dominant: [], photoKind: preset.photoKind || 'single', removePhotos: new Set(), extras: [], pasteLabel: false, savedPhotoId: null };
   const ai = await aiStatus();
-  const shopPref = await store.repo.kvGet('pref:cutout', false);
   const consentAI = store.profile.consents?.ai && store.profile.kind !== 'child';
   const colorOpts = GARMENT_COLORS.map((c) => [c.id, c.name]).concat([['custom', 'Personnalisée…']]);
   const subOpts = (cat) => CATEGORY_BY_ID[cat].subs.map(([id, name]) => [id, name]);
@@ -301,7 +309,7 @@ async function renderEditor(main, existing, preset = {}) {
         </div>
         <div class="btn-row"><button class="btn btn-sm" type="button" id="rot">${icon('rotate')} Pivoter 90°</button><button class="btn btn-sm btn-ghost" type="button" id="clearphoto">Retirer cette photo</button></div>
         <div id="domcolors" style="margin-top:10px"></div>
-        <label class="check" style="margin-top:10px"><input type="checkbox" id="shopstyle" ${shopPref ? raw('checked') : ''}> <span><strong>Présentation boutique</strong> à l'enregistrement : fond ivoire uni, pièce détourée, redressée et centrée, ombre douce. Sur l'appareil, sans envoi (premier usage : téléchargement unique d'environ ${CUTOUT_DOWNLOAD_MB} Mo).</span></label>
+        <label class="check" style="margin-top:10px"><input type="checkbox" id="shopstyle"> <span><strong>Ajouter aussi une version boutique</strong> (facultatif) : fond ivoire uni, pièce détourée, redressée et centrée. Votre vraie photo reste la photo principale. Sur l'appareil, sans envoi (premier usage : téléchargement unique d'environ ${CUTOUT_DOWNLOAD_MB} Mo).</span></label>
         <p class="small muted" id="shopmsg" aria-live="polite"></p>
       </div>
       <div class="card-flat" style="margin-top:12px"><p class="small"><strong>Autres photos de la même pièce</strong> <span class="muted">(facultatif) : dos, détail, étiquette</span></p>
@@ -441,7 +449,6 @@ async function renderEditor(main, existing, preset = {}) {
   if (existing?.photoIds?.length) { const phs = await Promise.all(existing.photoIds.map((id) => store.repo.get('photos', id))); state.savedPhotoId = phs.find((ph) => ph && ph.blob && ph.kind !== 'label')?.id || null; }
   setupWebIdentify(main, state, { subOpts, syncSub, syncColor });
   setupExtraPhotos(main, state);
-  $('#shopstyle')?.addEventListener('change', (e) => store.repo.kvSet('pref:cutout', e.target.checked));
   if (focusWeb) { focusWeb = false; setTimeout(() => { const top = $('#webid').getBoundingClientRect().top + window.scrollY - (document.querySelector('.topbar, header')?.offsetHeight || 64) - 12; window.scrollTo({ top, behavior: 'smooth' }); $('#webid').classList.add('flash'); }, 150); }
 
   form.onsubmit = async (e) => {
@@ -469,9 +476,9 @@ async function renderEditor(main, existing, preset = {}) {
         }
         if (cut) { // présentation boutique en tête + vraie photo juste après (les deux synchronisées)
           const realId = uid('ph');
-          await store.repo.put('photos', { id: phId, ownerId: id, profileId: pid(), blob: cut.blob, thumb: cut.thumb, mime: cut.blob.type || 'image/jpeg', width: cut.width, height: cut.height, kind: 'single', cutout: true, private: true, rights: 'user_owned', alt: v.name });
+          await store.repo.put('photos', { id: phId, ownerId: id, profileId: pid(), blob: cut.blob, thumb: cut.thumb, mime: cut.blob.type || 'image/jpeg', width: cut.width, height: cut.height, kind: 'single', cutout: true, private: true, rights: 'user_owned', alt: `${v.name} — version boutique` });
           await store.repo.put('photos', { id: realId, ownerId: id, profileId: pid(), blob: out.blob, thumb: out.thumbBlob, mime: out.blob.type || 'image/jpeg', width: out.width, height: out.height, kind: 'real', private: true, rights: 'user_owned', alt: `${v.name} — photo réelle` });
-          photoIds = existing ? [phId, realId, ...photoIds] : [...photoIds, phId, realId];
+          photoIds = [...photoIds, realId, phId]; // vraie photo d'abord, version boutique ensuite
         } else {
           await store.repo.put('photos', { id: phId, ownerId: id, profileId: pid(), blob: out.blob, thumb: out.thumbBlob, mime: out.blob.type || 'image/jpeg', width: out.width, height: out.height, kind: v.photoKind, private: true, rights: 'user_owned', alt: v.name });
           photoIds = [...photoIds, phId];
@@ -976,7 +983,7 @@ async function renderReview(main) {
 // ---------------------------------------------------------------- Ajout rapide (photo + type + couleur, le reste plus tard)
 async function renderQuick(main) {
   let added = 0;
-  let autoCut = await store.repo.kvGet('pref:cutout', false);
+  let autoCut = false; // vraie photo par défaut ; version boutique seulement si demandée
   const draw = () => {
     setHTML(main, html`<a href="#/wardrobe" class="small">← Dressing</a>
       <div class="page-head" style="margin-top:8px"><div class="eyebrow">Ajout rapide</div><h1>Une pièce en 10 secondes</h1>
@@ -984,7 +991,7 @@ async function renderQuick(main) {
       <p class="lede">Photo, type, couleur : c'est tout. La pièce est marquée « à compléter » ; affinez la fiche plus tard. ${added ? html`<strong>${added} pièce${added > 1 ? 's' : ''} ajoutée${added > 1 ? 's' : ''} pendant cette session.</strong>` : ''}</p></div>
       <div class="card stack">
         <div class="btn-row"><label class="btn btn-primary" for="qcam">${icon('camera')} Prendre la photo</label><input id="qcam" type="file" accept="image/*" capture="environment" class="sr-only"><label class="btn" for="qfile">${icon('upload')} Choisir une photo</label><input id="qfile" type="file" accept="image/*" class="sr-only"><button class="btn btn-ghost" id="qnophoto">Sans photo</button></div>
-        <label class="check"><input type="checkbox" id="qcut" ${autoCut ? raw('checked') : ''}> Présentation boutique automatique : fond ivoire, pièce redressée et centrée, ombre douce (sur l'appareil ; premier usage : ~${CUTOUT_DOWNLOAD_MB} Mo)</label>
+        <label class="check"><input type="checkbox" id="qcut" ${autoCut ? raw('checked') : ''}> Ajouter aussi une version boutique (fond ivoire, redressée) — la vraie photo reste principale (sur l'appareil ; premier usage : ~${CUTOUT_DOWNLOAD_MB} Mo)</label>
         <p class="small muted" id="qcutmsg" aria-live="polite"></p>
         <div id="qform" class="hidden">
           <div class="row" style="align-items:flex-start;flex-wrap:nowrap"><div class="mini-thumb" style="width:96px" id="qprev"></div>
@@ -1020,7 +1027,7 @@ async function renderQuick(main) {
     $('#qcam').onchange = (e) => e.target.files[0] && load(e.target.files[0]);
     $('#qfile').onchange = (e) => e.target.files[0] && load(e.target.files[0]);
     $('#qnophoto').onclick = () => { st.out = null; show(); };
-    $('#qcut').onchange = async (e) => { autoCut = e.target.checked; await store.repo.kvSet('pref:cutout', autoCut); };
+    $('#qcut').onchange = (e) => { autoCut = e.target.checked; };
     main.querySelectorAll('[data-cat]').forEach((b) => b.onclick = () => { st.cat = b.dataset.cat; main.querySelectorAll('[data-cat]').forEach((x) => x.setAttribute('aria-pressed', x === b)); setHTML($('#qsub'), options(CATEGORY_BY_ID[st.cat].subs.map(([id, n]) => [id, n]), '')); $('#qsub').disabled = false; st.sub = $('#qsub').value; ready(); });
     $('#qsub').onchange = (e) => { st.sub = e.target.value; ready(); };
     main.querySelectorAll('[data-col]').forEach((b) => b.onclick = () => { st.color = b.dataset.col; main.querySelectorAll('[data-col]').forEach((x) => x.setAttribute('aria-pressed', x === b)); ready(); });
@@ -1028,14 +1035,11 @@ async function renderQuick(main) {
       const id = uid('g'); const info = SUB_INFO[st.sub]; const c = COLOR_BY_ID[st.color];
       const photoIds = [];
       if (st.out) {
-        const phId = uid('ph');
-        await store.repo.put('photos', { id: phId, ownerId: id, profileId: pid(), blob: st.out.blob, thumb: st.out.thumbBlob, mime: st.out.blob.type || 'image/jpeg', width: st.out.width, height: st.out.height, kind: 'single', private: true, rights: 'user_owned', cutout: !!st.out.cut }, { silent: true });
-        photoIds.push(phId);
-        if (st.out.cut && st.out.original) { // la vraie photo est gardée, juste après la présentation boutique
-          const realId = uid('ph');
-          await store.repo.put('photos', { id: realId, ownerId: id, profileId: pid(), blob: st.out.original, thumb: st.out.originalThumb || st.out.original, mime: st.out.original.type || 'image/jpeg', width: st.out.originalW, height: st.out.originalH, kind: 'real', private: true, rights: 'user_owned' }, { silent: true });
-          photoIds.push(realId);
-        }
+        const mk = async (rec) => { const phId = uid('ph'); await store.repo.put('photos', { id: phId, ownerId: id, profileId: pid(), private: true, rights: 'user_owned', ...rec }, { silent: true }); photoIds.push(phId); };
+        if (st.out.cut && st.out.original) { // vraie photo d'abord, version boutique ensuite
+          await mk({ blob: st.out.original, thumb: st.out.originalThumb || st.out.original, mime: st.out.original.type || 'image/jpeg', width: st.out.originalW, height: st.out.originalH, kind: 'real' });
+          await mk({ blob: st.out.blob, thumb: st.out.thumbBlob, mime: st.out.blob.type || 'image/jpeg', width: st.out.width, height: st.out.height, kind: 'single', cutout: true });
+        } else await mk({ blob: st.out.blob, thumb: st.out.thumbBlob, mime: st.out.blob.type || 'image/jpeg', width: st.out.width, height: st.out.height, kind: 'single' });
       }
       await store.repo.put('garments', { id, profileId: pid(), name: `${info?.name || 'Pièce'} ${c.name.toLowerCase()}`, category: st.cat, sub: st.sub, color: { id: c.id, name: c.name, hex: c.hex }, color2: null, pattern: 'Uni', seasons: [], styles: [], tags: ['à compléter'], measures: {}, formality: info?.formality || 3, warmth: Math.max(1, info?.warmth || 2), comfort: 3, rainResistance: 0, windResistance: 0, availability: 'clean', photoIds, photoKind: 'single' });
       added++; toast(`${info?.name || 'Pièce'} ${c.name.toLowerCase()} ajoutée`);
