@@ -9,16 +9,22 @@ import { CATEGORIES, FITS } from '../data/taxonomy.js';
 import { buildQuery, siteSearchUrl, shoppingUtility, totalCost, capsuleProgress, capsuleState } from '../domain/wardrobe-logic.js';
 import { outfitsUnlocked } from '../domain/recommend.js';
 import { navigate } from '../app.js';
+import { GARMENT_COLORS } from '../data/colors.js';
+import { SUB_INFO } from '../data/taxonomy.js';
+import { swatch } from '../components/ui.js';
+import { colorHex } from '../domain/colors.js';
+import { piecesList } from './shared.js';
 
 export async function render(main, params, query) {
   const tab = params[0] || 'search';
   setHTML(main, html`<div class="page-head"><div class="eyebrow">Shopping intelligent</div><h1>Shopping</h1>
     <p class="lede">Le point de départ est votre dressing : une pièce à acheter doit apporter une utilité claire, idéalement au moins trois tenues supplémentaires. Retouche, seconde main ou pièce existante d'abord.</p></div>
-    <nav class="tabs" aria-label="Sections shopping">${[['search', 'Rechercher'], ['wishlist', 'Liste d\'envies'], ['directory', 'Annuaire'], ['history', 'Achats']].map(([id, l]) => html`<a href="#/shopping/${id}" ${tab === id ? raw('aria-current="page"') : ''}>${l}</a>`)}</nav><div id="stab"></div>`);
+    <nav class="tabs" aria-label="Sections shopping">${[['check', 'Avant d\'acheter'], ['search', 'Rechercher'], ['wishlist', 'Liste d\'envies'], ['directory', 'Annuaire'], ['history', 'Achats']].map(([id, l]) => html`<a href="#/shopping/${id}" ${tab === id ? raw('aria-current="page"') : ''}>${l}</a>`)}</nav><div id="stab"></div>`);
   const box = main.querySelector('#stab');
   if (tab === 'wishlist') return renderWishlist(box, params[1]);
   if (tab === 'directory') return renderDirectory(box);
   if (tab === 'history') return renderHistory(box);
+  if (tab === 'check') return renderCheck(box, query);
   return renderSearch(box, query);
 }
 
@@ -254,4 +260,101 @@ async function renderHistory(box) {
     ${list.map((w) => html`<tr><td>${w.name}${w.linkedGarmentId ? html` · <a href="#/wardrobe/${w.linkedGarmentId}">fiche</a>` : ''}</td><td>${w.status === 'purchased' ? 'Acheté' : 'Retiré'}</td><td>${fmtDate(w.purchasedAt || w.droppedAt)}</td><td class="num">${w.purchasePrice ? fmtEUR(w.purchasePrice) : '—'}</td><td><button class="btn btn-sm btn-ghost" data-restore="${w.id}">Remettre en envie</button></td></tr>`)}</tbody></table></div>`
     : emptyState('Aucun achat enregistré', 'Marquez une envie comme « Achetée » pour suivre votre budget.', ''));
   box.querySelectorAll('[data-restore]').forEach((b) => b.onclick = async () => { const w = list.find((x) => x.id === b.dataset.restore); await store.repo.put('wishlist', { ...w, status: 'wanted' }); renderHistory(box); });
+}
+
+
+// ---------------------------------------------------------------- Avant d'acheter
+const VERDICT_STYLE = { buy: ['tag-ok', 'check'], think: ['tag-warn', 'rotate'], skip: ['tag-danger', 'close'] };
+async function renderCheck(box, query) {
+  const all = await loadGarments();
+  const st = { cand: { sub: '', color: '', material: '', price: '', name: '', brand: '', url: '', ref: '' }, note: '', photo: null };
+  setHTML(box, html`<section class="card card-accent">
+    <h2 style="margin-top:0">Faut-il l'acheter ?</h2>
+    <p class="small">Collez le <strong>lien</strong> de l'article, ou écrivez la <strong>marque, la référence et une description</strong> (ex. « Uniqlo pull col rond mérinos marine 39,90 € »). Une <strong>photo</strong> aide pour la couleur. SPREZZA compare avec votre dressing et vous dit si l'achat est utile.</p>
+    <div class="field"><label for="pcin">Lien, marque, référence ou description</label><textarea id="pcin" rows="3" placeholder="https://… ou « Zara chino marron clair 0347/890 29,95 € »">${query?.get('q') || ''}</textarea></div>
+    <div class="form-grid">
+      <div class="field"><label for="pcphoto">Photo (facultatif)</label><input id="pcphoto" type="file" accept="image/*"></div>
+      <div class="field"><label for="pcprice">Prix (€)</label><input id="pcprice" type="number" inputmode="decimal" step="0.01" min="0"></div>
+    </div>
+    <div class="btn-row"><button class="btn btn-primary" id="pcgo">${icon('search')} Analyser</button></div>
+    <div id="pcout" style="margin-top:12px"></div></section>
+    <div id="pcres"></div>`);
+  const $ = (q) => box.querySelector(q);
+  $('#pcphoto').onchange = async (e) => {
+    const f = e.target.files?.[0]; if (!f) return;
+    try {
+      const { processImage } = await import('../services/image.js');
+      const bmp = await createImageBitmap(f);
+      const r = await processImage(bmp);
+      st.photo = URL.createObjectURL(r.thumbBlob);
+      const d = r.dominant?.[0]; if (d?.nearestId) { st.photoColor = d.nearestId; if (!st.cand.color) st.cand.color = d.nearestId; }
+      toast(d ? `Couleur estimée d'après la photo : ${d.nearestName} (à confirmer)` : 'Photo ajoutée');
+      if (st.cand.sub) form(); 
+    } catch { toast('Photo illisible'); }
+  };
+  $('#pcgo').onclick = async () => {
+    const input = $('#pcin').value.trim();
+    if (!input && !st.photo) { toast('Collez un lien, une référence ou ajoutez une photo'); return; }
+    const { parseProduct, readerToText, urlWords } = await import('../domain/product-parse.js');
+    let text = input; st.note = ''; let pageName = '';
+    const photoColor = st.photoColor || '';
+    st.cand = { sub: '', color: photoColor, material: '', price: '', name: '', brand: '', url: '', ref: '' }; // nouvelle analyse
+    const url = (input.match(/https?:\/\/[^\s"'<>]+/) || [])[0];
+    if (url) {
+      setHTML($('#pcout'), html`<p class="small"><span class="loader"></span> Lecture de la page…</p>`);
+      try { const { fetchProductPage } = await import('../services/product-fetch.js'); const page = await fetchProductPage(url); const r = readerToText(page); text = `${r.text}\n${input}`; pageName = r.name || ''; }
+      catch (e) { st.note = `La boutique n'a pas laissé lire la page (${e.message}) : seules les informations du lien sont reprises. Complétez le type et la couleur ci-dessous.`; }
+    }
+    const p = parseProduct(text);
+    Object.assign(st.cand, { sub: p.sub || '', color: p.color || photoColor, material: p.material || '', brand: p.brand || '', url: url || '', ref: p.ref || '', name: pageName });
+    const price = Number($('#pcprice').value) || p.price || null; st.cand.price = price || '';
+    if (price && !$('#pcprice').value) $('#pcprice').value = price;
+    void urlWords;
+    form();
+  };
+  const form = () => {
+    const subs = CATEGORIES.filter((c) => !['accessoire'].includes(c.id)).map((c) => [c.name, c.subs.map(([id, name]) => [id, name])]);
+    setHTML($('#pcout'), html`${st.note ? html`<div class="callout callout-warn small">${st.note}</div>` : ''}
+      <div class="row" style="gap:12px;align-items:flex-start">${st.photo ? html`<img src="${st.photo}" alt="" style="width:90px;border-radius:10px">` : ''}
+      <div style="flex:1"><p class="small muted" style="margin:0 0 6px">Vérifiez et corrigez si besoin :</p>
+      <div class="form-grid">
+        <div class="field"><label for="pcsub">Type</label><select id="pcsub"><option value="">— Choisir —</option>${subs.map(([cat, list]) => html`<optgroup label="${cat}">${list.map(([id, name]) => html`<option value="${id}" ${st.cand.sub === id ? raw('selected') : ''}>${name}</option>`)}</optgroup>`)}</select></div>
+        <div class="field"><label for="pccol">Couleur</label><select id="pccol"><option value="">— Choisir —</option>${GARMENT_COLORS.map((c) => html`<option value="${c.id}" ${st.cand.color === c.id ? raw('selected') : ''}>${c.name}</option>`)}</select></div>
+        <div class="field"><label for="pcmat">Matière</label><input id="pcmat" value="${st.cand.material}"></div>
+      </div>${st.cand.brand || st.cand.ref ? html`<p class="small muted">${[st.cand.brand, st.cand.ref ? `réf. ${st.cand.ref}` : ''].filter(Boolean).join(' · ')}</p>` : ''}
+      <button class="btn btn-primary" id="pceval">Donner mon avis</button></div></div>`);
+    const ev = () => {
+      st.cand.sub = $('#pcsub').value; st.cand.color = $('#pccol').value; st.cand.material = $('#pcmat').value.trim(); st.cand.price = Number($('#pcprice').value) || '';
+      if (!st.cand.sub || !st.cand.color) { toast('Choisissez le type et la couleur'); return; }
+      verdict();
+    };
+    $('#pceval').onclick = ev;
+    if (st.cand.sub && st.cand.color) verdict();
+  };
+  const verdict = async () => {
+    setHTML($('#pcres'), html`<p class="muted" style="margin-top:14px"><span class="loader"></span> Comparaison avec votre dressing…</p>`);
+    await new Promise((r) => setTimeout(r, 30));
+    const { evaluatePurchase } = await import('../domain/purchase.js');
+    const c = st.cand;
+    const r = evaluatePurchase({ sub: c.sub, color: c.color, material: c.material, price: c.price || null, name: c.name }, all, { date: new Date() });
+    if (!r) return;
+    const [tone, ic] = VERDICT_STYLE[r.verdict];
+    const nm = c.name || [c.brand, SUB_INFO[c.sub].name, COLOR_BY_ID[c.color]?.name.toLowerCase()].filter(Boolean).join(' ');
+    const newUrl = `#/wardrobe/new?name=${encodeURIComponent(nm)}&sub=${c.sub}&color=${c.color}${c.price ? `&price=${c.price}` : ''}${c.material ? `&material=${encodeURIComponent(c.material)}` : ''}${c.brand ? `&brand=${encodeURIComponent(c.brand)}` : ''}${c.ref ? `&ref=${encodeURIComponent(c.ref)}` : ''}${c.url ? `&sourceUrl=${encodeURIComponent(c.url)}` : ''}`;
+    setHTML($('#pcres'), html`<section class="card" style="margin-top:16px;border-left:4px solid var(${r.verdict === 'buy' ? '--ok' : r.verdict === 'think' ? '--warn' : '--danger'}, #999)">
+      <div class="row" style="gap:10px;align-items:center">${swatch(colorHex(c.color))}<div><div class="eyebrow">Mon avis</div><h2 style="margin:0">${r.label}</h2></div><span class="tag ${tone}" style="margin-left:auto">${icon(ic)} ${r.verdict === 'buy' ? 'Oui' : r.verdict === 'think' ? 'Peut-être' : 'Non'}</span></div>
+      <p class="small muted" style="margin:6px 0 0">${nm}${c.price ? ` · ${fmtEUR(c.price)}` : ''}</p>
+      <ul class="clean" style="margin-top:10px">${r.reasons.map((x) => html`<li style="padding:5px 0;display:flex;gap:8px"><span class="tag ${x.tone === 'ok' ? 'tag-ok' : x.tone === 'warn' ? 'tag-warn' : 'tag-danger'}">${x.tone === 'ok' ? '+' : x.tone === 'warn' ? '!' : '−'}</span><span>${x.text}</span></li>`)}</ul>
+      ${r.examples.length ? html`<h3>Avec quoi la porter</h3><ul class="clean small">${r.examples.map((e) => html`<li style="padding:4px 0">${piecesList(e.pieces).filter(([k]) => k !== 'accessory').map(([, g]) => (g.id === '__candidate' ? `★ ${nm}` : g.name)).join(' · ')} <span class="muted">(${e.score}/100)</span></li>`)}</ul>` : ''}
+      <div class="btn-row" style="margin-top:12px">
+        <a class="btn ${r.verdict === 'buy' ? 'btn-primary' : ''}" href="${newUrl}">${icon('plus')} Je l'ai acheté : créer la fiche</a>
+        <button class="btn" id="pcwish">${icon('heart')} Ajouter à mes envies</button>
+        ${c.ref || c.brand ? html`<a class="btn btn-ghost" target="_blank" rel="noopener" href="${safeUrl(`https://www.google.com/search?q=${encodeURIComponent([c.brand, c.ref, nm].filter(Boolean).join(' '))}`)}">Voir en ligne</a>` : ''}
+      </div>
+      <p class="small muted" style="margin-top:8px">Avis calculé sur votre dressing actuel, sans connaître la coupe ni la qualité réelle : vérifiez taille, composition et conditions de retour.</p></section>`);
+    $('#pcwish').onclick = async () => {
+      const w = await store.repo.put('wishlist', { id: uid('wish'), profileId: pid(), name: nm, query: [c.brand, nm].filter(Boolean).join(' '), color: c.color, budgetMax: c.price || null, material: c.material, priority: r.verdict === 'buy' ? 1 : 2, status: 'wanted', candidates: c.url ? [{ id: uid('cand'), url: c.url, seller: hostOf(c.url), price: c.price || null }] : [] });
+      toast('Ajouté à la liste d\'envies', { action: 'Voir', onAction: () => navigate(`#/shopping/wishlist/${w.id}`) });
+    };
+  };
 }

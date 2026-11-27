@@ -399,3 +399,20 @@ fieldset.flash { animation: flash-gold 1.2s ease-out 2; border-color: var(--cham
 .closet-h { font-size: 1.15rem; margin: 18px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line, rgba(0,0,0,.1)); }
 .closet-h .muted, .closet-sub .muted { font-weight: 400; font-size: .85em; }
 .closet-sub { font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted, #777); margin: 12px 0 8px; }
+
+/* Choisir une pièce dans son dressing */
+button.piece-pick { width: 100%; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+button.piece-pick > .piece { width: 100%; transition: border-color .15s, box-shadow .15s; }
+button.piece-pick:hover > .piece, button.piece-pick:focus-visible > .piece { border-color: var(--champagne, #b8975a); box-shadow: 0 0 0 2px rgba(184,151,90,.18); }
+.pick-hint { font-size: 12px; color: var(--champagne-ink, #8a6d3b); white-space: nowrap; display: inline-flex; gap: 4px; align-items: center; }
+.picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+.picker-card { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.picker-card:hover:not([disabled]) { border-color: var(--champagne, #b8975a); }
+.picker-card.is-current { border-color: var(--champagne, #b8975a); box-shadow: 0 0 0 2px rgba(184,151,90,.25); }
+.picker-card[disabled] { opacity: .45; cursor: not-allowed; }
+.picker-photo { aspect-ratio: 3 / 4; border-radius: 8px; overflow: hidden; background: var(--surface-2, #f3efe7); display: grid; place-items: center; }
+.picker-photo img { width: 100%; height: 100%; object-fit: cover; }
+.picker-photo svg { width: 70%; height: auto; }
+.picker-name { font-size: 13px; font-weight: 500; line-height: 1.25; }
+.piece-clickable { cursor: pointer; }
+.piece-clickable:hover { border-color: var(--champagne, #b8975a); }

@@ -27,6 +27,8 @@ import { closetOrder } from '../src/features/wardrobe.js';
 import { wardrobeAudit, wardrobeGaps } from '../src/domain/audit.js';
 import { detectCapsule, capsuleState } from '../src/domain/wardrobe-logic.js';
 import { workKitStatus, workwearIssue } from '../src/domain/recommend.js';
+import { evaluatePurchase } from '../src/domain/purchase.js';
+import { afterWear as afterWear2 } from '../src/domain/care.js';
 import { climateFeel } from '../src/domain/weather.js';
 import { inspirationQuery, colorsQuery, searchPhotos } from '../src/services/pexels.js';
 import { alphaBounds, deskewAngle, keepMainRegions } from '../src/services/cutout.js';
@@ -645,6 +647,36 @@ test('Capsule : pièces détectées dans le dressing (même type, couleur exacte
   const st = capsuleState({ 1: { owned: false } }, W);
   eq(st[1].owned, false); eq(st[2].auto, true);
   const st2 = capsuleState({ 3: { owned: true } }, W); eq(st2[3].garmentId, d[3].garmentId);
+});
+
+test('Avant d\'acheter : doublon déconseillé, manque prioritaire conseillé, pièce isolée refusée', () => {
+  let n = 0; const G = (category, sub, name, color, x = {}) => ({ id: `p${++n}`, category, sub, name, color: { id: color }, availability: 'clean', ...x });
+  const W = [G('haut', 'chemise', 'Chemise blanche', 'white'), G('haut', 'polo', 'Polo marine', 'navy'), G('haut', 'tee-shirt', 'Tee blanc', 'white'), G('haut', 'chemise', 'Chemise ciel', 'sky'),
+    G('bas', 'chino', 'Chino beige', 'beige'), G('bas', 'jean', 'Jean', 'indigo'), G('bas', 'chino', 'Chino marine', 'navy'),
+    G('chaussures', 'mocassins', 'Mocassins', 'chocolate'), G('chaussures', 'baskets', 'Baskets', 'white')];
+  const date = new Date(2026, 10, 27, 9);
+  const dup = evaluatePurchase({ sub: 'chino', color: 'beige', price: 40 }, W, { date });
+  eq(dup.verdict, 'skip'); ok(dup.similar.length === 1);
+  const coat = evaluatePurchase({ sub: 'manteau', color: 'navy', material: 'Laine', price: 180 }, W, { date });
+  eq(coat.verdict, 'buy'); ok(coat.gapsClosed.some((g) => g.id === 'no-coat'));
+  const odd = evaluatePurchase({ sub: 'pantalon', color: 'burgundy', price: 60 }, W, { date });
+  ok(odd.verdict !== 'buy', odd.verdict);
+  ok(coat.costPerWear > 0 && coat.examples.length >= 1);
+  eq(parseProduct('Uniqlo tee-shirt de travail noir 9,90 €').sub, 'tee-shirt-travail');
+  eq(parseProduct('Chaussures de sécurité S1P SRC légères').sub, 'chaussures-travail');
+  eq(parseProduct('Pantalon de travail stretch genoux renforcés').sub, 'pantalon-travail');
+});
+test('Tenue de travail gardée plusieurs jours : pas de panier à linge avant le nombre de jours choisi', () => {
+  const g = { id: 't', sub: 'tee-shirt-travail', availability: 'clean', wearsSinceWash: 0 };
+  eq(afterWear2(g, { minWears: 3 }).availability, 'worn');
+  eq(afterWear2({ ...g, wearsSinceWash: 2 }, { minWears: 3 }).availability, 'to-wash');
+  eq(afterWear2(g).availability, 'to-wash');
+});
+test('Choisir « sans veste » est respecté', () => {
+  let n = 0; const G = (category, sub, color) => ({ id: `n${++n}`, category, sub, name: sub, color: { id: color }, availability: 'clean' });
+  const W = [G('haut', 'chemise', 'white'), G('bas', 'pantalon', 'mid-gray'), G('chaussures', 'derbies', 'chocolate'), G('veste', 'blazer', 'navy')];
+  const r = recommend({ garments: W, occasionId: 'client', season: 'autumn', imposed: { layer: null } });
+  ok(r.options.length && r.options.every((o) => !o.pieces.layer));
 });
 
 test('Zara : pantalon « taille jogging » = chino, « marron clair chiné », prix soldé, taille et référence écrites', () => {

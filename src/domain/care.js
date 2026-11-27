@@ -55,11 +55,11 @@ export function careStatus(g) {
 }
 
 /** Mise à jour d'une pièce après un port (pure) : compteurs et passage automatique au panier si besoin. */
-export function afterWear(g, { autoBasket = true } = {}) {
+export function afterWear(g, { autoBasket = true, minWears = 0 } = {}) {
   const since = (g.wearsSinceWash || 0) + 1;
   const after = washAfter(g);
   const next = { ...g, wearsSinceWash: since };
-  if (autoBasket && after !== null && since >= after) next.availability = 'to-wash';
+  if (autoBasket && after !== null && since >= Math.max(after, minWears)) next.availability = 'to-wash'; // tenue de travail gardée plusieurs jours
   else if (g.availability === 'clean') next.availability = 'worn';
   return next;
 }

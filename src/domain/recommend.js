@@ -268,6 +268,7 @@ export function recommend(input) {
   const { pools, excluded } = hardFilter(garments, { occasion, env, profileId });
   // Pièces imposées / gardées
   const forced = {};
+  const forcedNone = new Set(Object.entries(imposed).filter(([r, v]) => v === null && ['layer', 'outer'].includes(r)).map(([r]) => r)); // « sans veste » choisi
   for (const [role, id] of Object.entries(imposed)) {
     if (!id) continue;
     const g = garments.find((x) => x.id === id);
@@ -292,8 +293,8 @@ export function recommend(input) {
     const cand = (role, k) => (forced[role] ? [forced[role]] : topK(pools[role], (g) => unaryScore(g, role, mode, ctxBase), k));
     const tops = cand('top'); const bottoms = cand('bottom'); const shoes = cand('shoes');
     const layersAll = cand('layer', 3);
-    const layerOpts = forced.layer ? [forced.layer] : needsLayer(occasion) ? layersAll.filter((g) => garmentFormality(g) >= 4) : [null, ...layersAll];
-    const outerOpts = forced.outer ? [forced.outer] : needsOuter(env) && pools.outer.length ? cand('outer', 2) : env.mild && pools.outer.length ? [null, ...cand('outer', 2)] : [null];
+    const layerOpts = forcedNone.has('layer') ? [null] : forced.layer ? [forced.layer] : needsLayer(occasion) ? layersAll.filter((g) => garmentFormality(g) >= 4) : [null, ...layersAll];
+    const outerOpts = forcedNone.has('outer') ? [null] : forced.outer ? [forced.outer] : needsOuter(env) && pools.outer.length ? cand('outer', 2) : env.mild && pools.outer.length ? [null, ...cand('outer', 2)] : [null];
     const scored = [];
     for (const top of tops) for (const bottom of bottoms) for (const sh of shoes) for (const layer of (layerOpts.length ? layerOpts : [null])) for (const outer of outerOpts) {
       if (layer && top && layer.id === top.id) continue;

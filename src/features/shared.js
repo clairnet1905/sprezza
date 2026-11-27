@@ -1,10 +1,12 @@
 // Composants et actions partagés entre écrans (cartes, propositions, sauvegarde, port).
 import { html, raw } from '../lib/html.js';
-import { icon, swatch, toast, todayISO, scoreLabel10 } from '../components/ui.js';
+import { icon, swatch, toast, todayISO, scoreLabel10, openModal } from '../components/ui.js';
 import { garmentGlyph, mannequinSVG } from '../components/mannequin.js';
 import { ROLE_LABELS, ROLE_ORDER, AVAILABILITY, CATEGORY_BY_ID, SUB_INFO } from '../data/taxonomy.js';
 import { OUTFIT_MODES, OCCASION_BY_ID } from '../data/occasions.js';
-import { store, pid } from '../state.js';
+import { store, pid, hydratePhotos } from '../state.js';
+import { scoreOutfit } from '../domain/scoring.js';
+import { buildEnv } from '../domain/recommend.js';
 import { uid } from '../repositories/db.js';
 import { roleOf, isAvailable, comboKey, workKitStatus } from '../domain/recommend.js';
 import { WORK_SHOPS, WORK_TIPS } from '../data/workwear.js';
@@ -38,7 +40,7 @@ export function garmentCard(g, { versatility } = {}) {
 
 export function pieceRow(role, g, { actions = '' } = {}) {
   if (!g) return '';
-  return html`<div class="piece">
+  return html`<div class="piece" data-role="${role}">
     <div class="mini-thumb">${g.photoIds?.length ? html`<img data-photo="${g.photoIds[0]}" alt="" loading="lazy">` : garmentGlyph(roleOf(g), g.color?.hex)}</div>
     <div class="piece-info"><div class="piece-role">${ROLE_LABELS[role] || role}</div><div class="piece-name">${g.name}</div>
       <div class="g-meta">${g.color?.hex ? swatch(g.color.hex) : ''}<span>${g.color?.name || ''}${g.material ? ` · ${g.material}` : ''}</span></div></div>
@@ -75,6 +77,39 @@ export function outfitMannequin(pieces, label) {
 }
 
 /** Carte de proposition (Aujourd'hui, Tenues, Avec quoi le porter). */
+/** Ligne de pièce cliquable : ouvre le dressing pour choisir une autre pièce de ce rôle. */
+export function pickRow(role, g) {
+  return html`<button type="button" class="piece piece-pick" data-pick="${role}" aria-label="Changer ${ROLE_LABELS[role] || role} : ${g.name} (choisir dans mon dressing)">${pieceRow(role, g, { actions: html`<span class="pick-hint">${icon('rotate')} Changer</span>` })}</button>`;
+}
+
+/**
+ * Choisir une pièce dans son dressing pour une tenue : toutes les pièces du même rôle, avec photo,
+ * classées par note de la tenue obtenue ; les pièces au lavage restent visibles mais grisées.
+ * @param {{role, pieces, garments, occasion, weather?, mode?, onPick:(g|null)=>void}} o
+ */
+export function openDressingPicker({ role, pieces, garments, occasion, weather = null, mode = 'italian', onPick }) {
+  const env = buildEnv({ weather, date: new Date() });
+  const current = pieces[role];
+  const list = garments.filter((g) => roleOf(g) === role).map((g) => {
+    const sc = scoreOutfit({ ...pieces, [role]: g }, { occasion, env, mode, weather: env });
+    return { g, score: sc.normalized, ok: isAvailable(g) };
+  }).sort((a, b) => Number(b.ok) - Number(a.ok) || (b.score ?? 0) - (a.score ?? 0) || a.g.name.localeCompare(b.g.name));
+  const optional = ['layer', 'outer'].includes(role);
+  const body = html`<p class="small muted">Classées selon la note de la tenue avec chaque pièce${occasion ? ` (« ${occasion.name} »)` : ''}. Touchez une pièce pour la mettre dans la tenue.</p>
+    ${optional && current ? html`<button type="button" class="btn btn-sm" data-none style="margin-bottom:10px">Sans ${ROLE_LABELS[role]?.toLowerCase() || 'cette pièce'}</button>` : ''}
+    <div class="picker-grid">${list.map(({ g, score, ok }) => html`<button type="button" class="picker-card ${g.id === current?.id ? 'is-current' : ''}" data-g="${g.id}" ${ok ? '' : raw('disabled')}>
+      <div class="picker-photo">${g.photoIds?.length ? html`<img data-photo="${g.photoIds[0]}" alt="" loading="lazy">` : garmentGlyph(roleOf(g), g.color?.hex)}</div>
+      <div class="picker-name">${g.name}</div>
+      <div class="small">${ok ? html`<span class="tag ${score >= 85 ? 'tag-ok' : score >= 70 ? '' : 'tag-warn'}">${score ?? '—'}/100</span>` : html`<span class="tag">${AVAILABILITY.find(([id]) => id === g.availability)?.[1] || 'Indisponible'}</span>`}${g.id === current?.id ? html` <span class="tag tag-gold">Actuelle</span>` : ''}</div></button>`)}</div>
+    ${list.length ? '' : html`<p>Aucune pièce de ce type dans votre dressing.</p>`}
+    <p class="small" style="margin-top:12px"><a href="#/wardrobe">Ouvrir tout le dressing</a> · <a href="#/wardrobe/quick">Ajouter une pièce</a></p>`;
+  openModal({ title: `Choisir dans mon dressing : ${ROLE_LABELS[role] || role}`, wide: true, body, onMount(b, close) {
+    hydratePhotos(b);
+    b.querySelectorAll('[data-g]').forEach((btn) => btn.onclick = () => { close(); onPick(garments.find((x) => x.id === btn.dataset.g)); });
+    b.querySelector('[data-none]')?.addEventListener('click', () => { close(); onPick(null); });
+  } });
+}
+
 /** Kit tenue de travail (ménage) : ce que l'on a, ce qui manque, avec budget et recherche. */
 export function workKitBlock(garments, { tips = true } = {}) {
   const st = workKitStatus(garments);
@@ -162,14 +197,14 @@ export async function saveOutfit(pieces, { name, occasionId, mode, score, source
   return rec;
 }
 
-export async function wearOutfit(pieces, { date = todayISO(), occasionId = null, outfitId = null } = {}) {
+export async function wearOutfit(pieces, { date = todayISO(), occasionId = null, outfitId = null, keepDays = 0 } = {}) {
   const ids = Object.values(piecesToIds(pieces)).flat().filter(Boolean);
   await store.repo.put('wearlog', { id: uid('wear'), profileId: pid(), date, occasionId, outfitId, garmentIds: ids });
   const all = await store.repo.all('garments', (g) => ids.includes(g.id));
   const autoBasket = await store.repo.kvGet('pref:autobasket', true);
   const basketed = [];
   for (const g of all) {
-    const next = afterWear({ ...g, lastWornAt: new Date(date + 'T12:00:00').toISOString(), wearCount: (g.wearCount || 0) + 1 }, { autoBasket });
+    const next = afterWear({ ...g, lastWornAt: new Date(date + 'T12:00:00').toISOString(), wearCount: (g.wearCount || 0) + 1 }, { autoBasket, minWears: keepDays });
     if (next.availability === 'to-wash' && g.availability !== 'to-wash') basketed.push(g.name);
     await store.repo.put('garments', next, { silent: true });
   }

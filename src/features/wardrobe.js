@@ -59,6 +59,10 @@ function presetFromQuery(query) {
   if (query.get('category') && CATEGORY_BY_ID[query.get('category')]) { out.category = query.get('category'); out.sub = CATEGORY_BY_ID[out.category].subs[0][0]; }
   if (query.get('price')) out.price = Number(query.get('price')) || null;
   if (query.get('wish')) out.wishId = query.get('wish');
+  // Depuis « Avant d'acheter » : type, couleur, matière, marque et lien déjà analysés
+  if (query.get('sub') && SUB_INFO[query.get('sub')]) { out.sub = query.get('sub'); out.category = SUB_INFO[out.sub].category; }
+  if (query.get('color') && COLOR_BY_ID[query.get('color')]) { const col = COLOR_BY_ID[query.get('color')]; out.color = { id: col.id, name: col.name, hex: col.hex }; }
+  for (const k of ['material', 'brand', 'sourceUrl', 'ref']) if (query.get(k)) out[k] = query.get(k).slice(0, 300);
   return out;
 }
 function notFound(main) { setHTML(main, emptyState('Pièce introuvable', 'Elle a peut-être été supprimée.', html`<a class="btn" href="#/wardrobe">Retour au dressing</a>`)); }
@@ -94,7 +98,7 @@ async function renderList(main) {
   setHTML(main, html`
     <div class="page-head row-between"><div><div class="eyebrow">Dressing numérique</div><h1>Mon dressing</h1>
       <p class="lede">${all.length} pièce${all.length > 1 ? 's' : ''} · ${all.filter(isAvailable).length} disponible${all.filter(isAvailable).length > 1 ? 's' : ''} immédiatement. Vos photos restent privées sur cet appareil.</p></div>
-      <div class="btn-row"><a class="btn btn-primary" href="#/wardrobe/quick">${icon('camera')} Ajout rapide</a><a class="btn btn-gold" href="#/wardrobe/new?web=1">${icon('search')} Ajouter depuis un lien ou ChatGPT</a><a class="btn" href="#/wardrobe/new">${icon('plus')} Fiche complète</a><a class="btn" href="#/wardrobe/import">${icon('upload')} Import multiple</a><a class="btn" href="#/wardrobe/care">${icon('rotate')} Lessive & entretien${all.filter((g) => g.availability === 'to-wash').length ? ` (${all.filter((g) => g.availability === 'to-wash').length})` : ''}</a><a class="btn" href="#/wardrobe/bilan">${icon('check')} Bilan du dressing</a><a class="btn" href="#/wardrobe/season">Rangement saisonnier</a><a class="btn" href="#/wardrobe/review">Revue du dressing</a><a class="btn" href="#/wardrobe/stats">Statistiques</a></div></div>
+      <div class="btn-row"><a class="btn btn-primary" href="#/wardrobe/quick">${icon('camera')} Ajout rapide</a><a class="btn btn-gold" href="#/wardrobe/new?web=1">${icon('search')} Ajouter depuis un lien ou ChatGPT</a><a class="btn" href="#/wardrobe/new">${icon('plus')} Fiche complète</a><a class="btn" href="#/wardrobe/import">${icon('upload')} Import multiple</a><a class="btn" href="#/wardrobe/care">${icon('rotate')} Lessive & entretien${all.filter((g) => g.availability === 'to-wash').length ? ` (${all.filter((g) => g.availability === 'to-wash').length})` : ''}</a><a class="btn" href="#/wardrobe/bilan">${icon('check')} Bilan du dressing</a><a class="btn" href="#/shopping/check">Avant d'acheter</a><a class="btn" href="#/wardrobe/season">Rangement saisonnier</a><a class="btn" href="#/wardrobe/review">Revue du dressing</a><a class="btn" href="#/wardrobe/stats">Statistiques</a></div></div>
     ${all.length ? html`
     <div class="card" style="margin-bottom:16px">
       <div class="field"><label for="wq">Rechercher</label><input id="wq" type="search" placeholder="Nom, marque, matière, tag…" value="${filters.q}"></div>
@@ -956,6 +960,7 @@ async function renderBilan(main) {
       <div class="card"><div class="stat">${a.gaps.filter((g) => g.level !== 'low').length}</div><div class="stat-label">manques importants</div></div>
     </div>
 
+    <div class="callout" style="margin-top:16px">${icon('search')} <strong>Vous hésitez sur un article ?</strong> Collez son lien, une photo ou sa référence : <a href="#/shopping/check">Avant d'acheter</a> vous dit s'il est utile pour votre dressing.</div>
     <h2>Les achats les plus utiles</h2>
     ${a.buys.length ? html`<p class="small muted">Classés selon ce qu'ils améliorent vraiment dans vos tenues (pour la saison en cours) et les manques qu'ils comblent.</p>
     <div class="stack">${a.buys.map((b, i) => html`<div class="card"><div class="row" style="gap:12px;align-items:flex-start">

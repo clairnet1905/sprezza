@@ -20,6 +20,11 @@ const KNOWN_BRANDS = ['Zara', 'H&M', 'Uniqlo', 'Mango', 'Pull&Bear', 'Massimo Du
 
 /** Types : du plus spécifique au plus général (premier trouvé gagne). FR / EN / ES / IT. */
 const SUB_RULES = [
+  // Vêtements de travail (avant les types généraux)
+  ['chaussures-travail', /chaussures? de (securite|travail)|safety (shoes?|boots?)|work (shoes?|boots?)|\bs[13]p?\b[^.,;]{0,20}src|antiderapant|non[- ]slip/],
+  ['pantalon-travail', /pantalon de travail|work (trousers|pants)|pantalon multipoches|cargo de travail/],
+  ['veste-travail', /veste de travail|work jacket|softshell/],
+  ['tee-shirt-travail', /(t-?shirt|tee[- ]shirt|polo)s? de travail|work t-?shirt|(t-?shirt|tee[- ]shirt)s? (professionnel|pro\b)/],
   ['col-roule', /col roule|roll ?neck|turtle ?neck|cuello alto|dolcevita/],
   ['chemise-lin', /chemise[^.,;]{0,25}\blin\b|\blin\b[^.,;]{0,25}chemise|linen shirt|camisa de lino|camicia di lino/],
   ['surchemise', /surchemise|overshirt|sobrecamisa/],

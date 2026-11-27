@@ -9,7 +9,7 @@ import { manualWeather, weatherSummary, isStale, seasonFromDate, SEASON_NAMES, c
 import { forecast, geocode, currentPosition } from '../services/weather.js';
 import { buildQuery } from '../domain/wardrobe-logic.js';
 import { MODE_STYLES } from '../domain/scoring.js';
-import { proposalCard, saveOutfit, wearOutfit, addToCalendar, piecesList, pieceRow, MODE_NAME, workKitBlock } from './shared.js';
+import { proposalCard, saveOutfit, wearOutfit, addToCalendar, piecesList, pieceRow, MODE_NAME, workKitBlock, openDressingPicker } from './shared.js';
 import { navigate } from '../app.js';
 import { renderDaily } from './daily.js';
 
@@ -139,7 +139,7 @@ export async function render(main) {
     setHTML(results, html`
       <div class="row-between"><h2>Vos propositions — ${occ.name}</h2><span class="small muted">${weatherSummary(weather)} · ${weather.manual ? 'saisie manuelle' : weather.source}</span></div>
       ${res.info.note ? html`<div class="callout callout-info" style="margin-bottom:12px">${res.info.note}</div>` : ''}
-      ${Object.keys(st.imposed).length ? html`<p class="small">Pièces gardées : ${Object.entries(st.imposed).map(([r, id]) => `${ROLE_LABELS[r]} — ${last.garments.find((g) => g.id === id)?.name}`).join(' · ')} <button class="btn btn-sm btn-ghost" id="unlock">Tout libérer</button></p>` : ''}
+      ${Object.keys(st.imposed).length ? html`<p class="small">Pièces gardées : ${Object.entries(st.imposed).map(([r, id]) => `${ROLE_LABELS[r]} — ${id ? last.garments.find((g) => g.id === id)?.name : 'aucune'}`).join(' · ')} <button class="btn btn-sm btn-ghost" id="unlock">Tout libérer</button></p>` : ''}
       ${occ.workwear ? workKitBlock(last.garments) : ''}
       <div class="stack">${res.options.map((o, i) => proposalCard(o, i))}</div>
       ${res.backup ? html`<section class="card" style="margin-top:16px"><div class="eyebrow">Plan B</div><h3>${res.backup.note}</h3>
@@ -153,6 +153,8 @@ export async function render(main) {
     results.querySelectorAll('.proposal').forEach((card) => {
       const opt = res.options[+card.dataset.idx];
       card.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => act(b.dataset.act, opt, b)));
+      // Toucher une pièce ouvre le dressing pour en choisir une autre
+      card.querySelectorAll('.piece-list .piece[data-role]').forEach((row) => { if (!['top', 'bottom', 'layer', 'outer', 'shoes'].includes(row.dataset.role)) return; row.classList.add('piece-clickable'); row.addEventListener('click', (e) => { if (!e.target.closest('button, a')) replacePiece(row.dataset.role, opt); }); });
       card.querySelectorAll('[data-fb]').forEach((b) => b.addEventListener('click', () => feedback(b.dataset.fb, opt)));
     });
   };
@@ -172,10 +174,10 @@ export async function render(main) {
     }
   };
   const replacePiece = (role, opt) => {
-    const current = opt.pieces[role];
-    const choices = last.garments.filter((g) => roleOf(g) === role && isAvailable(g) && g.id !== current?.id);
-    openModal({ title: `Remplacer : ${ROLE_LABELS[role]}`, body: choices.length ? html`<div class="piece-list">${choices.map((g) => html`<button class="piece" style="text-align:left;cursor:pointer" data-id="${g.id}">${pieceRow(role, g)}</button>`)}</div>` : html`<p>Aucune autre pièce disponible pour ce rôle. <a href="#/wardrobe/new">Ajouter une pièce</a></p>`,
-      onMount(body, close) { hydratePhotos(body); body.querySelectorAll('[data-id]').forEach((b) => b.onclick = () => { const keep = {}; for (const r of ['top', 'bottom', 'shoes', 'layer', 'outer']) if (opt.pieces[r] && r !== role) keep[r] = opt.pieces[r].id; st.imposed = { ...keep, [role]: b.dataset.id }; close(); toast('Pièce remplacée — note recalculée'); run(); }); } });
+    openDressingPicker({ role, pieces: opt.pieces, garments: last.garments, occasion: OCCASION_BY_ID[st.occasionId], weather: last.weather, mode: opt.mode, onPick: (g) => {
+      const keep = {}; for (const r of ['top', 'bottom', 'shoes', 'layer', 'outer']) if (opt.pieces[r] && r !== role) keep[r] = opt.pieces[r].id;
+      st.imposed = { ...keep, [role]: g ? g.id : null }; toast('Pièce changée — note recalculée'); run();
+    } });
   };
   const feedback = async (kind, opt) => {
     const p = await loadPrefs();
