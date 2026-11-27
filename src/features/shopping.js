@@ -6,7 +6,7 @@ import { uid } from '../repositories/db.js';
 import { RETAILERS, TIER_NAMES, CAT_NAMES, RETAILERS_NOTE, hostOf, priceCompareUrl, QUICK_SHOPS, SEARCH_VERIFIED_AT } from '../data/retailers.js';
 import { ALL_COLORS, COLOR_BY_ID } from '../data/colors.js';
 import { CATEGORIES, FITS } from '../data/taxonomy.js';
-import { buildQuery, siteSearchUrl, shoppingUtility, totalCost, capsuleProgress } from '../domain/wardrobe-logic.js';
+import { buildQuery, siteSearchUrl, shoppingUtility, totalCost, capsuleProgress, capsuleState } from '../domain/wardrobe-logic.js';
 import { outfitsUnlocked } from '../domain/recommend.js';
 import { navigate } from '../app.js';
 
@@ -56,7 +56,7 @@ function relevantRetailers({ budgetMax, category = '', kind = 'main' }) {
 async function renderSearch(box, query) {
   const all = await loadGarments();
   const cap = await store.repo.kvGet(`capsule:${pid()}`, { level: 1, items: {} });
-  const missing = capsuleProgress(cap.level || 1, cap.items || {}).missing;
+  const missing = capsuleProgress(cap.level || 1, capsuleState(cap.items || {}, all)).missing;
   const pre = query?.get('q') || '';
   const f = { category: pre, color: '', fit: '', material: '', budgetMin: '', budgetMax: '', size: '', season: '' };
   setHTML(box, html`<div class="grid-2" style="align-items:start">

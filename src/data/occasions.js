@@ -31,6 +31,8 @@ export const OCCASIONS = [
   { id: 'birthday', name: 'Anniversaire', formality: [2, 4], target: 3, styles: ['italian', 'smart-casual', 'casual-chic'], outfits: ['Polo écru, pantalon chocolat, mocassins', 'Oxford, chino marine, derbies', 'Surchemise, tee-shirt, jean'] },
   { id: 'chic-party', name: 'Soirée chic', formality: [4, 5], target: 5, strict: true, styles: ['sartorial', 'business-formal'], outfits: ['Costume sombre, chemise blanche, chaussures cuir', 'Smoking si black tie', 'Costume déstructuré sombre si dress code libre'] },
   { id: 'home', name: 'Maison', formality: [1, 2], target: 1, styles: ['casual-chic', 'scandi'], outfits: ['Polo souple, pantalon coton', 'Pull confortable, pantalon jersey', 'Tee-shirt de qualité, jogging uni'] },
+  // Ajoutée à l'application (hors guide) : tenue de travail pour le ménage, pratique et bon marché.
+  { id: 'work-cleaning', name: 'Travail (ménage)', formality: [1, 2], target: 1, workwear: true, styles: ['casual-chic'], outfits: ['Tee-shirt de travail foncé, pantalon de travail stretch, chaussures antidérapantes', 'Polo piqué marine, jogging foncé, baskets fermées', 'Polaire, pantalon technique, veste softshell'], note: 'Confort, lavable à 40–60 °C, couleurs foncées qui cachent les taches, chaussures fermées antidérapantes ; aucune pièce fragile ou chère.' },
 ];
 export const OCCASION_BY_ID = Object.fromEntries(OCCASIONS.map((o) => [o.id, o]));
 export const OUTFIT_MODES = [

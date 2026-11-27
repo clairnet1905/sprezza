@@ -6,7 +6,8 @@ import { ROLE_LABELS, ROLE_ORDER, AVAILABILITY, CATEGORY_BY_ID, SUB_INFO } from 
 import { OUTFIT_MODES, OCCASION_BY_ID } from '../data/occasions.js';
 import { store, pid } from '../state.js';
 import { uid } from '../repositories/db.js';
-import { roleOf, isAvailable, comboKey } from '../domain/recommend.js';
+import { roleOf, isAvailable, comboKey, workKitStatus } from '../domain/recommend.js';
+import { WORK_SHOPS, WORK_TIPS } from '../data/workwear.js';
 import { colorHex, colorName } from '../domain/colors.js';
 import { afterWear } from '../domain/care.js';
 import { inspirationQuery, genderWord } from '../services/pexels.js';
@@ -74,6 +75,21 @@ export function outfitMannequin(pieces, label) {
 }
 
 /** Carte de proposition (Aujourd'hui, Tenues, Avec quoi le porter). */
+/** Kit tenue de travail (ménage) : ce que l'on a, ce qui manque, avec budget et recherche. */
+export function workKitBlock(garments, { tips = true } = {}) {
+  const st = workKitStatus(garments);
+  const miss = st.filter((k) => !k.ok);
+  const total = miss.reduce((a, k) => [a[0] + k.item.budget[0], a[1] + k.item.budget[1]], [0, 0]);
+  return html`<div class="callout upgrade" style="margin-top:10px"><div class="eyebrow">Kit tenue de travail (ménage)</div>
+    <ul class="clean" style="margin:6px 0">${st.map((k) => html`<li style="padding:5px 0;border-bottom:1px solid var(--line)">
+      <div class="row-between" style="gap:8px;align-items:flex-start"><div>${k.ok ? icon('check') : ''} <strong>${k.item.name}</strong>
+        <div class="small muted">${k.ok ? `Vous avez : ${k.have.map((g) => g.name).join(', ')}` : `${k.have.length ? `Vous avez ${k.have.map((g) => g.name).join(', ')} ; ` : ''}${k.item.why}`}</div></div>
+        ${k.ok ? html`<span class="tag tag-ok">OK</span>` : html`<span class="row" style="gap:6px;flex-wrap:nowrap"><span class="small">${k.item.budget[0]}–${k.item.budget[1]} €</span><a class="btn btn-sm" href="#/shopping?q=${encodeURIComponent(k.item.query)}">${icon('search')}</a></span>`}</div></li>`)}</ul>
+    ${miss.length ? html`<p class="small">Pour compléter : environ <strong>${total[0]}–${total[1]} €</strong> (${WORK_SHOPS}).</p>` : html`<p class="small">${icon('check')} Kit complet : vos belles pièces restent à l'abri.</p>`}
+    ${tips ? html`<details class="disclosure"><summary>Bien choisir ses vêtements de travail</summary><ul class="ticks small">${WORK_TIPS.map((t) => html`<li>${t}</li>`)}</ul></details>` : ''}
+  </div>`;
+}
+
 /** Encadré « La pièce qui manque à cette tenue » : une pièce non possédée qui l'améliorerait. */
 export function upgradeBlock(u) {
   if (!u) return '';

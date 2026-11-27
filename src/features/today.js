@@ -9,7 +9,7 @@ import { manualWeather, weatherSummary, isStale, seasonFromDate, SEASON_NAMES, c
 import { forecast, geocode, currentPosition } from '../services/weather.js';
 import { buildQuery } from '../domain/wardrobe-logic.js';
 import { MODE_STYLES } from '../domain/scoring.js';
-import { proposalCard, saveOutfit, wearOutfit, addToCalendar, piecesList, pieceRow, MODE_NAME } from './shared.js';
+import { proposalCard, saveOutfit, wearOutfit, addToCalendar, piecesList, pieceRow, MODE_NAME, workKitBlock } from './shared.js';
 import { navigate } from '../app.js';
 import { renderDaily } from './daily.js';
 
@@ -132,6 +132,7 @@ export async function render(main) {
     if (!res.options.length) {
       setHTML(results, html`${emptyState(all.length ? 'Pas assez de pièces compatibles' : 'Aucune pièce dans le dressing', all.length ? 'Le styliste ne propose que des vêtements réellement possédés et disponibles.' : 'Aucun vêtement n\'est inventé. Ajoutez vos pièces, ou consultez les tenues du guide en mode inspiration.', html`<a class="btn btn-primary" href="#/wardrobe/new">${icon('plus')} Ajouter une pièce</a><a class="btn" href="#/outfits/templates">Modèles d'inspiration</a>`)}
         ${res.info.missing.length ? html`<div class="callout" style="margin-top:12px"><strong>Ce qui manque :</strong><ul class="ticks">${res.info.missing.map((m) => html`<li>${m.text}</li>`)}</ul></div>` : ''}
+        ${occ.workwear ? workKitBlock(last.garments || all) : ''}
         <h2>Inspiration du guide — ${occ.name}</h2><div class="grid-3">${occ.outfits.map((t, i) => html`<div class="card"><div class="eyebrow">${['Élégance italienne', 'Classique international', 'Moderne décontracté'][i]}</div><p>${t}</p></div>`)}</div>`);
       return;
     }
@@ -139,6 +140,7 @@ export async function render(main) {
       <div class="row-between"><h2>Vos propositions — ${occ.name}</h2><span class="small muted">${weatherSummary(weather)} · ${weather.manual ? 'saisie manuelle' : weather.source}</span></div>
       ${res.info.note ? html`<div class="callout callout-info" style="margin-bottom:12px">${res.info.note}</div>` : ''}
       ${Object.keys(st.imposed).length ? html`<p class="small">Pièces gardées : ${Object.entries(st.imposed).map(([r, id]) => `${ROLE_LABELS[r]} — ${last.garments.find((g) => g.id === id)?.name}`).join(' · ')} <button class="btn btn-sm btn-ghost" id="unlock">Tout libérer</button></p>` : ''}
+      ${occ.workwear ? workKitBlock(last.garments) : ''}
       <div class="stack">${res.options.map((o, i) => proposalCard(o, i))}</div>
       ${res.backup ? html`<section class="card" style="margin-top:16px"><div class="eyebrow">Plan B</div><h3>${res.backup.note}</h3>
         ${res.backup.changes.length ? html`<p class="small">Modifications par rapport à l'option 1 : ${res.backup.changes.join(' ; ')}.</p><div class="piece-list">${piecesList(res.backup.pieces).map(([r, g]) => pieceRow(r, g))}</div>` : ''}</section>` : ''}

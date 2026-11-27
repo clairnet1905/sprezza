@@ -7,12 +7,32 @@ import { scoreOutfit, SUB_AFFINITY, garmentFormality, outfitFormality } from './
 import { classifyHarmony, colorName, luminance, colorHex, hexToRgb } from './colors.js';
 import { seasonFromDate, climateFeel } from './weather.js';
 import { CAPSULE } from '../data/capsule.js';
+import { WORK_KIT } from '../data/workwear.js';
 
 const TOP_K = 6;
 const BELT_BOTTOMS = ['pantalon', 'pantalon-costume', 'chino', 'jean', 'flanelle', 'bermuda'];
 const RAIN_BAD_SHOES = ['espadrilles', 'sandales', 'ballerines', 'bateau'];
 const SUEDE = /daim|suède|suede/i;
 const PROTECTIVE_SHOES = ['randonnee', 'bottines'];
+const WORK_SHOES = ['chaussures-travail', 'baskets', 'randonnee'];
+const FRAGILE = /cachemire|mérinos|merinos|laine|soie|\blin\b|daim|suède|suede|nubuck|velours|flanelle|tweed/i;
+/** Pourquoi une pièce ne convient pas au ménage (null si elle convient). */
+export function workwearIssue(g, role = roleOf(g)) {
+  if (['accessory', 'belt'].includes(role)) return null;
+  if (FRAGILE.test(`${g.material || ''} ${g.composition || ''}`)) return 'matière fragile pour le ménage (laine, lin, daim…)';
+  if (garmentFormality(g) >= 4) return 'trop habillée pour le ménage';
+  if (['chemise', 'chemise-lin', 'polo', 'col-roule', 'cardigan'].includes(g.sub)) return 'peu pratique pour le ménage (à garder pour la ville)';
+  if (role === 'shoes' && !WORK_SHOES.includes(g.sub) && !(g.tags || []).some((t) => /travail|sécurité|securite|antidérapant/i.test(t))) return 'chaussures non adaptées au ménage (fermées et antidérapantes)';
+  if (role !== 'outer' && (g.price ?? 0) >= 80) return 'pièce trop chère pour risquer de l\'abîmer';
+  return null;
+}
+/** Kit de travail : ce que l'on a déjà (pièces dédiées ou ordinaires qui conviennent) et ce qui manque. */
+export function workKitStatus(garments = []) {
+  return WORK_KIT.map((k) => {
+    const have = garments.filter((g) => k.uses.includes(g.sub) && !workwearIssue(g) && (k.sub === g.sub || !['white', 'ecru', 'beige', 'sky', 'light-gray'].includes(g.color?.id)));
+    return { item: k, have, missing: Math.max(0, k.qty - have.length), ok: have.length >= k.qty };
+  });
+}
 
 export function roleOf(g) { return SUB_INFO[g.sub]?.role || ({ haut: 'top', bas: 'bottom', veste: 'layer', manteau: 'outer', chaussures: 'shoes', ceinture: 'belt', accessoire: 'accessory' })[g.category]; }
 export function isAvailable(g) { return AVAILABLE_STATES.includes(g.availability || 'clean'); }
@@ -46,6 +66,7 @@ export const OCCASION_TASTE = {
   'chic-party': { subs: { ...DRESSY, 'veste-costume': 3, 'pantalon-costume': 2.5 }, dark: 1.5, layer: 4 },
   wedding: { subs: { ...DRESSY, 'veste-costume': 3.5, 'pantalon-costume': 3 }, layer: 4 },
   religious: { subs: { ...DRESSY, 'veste-costume': 3.5, 'pantalon-costume': 3 }, layer: 4 },
+  'work-cleaning': { subs: { 'tee-shirt-travail': 4, 'pantalon-travail': 5, 'chaussures-travail': 5, 'veste-travail': 3, 'tee-shirt': 2.5, 'polo-sport': 2.5, sweat: 2, polaire: 2, jogging: 2.5, 'pantalon-technique': 3, jean: 0.5, chino: -1.5, baskets: 1.5, randonnee: 1, 'veste-technique': 2, surchemise: -1 }, dark: 1.2, layer: -0.5 },
   mountain: { subs: { pull: 2, polaire: 2, 'pantalon-technique': 2, jean: 0.5, 'veste-technique': 2, parka: 1, doudoune: 1, chemise: -1, pantalon: -2 } },
 };
 const tasteOf = (occasion) => OCCASION_TASTE[occasion?.id] || {};
@@ -117,6 +138,7 @@ export function hardFilter(garments, { occasion, env, profileId }) {
     if (occasion && ['top', 'bottom', 'shoes'].includes(role)) {
       if (f < occasion.formality[0] - (occasion.strict ? 0 : 1) || f > occasion.formality[1] + 1) { excluded.push([g, `formalité ${f}/5 incompatible avec « ${occasion.name} »`]); continue; }
     }
+    if (occasion?.workwear) { const why = workwearIssue(g, role); if (why) { excluded.push([g, why]); continue; } }
     if (env.hot && ['top', 'bottom'].includes(role) && warmthOf(g) >= 4) { excluded.push([g, 'trop chaud pour la météo']); continue; }
     if (env.hot && role === 'outer') { excluded.push([g, 'manteau inutile par forte chaleur']); continue; }
     if (!env.hot && env.feel < 16 && ['short', 'bermuda', 'sandales', 'espadrilles'].includes(g.sub)) { excluded.push([g, 'trop léger pour la température']); continue; }
@@ -256,6 +278,7 @@ export function recommend(input) {
   const missingRoles = required.filter((r) => !pools[r].length);
   if (needsLayer(occasion) && !pools.layer.some((g) => garmentFormality(g) >= 4)) info.missing.push({ role: 'layer', text: `Une veste habillée (blazer ou veste de costume) est attendue pour « ${occasion.name} ».` });
   if (needsOuter(env) && !pools.outer.length) info.missing.push({ role: 'outer', text: env.rain ? 'Aucun manteau/trench déperlant disponible pour la pluie.' : 'Aucun manteau disponible pour le froid ou le vent.' });
+  if (occasion.workwear && !pools.shoes.length) info.missing.push({ role: 'shoes', text: 'Aucune paire fermée et antidérapante : des chaussures de travail (30–60 €) sont la pièce de sécurité du ménage.' });
   if (occasion.protection && !pools.shoes.length) info.missing.push({ role: 'shoes', text: 'Chaussures adaptées à l\'activité (randonnée, bottines) indispensables : sécurité avant le style.' });
   if (missingRoles.length) {
     missingRoles.forEach((r) => info.missing.push({ role: r, text: `Aucune pièce « ${ROLE_LABELS[r]} » disponible et compatible.` }));
@@ -317,7 +340,7 @@ export function recommend(input) {
     options.push(decorate(pick, { occasion, env, pools, list, ctxBase }));
   }
   // « La pièce qui manque à cette tenue » (non possédée), sauf pour les calculs internes.
-  if (!input.noUpgrade) for (const o of options) o.upgrade = missingPieceFor(o, garments, { occasionId: occasion.id, weather, season: input.season, date: input.date || new Date(now), prefs });
+  if (!input.noUpgrade && !occasion.workwear) for (const o of options) o.upgrade = missingPieceFor(o, garments, { occasionId: occasion.id, weather, season: input.season, date: input.date || new Date(now), prefs });
   const distinct = new Set(options.map((o) => comboKey(o.pieces))).size;
   info.distinct = distinct;
   if (distinct < 3) info.note = `Le dressing disponible permet ${distinct} combinaison${distinct > 1 ? 's' : ''} réellement distincte${distinct > 1 ? 's' : ''} pour cette occasion (${combos} combinaisons évaluées).`;
@@ -416,12 +439,14 @@ export function missingPieceFor(option, garments = [], { occasionId = 'daily', w
   const owned = new Set(garments.map((g) => `${g.sub}|${g.color?.id}`));
   const before = styleRank(option.pieces, ctx);
   let best = null;
-  for (const c of CAPSULE) {
+  const kit = occasion.workwear ? workKitStatus(garments) : null;
+  for (const c of occasion.workwear ? WORK_KIT : CAPSULE) {
     if (!['top', 'bottom', 'layer', 'outer', 'shoes'].includes(c.role)) continue;
     const sub = CAPSULE_SUB[c.sub] || c.sub;
+    if (kit) { if (kit.find((k) => k.item.id === c.id).ok) continue; } else
     if (owned.has(`${sub}|${c.color}`)) continue;
     // Quasi-doublon : même type dans une teinte très proche (noir/anthracite), ou un manteau de plus.
-    if (garments.some((x) => x.sub === sub && (c.role === 'outer' || hexDist(x.color?.id, c.color) < 70))) continue;
+    if (!kit && garments.some((x) => x.sub === sub && (c.role === 'outer' || hexDist(x.color?.id, c.color) < 70))) continue;
     const g = { id: `__capsule_${c.id}`, name: c.name, category: c.category, sub, color: { id: c.color }, material: c.material, availability: 'clean' };
     // Mêmes contraintes que pour le dressing réel (saison, météo, formalité de l'occasion).
     const { pools } = hardFilter([g], { occasion, env });

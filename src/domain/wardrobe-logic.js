@@ -1,11 +1,59 @@
 // Logique pure : capsule, modèles portables, shopping, statistiques, ICS.
 import { CAPSULE, TEMPLATES } from '../data/capsule.js';
-import { colorName } from './colors.js';
+import { colorName, colorHex, hexToRgb } from './colors.js';
+import { COLOR_TRAITS } from '../data/colors.js';
 import { isAvailable } from './recommend.js';
 import { hostOf } from '../data/retailers.js';
 
 // ---------- Capsule ----------
 export function capsuleItemsForLevel(level) { return CAPSULE.slice(0, ({ 1: 10, 2: 20, 3: 30 })[level] || 10); }
+
+/** Types du dressing qui correspondent à chaque pièce de la capsule. */
+const CAPSULE_SUBS = {
+  chemise: ['chemise'], polo: ['polo', 'polo-sport'], pull: ['pull'], chino: ['chino'], pantalon: ['pantalon', 'flanelle', 'pantalon-costume'], jean: ['jean'],
+  mocassins: ['mocassins'], baskets: ['baskets'], blazer: ['blazer'], 'col roulé': ['col-roule'], manteau: ['manteau'], 'tee-shirt': ['tee-shirt'], surchemise: ['surchemise'],
+  derbies: ['derbies'], ceinture: ['ceinture-cuir', 'ceinture-tressee', 'ceinture-toile'], costume: ['veste-costume'], richelieus: ['richelieus'], cravate: ['cravate'],
+  chelsea: ['chelsea', 'bottines'], bermuda: ['bermuda'], trench: ['trench', 'impermeable'],
+};
+const dist = (a, b) => { const x = hexToRgb(colorHex(a)); const y = hexToRgb(colorHex(b)); return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]); };
+/** Qualité de correspondance d'une pièce du dressing avec une pièce de la capsule : 2 exacte, 1 teinte proche, 0 non. */
+export function capsuleMatchQuality(item, g) {
+  const subs = item.id === 16 ? ['chemise-lin', 'chemise'] : CAPSULE_SUBS[item.sub] || [item.sub];
+  if (!subs.includes(g.sub)) return 0;
+  if (item.id === 16 && g.sub !== 'chemise-lin' && !/\blin\b/i.test(g.material || '')) return 0; // chemise en lin
+  if (item.id !== 16 && g.sub === 'chemise-lin') return 0;
+  const c = g.color?.id; if (!c) return 0;
+  if (c === item.color) return 2;
+  const fi = COLOR_TRAITS[item.color]?.family; const fg = COLOR_TRAITS[c]?.family;
+  if (item.sub === 'jean' && fg === 'blue') return 2; // un jean bleu, brut ou délavé
+  if (dist(c, item.color) < 75) return 1;
+  if (['chaussures', 'ceinture'].includes(item.category) && fi === 'brown' && fg === 'brown') return 1;
+  return 0;
+}
+/**
+ * Pièces de la capsule déjà présentes dans le dressing, détectées automatiquement.
+ * Chaque vêtement ne compte qu'une fois ; les correspondances exactes passent en premier.
+ * @returns {Record<number, {garmentId, quality:1|2}>}
+ */
+export function detectCapsule(garments = [], items = CAPSULE) {
+  const pairs = [];
+  for (const it of items) for (const g of garments) { const q = capsuleMatchQuality(it, g); if (q) pairs.push({ it, g, q }); }
+  pairs.sort((a, b) => b.q - a.q || a.it.id - b.it.id);
+  const out = {}; const used = new Set();
+  for (const p of pairs) if (!out[p.it.id] && !used.has(p.g.id)) { out[p.it.id] = { garmentId: p.g.id, quality: p.q }; used.add(p.g.id); }
+  return out;
+}
+/** État effectif : choix de l'utilisateur d'abord, sinon détection automatique. */
+export function capsuleState(saved = {}, garments = []) {
+  const det = detectCapsule(garments);
+  const out = {};
+  for (const c of CAPSULE) {
+    if (saved[c.id]?.owned && !saved[c.id].garmentId && det[c.id]) out[c.id] = { ...saved[c.id], garmentId: det[c.id].garmentId, auto: true, quality: det[c.id].quality }; // cochée sans fiche : on relie
+    else if (saved[c.id]) out[c.id] = { ...saved[c.id] };
+    else if (det[c.id]) out[c.id] = { owned: true, garmentId: det[c.id].garmentId, auto: true, quality: det[c.id].quality };
+  }
+  return out;
+}
 
 /** state = { [capsuleId]: { owned: bool, garmentId?: string } } */
 export function capsuleProgress(level, state = {}) {

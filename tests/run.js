@@ -25,6 +25,8 @@ import { chooseAccessories, missingPieceFor } from '../src/domain/recommend.js';
 import { shortQuery } from '../src/features/shopping.js';
 import { closetOrder } from '../src/features/wardrobe.js';
 import { wardrobeAudit, wardrobeGaps } from '../src/domain/audit.js';
+import { detectCapsule, capsuleState } from '../src/domain/wardrobe-logic.js';
+import { workKitStatus, workwearIssue } from '../src/domain/recommend.js';
 import { climateFeel } from '../src/domain/weather.js';
 import { inspirationQuery, colorsQuery, searchPhotos } from '../src/services/pexels.js';
 import { alphaBounds, deskewAngle, keepMainRegions } from '../src/services/cutout.js';
@@ -172,7 +174,7 @@ test('Questionnaire manuel : critères inconnus non pénalisés', () => {
 
 // ---------------- Données éditoriales
 test('15 styles, 5 écoles notées, 8 traditions, 20 occasions × 3, 20 erreurs, 4 saisons, 20 chapitres', () => {
-  eq(STYLES.length, 15); eq(SCHOOLS.length, 5); eq(TRADITIONS.length, 8); eq(OCCASIONS.length, 20);
+  eq(STYLES.length, 15); eq(SCHOOLS.length, 5); eq(TRADITIONS.length, 8); eq(OCCASIONS.length, 21); // 20 du guide + travail (ménage)
   OCCASIONS.forEach((o) => eq(o.outfits.length, 3, o.id)); eq(ERRORS.length, 20); eq(SEASONS.length, 4); eq(CHAPTERS.length, 20); eq(GRID.reduce((a, c) => a + c.max, 0), 100);
 });
 test('Notes historiques des écoles = somme des critères', () => SCHOOLS.forEach((s) => eq(Object.values(s.scores).reduce((a, b) => a + b, 0), s.total, s.name)));
@@ -609,8 +611,40 @@ test('Bilan : vrais manques, achats utiles de saison, aucun achat déjà posséd
   ok(a.buys.every((b) => b.item.sub !== 'bermuda'), 'bermuda proposé en novembre');
   ok(a.buys.every((b) => !(b.item.sub === 'chino' && ['camel', 'taupe'].includes(b.item.color))), 'achat déjà possédé');
   eq(new Set(a.buys.map((b) => b.item.id)).size, a.buys.length);
-  ok(a.coverage.length === 8 && a.outfits > 0);
+  ok(a.coverage.length === 9 && a.outfits > 0);
   ok(a.keys.every((k) => ['haut', 'bas', 'chaussures'].includes(k.g.category)));
+});
+
+test('Travail (ménage) : pièces robustes et foncées, jamais de laine, de daim ni de pièce chère ; kit proposé s\'il manque', () => {
+  let n = 0; const G = (category, sub, name, color, x = {}) => ({ id: `w${++n}`, category, sub, name, color: { id: color }, availability: 'clean', ...x });
+  const W = [G('haut', 'chemise', 'Chemise blanche', 'white'), G('haut', 'pull', 'Pull mérinos', 'navy', { material: 'Mérinos' }), G('haut', 'tee-shirt', 'Tee marine', 'navy'), G('haut', 'polo-sport', 'Polo piqué noir', 'black'),
+    G('bas', 'chino', 'Chino beige', 'beige'), G('bas', 'jogging', 'Jogging anthracite', 'charcoal'), G('bas', 'jean', 'Jean cher', 'indigo', { price: 120 }),
+    G('chaussures', 'mocassins', 'Mocassins daim', 'suede-brown', { material: 'Daim' }), G('chaussures', 'baskets', 'Baskets noires', 'black'), G('veste', 'blazer', 'Blazer', 'navy')];
+  const r = recommend({ garments: W, occasionId: 'work-cleaning', date: new Date(2026, 10, 27, 9) });
+  ok(r.options.length, 'aucune tenue de travail');
+  for (const o of r.options) {
+    ok(!['chemise', 'pull', 'blazer'].includes(o.pieces.top.sub) && !o.pieces.layer, 'pièce inadaptée');
+    eq(o.pieces.shoes.sub, 'baskets'); ok(o.pieces.bottom.sub !== 'jean', 'jean à 120 € proposé');
+  }
+  eq(r.options[0].pieces.bottom.sub, 'jogging');
+  ok(/chère/.test(workwearIssue(W[6])) && /fragile/.test(workwearIssue(W[1])));
+  const kit = workKitStatus(W);
+  ok(!kit.find((k) => k.item.id === 'w3').ok, 'chaussures de sécurité');
+  eq(kit.find((k) => k.item.id === 'w1').have.length, 2); // tee-shirt marine + polo piqué noir
+  ok(!r.options[0].upgrade);
+});
+test('Capsule : pièces détectées dans le dressing (même type, couleur exacte ou proche), une seule fois chacune', () => {
+  let n = 0; const G = (category, sub, color, x = {}) => ({ id: `c${++n}`, category, sub, name: sub, color: { id: color }, ...x });
+  const W = [G('veste', 'blazer', 'navy'), G('haut', 'chemise', 'white'), G('haut', 'chemise', 'sky'), G('bas', 'jean', 'indigo'), G('bas', 'chino', 'camel'),
+    G('chaussures', 'mocassins', 'suede-brown'), G('haut', 'polo', 'navy'), G('bas', 'chino', 'olive')];
+  const d = detectCapsule(W);
+  eq(d[1].quality, 2); eq(d[2].quality, 2); eq(d[3].quality, 2); eq(d[8].quality, 2); eq(d[4].quality, 2);
+  ok(d[9], 'mocassins marron (daim) non détectés');
+  ok(!d[23], 'la même chemise blanche comptée deux fois');
+  ok(!d[16], 'chemise ordinaire prise pour du lin');
+  const st = capsuleState({ 1: { owned: false } }, W);
+  eq(st[1].owned, false); eq(st[2].auto, true);
+  const st2 = capsuleState({ 3: { owned: true } }, W); eq(st2[3].garmentId, d[3].garmentId);
 });
 
 test('Zara : pantalon « taille jogging » = chino, « marron clair chiné », prix soldé, taille et référence écrites', () => {

@@ -8,7 +8,7 @@ import { SUB_INFO } from '../data/taxonomy.js';
 import { CAPSULE } from '../data/capsule.js';
 import { OCCASION_BY_ID } from '../data/occasions.js';
 
-export const AUDIT_OCCASIONS = ['daily', 'office', 'client', 'restaurant', 'walk', 'elegant-dinner', 'city', 'date'];
+export const AUDIT_OCCASIONS = ['daily', 'work-cleaning', 'office', 'client', 'restaurant', 'walk', 'elegant-dinner', 'city', 'date'];
 const WEAR_ROLES = ['top', 'bottom', 'layer', 'outer', 'shoes'];
 const BELT_BOTTOMS = ['pantalon', 'pantalon-costume', 'chino', 'jean', 'flanelle', 'bermuda'];
 const warmth = (g) => g.warmth ?? SUB_INFO[g.sub]?.warmth ?? 2;

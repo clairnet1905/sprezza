@@ -3,22 +3,22 @@
 export const CATEGORIES = [
   { id: 'haut', name: 'Haut', role: 'top', subs: [
     ['chemise', 'Chemise', 3, 2], ['chemise-lin', 'Chemise en lin', 3, 1], ['polo', 'Polo en maille', 3, 2], ['polo-sport', 'Polo piqué', 2, 2],
-    ['pull', 'Pull', 3, 3], ['col-roule', 'Col roulé', 3, 3], ['cardigan', 'Cardigan', 3, 3], ['tee-shirt', 'Tee-shirt', 2, 1], ['sweat', 'Sweat', 1, 3], ['polaire', 'Polaire', 1, 4],
+    ['pull', 'Pull', 3, 3], ['col-roule', 'Col roulé', 3, 3], ['cardigan', 'Cardigan', 3, 3], ['tee-shirt', 'Tee-shirt', 2, 1], ['sweat', 'Sweat', 1, 3], ['polaire', 'Polaire', 1, 4], ['tee-shirt-travail', 'Tee-shirt / polo de travail', 1, 1],
   ] },
   { id: 'bas', name: 'Bas', role: 'bottom', subs: [
     ['pantalon', 'Pantalon habillé', 4, 3], ['pantalon-costume', 'Pantalon de costume', 5, 3], ['chino', 'Chino', 3, 2], ['jean', 'Jean', 2, 3],
-    ['flanelle', 'Pantalon flanelle', 4, 4], ['bermuda', 'Bermuda', 2, 1], ['short', 'Short', 1, 1], ['jogging', 'Jogging', 1, 2], ['pantalon-technique', 'Pantalon technique', 1, 3], ['jupe', 'Jupe', 3, 2],
+    ['flanelle', 'Pantalon flanelle', 4, 4], ['bermuda', 'Bermuda', 2, 1], ['short', 'Short', 1, 1], ['jogging', 'Jogging', 1, 2], ['pantalon-technique', 'Pantalon technique', 1, 3], ['pantalon-travail', 'Pantalon de travail', 1, 2], ['jupe', 'Jupe', 3, 2],
   ] },
   { id: 'veste', name: 'Veste', role: 'layer', subs: [
     ['blazer', 'Blazer', 4, 3], ['veste-costume', 'Veste de costume', 5, 3], ['surchemise', 'Surchemise', 2, 3], ['veste-daim', 'Veste en daim', 3, 3],
-    ['veste-cuir', 'Veste en cuir', 3, 3], ['veste-denim', 'Veste en denim', 2, 3], ['veste-technique', 'Veste technique', 1, 4], ['cardigan-epais', 'Gilet/cardigan épais', 2, 3],
+    ['veste-cuir', 'Veste en cuir', 3, 3], ['veste-denim', 'Veste en denim', 2, 3], ['veste-technique', 'Veste technique', 1, 4], ['cardigan-epais', 'Gilet/cardigan épais', 2, 3], ['veste-travail', 'Veste de travail / softshell', 1, 3],
   ] },
   { id: 'manteau', name: 'Manteau', role: 'outer', subs: [
     ['manteau', 'Manteau laine', 4, 5], ['trench', 'Trench', 3, 3], ['caban', 'Caban', 3, 4], ['parka', 'Parka', 2, 5], ['doudoune', 'Doudoune', 2, 5], ['impermeable', 'Imperméable', 2, 2],
   ] },
   { id: 'chaussures', name: 'Chaussures', role: 'shoes', subs: [
     ['mocassins', 'Mocassins', 3, 2], ['derbies', 'Derbies', 4, 2], ['richelieus', 'Richelieus', 5, 2], ['chelsea', 'Chelsea', 3, 3], ['bottines', 'Bottines', 3, 3],
-    ['baskets', 'Baskets minimalistes', 2, 2], ['espadrilles', 'Espadrilles', 2, 1], ['sandales', 'Sandales', 1, 1], ['bateau', 'Chaussures bateau', 2, 1], ['randonnee', 'Chaussures de randonnée', 1, 4], ['ballerines', 'Ballerines', 3, 1],
+    ['baskets', 'Baskets minimalistes', 2, 2], ['espadrilles', 'Espadrilles', 2, 1], ['sandales', 'Sandales', 1, 1], ['bateau', 'Chaussures bateau', 2, 1], ['randonnee', 'Chaussures de randonnée', 1, 4], ['chaussures-travail', 'Chaussures de travail antidérapantes', 1, 2], ['ballerines', 'Ballerines', 3, 1],
   ] },
   { id: 'ceinture', name: 'Ceinture', role: 'belt', subs: [['ceinture-cuir', 'Ceinture cuir', 4, 0], ['ceinture-tressee', 'Ceinture tressée', 2, 0], ['ceinture-toile', 'Ceinture toile', 2, 0]] },
   { id: 'accessoire', name: 'Accessoire', role: 'accessory', subs: [

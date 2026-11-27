@@ -7,7 +7,7 @@ import { ROLE_LABELS, isEveryday } from '../data/taxonomy.js';
 import { CAPSULE } from '../data/capsule.js';
 import { scoreOutfit } from '../domain/scoring.js';
 import { recommend, roleOf, isAvailable, comboKey } from '../domain/recommend.js';
-import { allTemplateStatuses, packList } from '../domain/wardrobe-logic.js';
+import { allTemplateStatuses, capsuleState, packList } from '../domain/wardrobe-logic.js';
 import { manualWeather } from '../domain/weather.js';
 import { colorHex, colorName } from '../domain/colors.js';
 import { pieceRow, piecesList, criteriaView, scoreBadge, outfitMannequin, idsToPieces, saveOutfit, wearOutfit, addToCalendar, MODE_NAME } from './shared.js';
@@ -117,7 +117,7 @@ async function renderBuilder(main, head, query) {
 
 async function renderTemplates(main, head) {
   const [all, cap] = await Promise.all([loadGarments(), store.repo.kvGet(`capsule:${pid()}`, { level: 1, items: {} })]);
-  const statuses = allTemplateStatuses(cap.items, all);
+  const statuses = allTemplateStatuses(capsuleState(cap.items, all), all);
   setHTML(main, html`${head}
     <p class="lede">Les 30 modèles de la garde-robe capsule (B13). Ce sont des modèles, distincts de vos tenues : un modèle devient « Portable » seulement si toutes ses pièces sont reliées à une fiche du dressing et disponibles. Reliez les pièces dans <a href="#/capsule">Capsule</a>.</p>
     <p class="small"><span class="tag tag-ok">${statuses.filter((s) => s.portable).length} portables</span> <span class="tag">${statuses.filter((s) => !s.portable).length} en inspiration</span></p>

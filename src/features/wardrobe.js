@@ -20,7 +20,7 @@ import { prefs as loadPrefs } from '../state.js';
 import { checkImageFile, loadBitmap, processImage, renderToCanvas } from '../services/image.js';
 import { aiStatus } from '../services/ai.js';
 import { cutout, CUTOUT_DOWNLOAD_MB } from '../services/cutout.js';
-import { garmentCard, AVAIL_LABEL, deleteGarment, proposalCard, saveOutfit, wearOutfit } from './shared.js';
+import { garmentCard, AVAIL_LABEL, deleteGarment, proposalCard, saveOutfit, wearOutfit, workKitBlock } from './shared.js';
 import { navigate } from '../app.js';
 
 const filters = { q: '', cat: '', color: '', material: '', season: '', availableOnly: false, fav: false, sort: 'closet' };
@@ -968,6 +968,9 @@ async function renderBilan(main) {
     <h2>Ce qui manque vraiment</h2>
     ${a.gaps.length ? html`<div class="card"><ul class="clean">${a.gaps.map((g) => html`<li style="padding:8px 0;border-bottom:1px solid var(--line)"><div class="row" style="gap:8px"><span class="tag ${LEVEL[g.level][1]}">${LEVEL[g.level][0]}</span><strong>${g.text}</strong></div><div class="small muted" style="margin-top:3px">${g.why}</div></li>`)}</ul></div>`
     : html`<div class="card"><p>${icon('check')} Aucun manque important : toutes les bases sont là.</p></div>`}
+
+    <h2>Tenue de travail (ménage)</h2>
+    ${workKitBlock(all)}
 
     <h2>Vos tenues par occasion</h2>
     <p class="small muted">Avec la météo estimée d'aujourd'hui. « Bonne tenue » = note d'au moins 70/100.</p>

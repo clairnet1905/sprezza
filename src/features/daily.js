@@ -9,9 +9,9 @@ import { manualWeather, weatherSummary, isStale, climateFeel } from '../domain/w
 import { MODE_STYLES } from '../domain/scoring.js';
 import { forecast } from '../services/weather.js';
 import { PERIODS, periodAt, nextChange, daysSinceChange, seasonalPlan } from '../domain/seasonal.js';
-import { outfitMannequin, piecesList, pieceRow, scoreBadge, idsToPieces, wearOutfit, addToCalendar, MODE_NAME, upgradeBlock } from './shared.js';
+import { outfitMannequin, piecesList, pieceRow, scoreBadge, idsToPieces, wearOutfit, addToCalendar, MODE_NAME, upgradeBlock, workKitBlock } from './shared.js';
 
-const QUICK_OCCASIONS = ['daily', 'client', 'office', 'restaurant', 'walk', 'elegant-dinner'];
+const QUICK_OCCASIONS = ['daily', 'work-cleaning', 'client', 'office', 'restaurant', 'walk', 'elegant-dinner'];
 const KEY = () => `daily:${pid()}`;
 
 /** Occasion par défaut : celle choisie aujourd'hui, sinon client en semaine (profil principal), promenade le week-end. */
@@ -91,6 +91,7 @@ export async function renderDaily(box, { onShowAll } = {}) {
         keep[today] = ids; Object.assign(propHist, keep); store.repo.kvSet(PROP_KEY, keep);
       }
     }
+    const occChips = () => html`<div class="chips" role="group" aria-label="Ma journée" style="margin:10px 0">${QUICK_OCCASIONS.map((id) => html`<button class="chip" data-occ="${id}" aria-pressed="${st.occasionId === id}">${OCCASION_BY_ID[id].name}</button>`)}</div>`;
     const wxLine = (w) => html`${weatherSummary(w.w)} <span class="small muted">· ${w.real ? `${w.w.place}, ${w.w.source}` : 'estimation saisonnière — activez la météo pour plus de précision'}</span>`;
 
     let head; let pieces = null; let footer = '';
@@ -114,14 +115,14 @@ export async function renderDaily(box, { onShowAll } = {}) {
     setHTML(box, html`<section class="card card-accent" aria-labelledby="daily-h">
       <div class="small" style="margin-bottom:10px">${icon('today')} <strong>${fmtDate(today, { weekday: 'long', day: 'numeric', month: 'long' })}</strong> — ${wxLine(w0)}${(() => { const n = all.filter((g) => g.availability === 'to-wash').length; return n ? html` · <a href="#/wardrobe/care">${n} pièce${n > 1 ? 's' : ''} au panier à linge</a>` : ''; })()}</div>
       ${!all.length ? html`<h2 id="daily-h" style="margin-top:0">Votre tenue du jour vous attend</h2><p>Ajoutez quelques pièces (haut, bas, chaussures) : SPREZZA vous proposera chaque matin une tenue prête, adaptée à la météo et à votre journée.</p><div class="btn-row"><a class="btn btn-primary" href="#/wardrobe/quick">${icon('camera')} Ajout rapide</a><a class="btn" href="#/outfits/templates">Inspiration</a></div>`
-        : !pieces ? html`<h2 id="daily-h" style="margin-top:0">Pas encore de tenue complète</h2><p class="small">${res.info.missing.map((m) => m.text).join(' ') || 'Le dressing disponible ne permet pas de tenue complète pour cette occasion.'}</p><a class="btn btn-primary" href="#/wardrobe/quick">${icon('camera')} Ajouter une pièce</a>`
+        : !pieces ? html`<h2 id="daily-h" style="margin-top:0">Pas encore de tenue complète${OCCASION_BY_ID[st.occasionId] ? ` — ${OCCASION_BY_ID[st.occasionId].name}` : ''}</h2>${occChips()}<p class="small">${res.info.missing.map((m) => m.text).join(' ') || 'Le dressing disponible ne permet pas de tenue complète pour cette occasion.'}</p>${OCCASION_BY_ID[st.occasionId]?.workwear ? workKitBlock(all) : ''}<a class="btn btn-primary" href="#/wardrobe/quick">${icon('camera')} Ajouter une pièce</a>`
         : html`<div id="daily-h">${head}</div>
-          <div class="chips" role="group" aria-label="Ma journée" style="margin:10px 0">${QUICK_OCCASIONS.map((id) => html`<button class="chip" data-occ="${id}" aria-pressed="${st.occasionId === id}">${OCCASION_BY_ID[id].name}</button>`)}</div>
+          ${occChips()}
           <div class="grid-2" style="align-items:start">
             <div class="piece-list">${piecesList(pieces).map(([r, g]) => pieceRow(r, g))}</div>
             <div><div class="mannequin-wrap">${outfitMannequin(pieces)}</div><div class="schema-label">Schéma — pas une photographie</div></div>
           </div>
-          ${best && !wornToday && !plannedToday || (best && st.showProposal) ? html`<p class="small" style="margin-top:10px">${best.reasons.slice(0, 2).join(' ')}</p>${best.warnings.length ? html`<div class="callout callout-warn small">${best.warnings[0]}</div>` : ''}${res.backup?.changes?.length ? html`<p class="small"><strong>Plan B :</strong> ${res.backup.changes.join(' ; ')}.</p>` : ''}${upgradeBlock(best.upgrade)}` : ''}
+          ${best && !wornToday && !plannedToday || (best && st.showProposal) ? html`<p class="small" style="margin-top:10px">${best.reasons.slice(0, 2).join(' ')}</p>${best.warnings.length ? html`<div class="callout callout-warn small">${best.warnings[0]}</div>` : ''}${res.backup?.changes?.length ? html`<p class="small"><strong>Plan B :</strong> ${res.backup.changes.join(' ; ')}.</p>` : ''}${OCCASION_BY_ID[st.occasionId]?.workwear ? workKitBlock(all, { tips: false }) : upgradeBlock(best.upgrade)}` : ''}
           <div class="btn-row" style="margin-top:12px">${footer}</div>`}
     </section>
     ${seasonBanner}

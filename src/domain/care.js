@@ -9,6 +9,7 @@ export const WASH_AFTER = {
   blazer: 12, 'veste-costume': 12, surchemise: 6, 'veste-denim': 10, 'cardigan-epais': 6,
   manteau: null, trench: null, caban: null, parka: null, doudoune: null, impermeable: null,
   echarpe: 10, bonnet: 6,
+  'tee-shirt-travail': 1, 'pantalon-travail': 2, 'veste-travail': 8,
 };
 export const washAfter = (g) => (g.washAfter ?? WASH_AFTER[g.sub] ?? null);
 
