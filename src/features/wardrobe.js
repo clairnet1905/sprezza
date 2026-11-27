@@ -682,6 +682,7 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
     // « J'ai acheté le kaki » : la couleur écrite par vous l'emporte sur celle de la page, et choisit le bon coloris.
     const own = url ? $('#webpaste').value.replace(/https?:\/\/\S+/g, ' ').trim() : '';
     const ownColor = own ? parseProduct(own).color : null;
+    if (url) delete p.color2; // sur une page produit, les autres couleurs citées sont d'autres coloris, pas une couleur secondaire
     if (ownColor) { p.color = ownColor; delete p.colorHex; delete p.colorUnknown; }
     if (state.product) {
       const v = state.product.variants;
@@ -769,7 +770,7 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
     box.querySelectorAll('[data-pick]').forEach((cb) => cb.onchange = () => { state.productPicks = [...box.querySelectorAll('[data-pick]:checked')].map((x) => x.dataset.pick); });
     box.querySelectorAll('[data-variant]').forEach((b) => b.onclick = () => {
       pr.pick = pr.variants[+b.dataset.variant];
-      const c = parseProduct(pr.pick.name).color; if (c) { $('#color').value = c; syncColor(); }
+      const c = parseProduct(pr.pick.name).color; if (c) { $('#color').value = c; syncColor(); } $('#color2').value = '';
       if (!pr.pick.code && pr.pick.href) { $('#webpaste').value = pr.pick.href; run(); return; } // coloris sans code : on relit sa page
       renderProductPhotos(); toast(`Coloris ${pr.pick.name}${c ? ` — couleur ${COLOR_BY_ID[c].name}` : ''}`);
     });
