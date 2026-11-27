@@ -580,7 +580,8 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
   const run = async () => {
     const out = $('#webout');
     let input = $('#webpaste').value.trim();
-    const url = !state.pasteLabel && input.match(/https?:\/\/[^\s"'<>]+/)?.[0];
+    // Un JSON (ou une réponse structurée) fait foi : pas de lecture de page, même s'il contient un lien.
+    const url = !state.pasteLabel && !parseStructured(input) && input.match(/https?:\/\/[^\s"'<>]+/)?.[0];
     let pageName = ''; let note = '';
     if (url) {
       lastUrl = url;
