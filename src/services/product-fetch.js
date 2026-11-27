@@ -32,6 +32,7 @@ export async function fetchProductPage(url) {
   if (cached && Date.now() - cached.at < CACHE_DAYS * 864e5) return cached.page;
   let page = await read(url);
   if (!usable(page)) page = await read(url, 'browser'); // second essai avec un vrai navigateur (sites protégés)
+  if (!usable(page)) { await new Promise((r) => setTimeout(r, 2500)); page = await read(url, 'browser'); } // certains sites bloquent par intermittence
   if (!usable(page)) throw Object.assign(new Error('ce site bloque la lecture automatique de ses pages'), { code: 'blocked' });
   await store.repo.kvSet(key, { at: Date.now(), page: { title: page.title, description: page.description.slice(0, 1500), content: page.content.slice(0, 60000) } });
   return page;

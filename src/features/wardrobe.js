@@ -689,6 +689,7 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
       state.product.pick = (ownColor && byName(ownColor)) || v.find((x) => x.code && x.code === state.product.cur) || v.find((x) => x.selected) || null;
       if (!ownColor && state.product.pick) { const c = parseProduct(state.product.pick.name).color; if (c) p.color = c; }
     }
+    if (url && !pageName) { const fromLink = parseProduct(url).name; if (fromLink) p.name = fromLink; else delete p.name; } // votre phrase n'est jamais prise pour le nom
     if (pageName) p.name = pageName.charAt(0).toUpperCase() + pageName.slice(1).toLowerCase().replace(/\boxford\b/, 'Oxford');
     if (!p.found.length && !pageName) { setHTML(out, html`<p class="small callout callout-warn">${note || 'Rien de reconnu. Collez le lien de l\'article, son titre complet ou sa composition.'}</p>`); return; }
     const rows = [];
