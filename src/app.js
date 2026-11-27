@@ -70,10 +70,15 @@ async function route() {
     document.title = title ? `${title} — SPREZZA` : 'SPREZZA — Mon styliste personnel';
     if (!location.hash.includes('keep')) window.scrollTo(0, 0);
     main.focus({ preventScroll: true });
+    sessionStorage.removeItem('sprezza:reloaded');
   } catch (e) {
     console.error(e);
+    // Module introuvable pendant une mise à jour (ancienne et nouvelle version qui se croisent) : un rechargement suffit.
+    if (/dynamically imported module|Importing a module script failed|error loading dynamically imported/i.test(e.message) && !sessionStorage.getItem('sprezza:reloaded')) {
+      sessionStorage.setItem('sprezza:reloaded', '1'); location.reload(); return;
+    }
     setHTML(main, html`<div class="callout callout-danger"><strong>Une erreur est survenue.</strong> <span>${e.message}</span><div class="btn-row" style="margin-top:10px"><button class="btn btn-sm" id="retry">Réessayer</button></div></div>`);
-    main.querySelector('#retry').onclick = route;
+    main.querySelector('#retry').onclick = () => { sessionStorage.removeItem('sprezza:reloaded'); location.reload(); };
   }
 }
 export function navigate(hash) { if (location.hash === hash) route(); else location.hash = hash; }
