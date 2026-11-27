@@ -224,6 +224,23 @@ export function parseComposition(text) {
   return { text: set.map((p) => `${p.pct} % ${p.fiber}`).join(', '), main: set[0].fiber, total };
 }
 
+/**
+ * Texte utile d'une page produit lue (titre, description, contenu Markdown) : nom, couleur, prix, composition.
+ * Fonction pure, testée sur des pages réelles (Uniqlo, Mango).
+ */
+export function readerToText({ title = '', description = '', content = '' }) {
+  const h1 = content.match(/^#\s+(.+)$/m);
+  const name = (h1 ? h1[1] : title.split(/\s+[|–—]\s+/)[0]).replace(/\s+pour (homme|femme|enfant)s?\b/i, '').replace(/\s{2,}/g, ' ').trim();
+  const start = h1 ? content.indexOf(h1[0]) : 0;
+  const zone = content.slice(start, start + 5000).replace(/!\[[^\]]*\]\([^)]*\)/g, ' ').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
+  const color = zone.match(/(?:^|\n)\s*(?:\*\s*)?(?:coloris|couleur|colou?r|color)\s*:\s*(?:\d{1,3}\s+)?([^\n|:]{2,40})/i)?.[1].trim() || '';
+  const price = zone.match(/(\d{1,4}[.,]\d{2})\s?€/)?.[1] || '';
+  const ci = content.search(/composition|mati[èe]res?\b|d[ée]tails du tissu|fabric/i);
+  const compZone = `${ci >= 0 ? content.slice(ci, ci + 900) : ''}\n${description}\n${zone}`;
+  const comp = parseComposition(compZone);
+  return { name, text: [name, color ? `Couleur : ${color}` : '', comp ? comp.text : '', price ? `${price} €` : '', description].filter(Boolean).join('\n') };
+}
+
 /** Requête courte pour retrouver la pièce par texte (moteurs et boutiques). */
 export function identifyQuery({ brand, subName, colorName, material }) {
   const seen = new Set();

@@ -28,7 +28,7 @@ import { alphaBounds } from '../src/services/cutout.js';
 import { careStatus, afterWear, afterWash, afterCare } from '../src/domain/care.js';
 import { periodAt, nextChange, seasonClass, seasonalPlan } from '../src/domain/seasonal.js';
 import { OCCASION_BY_ID } from '../src/data/occasions.js';
-import { parseProduct, urlWords, parseComposition } from '../src/domain/product-parse.js';
+import { parseProduct, urlWords, parseComposition, readerToText } from '../src/domain/product-parse.js';
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -420,6 +420,15 @@ test('Étiquette lue : composition multilingue, taille, référence, origine', (
   eq(parseProduct('Taille: 48 Made in Italy', { label: true }).size, '48');
   eq(parseProduct('Taille: 48 Made in Italy', { label: true }).origin, 'Italie');
   eq(parseComposition('aucune fibre'), null);
+});
+
+test('Lien produit : page réelle Uniqlo et Mango lue et convertie en fiche', async () => {
+  const uq = readerToText(await (await fetch('./fixture-uq.json')).json());
+  const a = parseProduct(`${uq.text}\nhttps://www.uniqlo.com/fr/fr/products/E450259-000/00?colorDisplayCode=06`);
+  eq(uq.name, 'Chemise Oxford'); eq(a.brand, 'Uniqlo'); eq(a.sub, 'chemise'); eq(a.color, 'mid-gray'); eq(a.price, 39.9); eq(a.composition, '100 % coton'); eq(a.material, 'Coton Oxford');
+  const mg = readerToText(await (await fetch('./fixture-mg.json')).json());
+  const b = parseProduct(`${mg.text}\nhttps://shop.mango.com/fr/fr/p/homme/chemises/regular-fit/chemise-100-coton-oxford/37074438/01/00`);
+  eq(mg.name, 'Chemise 100% coton Oxford'); eq(b.brand, 'Mango'); eq(b.sub, 'chemise'); eq(b.color, 'white'); eq(b.price, 45.99); eq(b.composition, '100 % coton'); eq(b.fit, 'regular');
 });
 
 // ---------------- Exécution

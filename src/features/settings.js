@@ -81,7 +81,7 @@ async function exportData(withPhotos) {
     if (s === 'photos') continue;
     stores[s] = await store.repo.all(s);
   }
-  stores.kv = stores.kv.filter((r) => !/^(weather:|sync:|apikey:|pexels:)/.test(r.key)); // jamais de jeton de session dans un export
+  stores.kv = stores.kv.filter((r) => !/^(weather:|sync:|apikey:|pexels:|product:)/.test(r.key)); // jamais de jeton de session dans un export
   delete stores.tombstones;
   const stamp = new Date().toISOString().slice(0, 10);
   downloadFile(`sprezza-sauvegarde-${stamp}.json`, JSON.stringify({ app: 'sprezza', schemaVersion: SCHEMA_VERSION, seedVersion: SEED_VERSION, exportedAt: new Date().toISOString(), photosIncluded: false, stores }, null, 2));

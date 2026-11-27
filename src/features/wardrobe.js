@@ -12,7 +12,7 @@ import { costPerWear, wardrobeStats } from '../domain/wardrobe-logic.js';
 import { versatility, reviewGarment, keyThresholdOf, VERDICTS } from '../domain/review.js';
 import { careStatus, afterWash, afterCare } from '../domain/care.js';
 import { PERIODS, periodAt, nextChange, seasonalPlan, storageTip } from '../domain/seasonal.js';
-import { parseProduct, identifyQuery } from '../domain/product-parse.js';
+import { parseProduct, identifyQuery, readerToText } from '../domain/product-parse.js';
 import { readLabel, OCR_DOWNLOAD_MB } from '../services/ocr.js';
 import { RETAILERS, QUICK_SHOPS, priceCompareUrl } from '../data/retailers.js';
 import { shopSearchUrl } from './shopping.js';
@@ -244,7 +244,7 @@ async function renderEditor(main, existing, preset = {}) {
       <div id="aiout"></div>
     </fieldset>
     <fieldset id="webid"><legend>Retrouver ce vêtement sur internet</legend>
-      <p class="small muted">Trouvez la fiche du fabricant, puis collez son lien ou son titre : SPREZZA remplit marque, type, couleur, matière, composition, coupe et prix. Vous validez chaque champ.</p>
+      <p class="small muted">Collez le lien de l'article (Uniqlo, Zara, Mango, COS…) : SPREZZA lit la page et remplit seul nom, marque, type, couleur, matière, composition, coupe et prix. Vous vérifiez, et pouvez tout annuler.</p>
       <ol class="steps small">
         <li><strong>Chercher</strong> — par la photo (Google Lens) ou par texte.</li>
         <li><strong>Ouvrir le bon produit</strong>, copier son lien (ou son titre et sa composition).</li>
@@ -258,7 +258,7 @@ async function renderEditor(main, existing, preset = {}) {
       <p class="hint" id="lenshint"></p>
       <div id="textshops" class="btn-row"></div>
       <div class="field" style="margin-top:10px"><label for="webpaste">Lien ou description du produit trouvé</label>
-        <textarea id="webpaste" rows="3" placeholder="https://www.uniqlo.com/fr/fr/products/… ou « Chemise Oxford Regular Fit – Bleu ciel – 100 % coton – 29,90 € »"></textarea></div>
+        <textarea id="webpaste" rows="3" placeholder="Collez ici le lien de l'article : https://…"></textarea></div>
       <div class="btn-row"><button class="btn btn-sm" type="button" id="pastebtn">Coller</button><button class="btn btn-sm btn-primary" type="button" id="parsebtn">${icon('check')} Remplir la fiche</button></div>
       <div id="webout"></div>
     </fieldset>
@@ -534,42 +534,70 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
     catch { toast('Collez avec un appui long dans le champ'); $('#webpaste').focus(); }
   };
 
-  $('#parsebtn').onclick = () => {
-    const p = parseProduct($('#webpaste').value, { label: state.pasteLabel });
+  // Lien collé : lecture de la page produit, puis remplissage automatique (annulable).
+  const FIELDS = ['name', 'brand', 'category', 'sub', 'color', 'colorhex', 'color2', 'material', 'composition', 'pattern', 'fit', 'price', 'size', 'ref', 'origin', 'sourceUrl'];
+  let lastUrl = '';
+  const run = async () => {
     const out = $('#webout');
-    if (!p.found.length) { setHTML(out, html`<p class="small callout callout-warn">Rien de reconnu. Collez le titre complet du produit, sa composition ou son lien.</p>`); return; }
+    let input = $('#webpaste').value.trim();
+    const url = !state.pasteLabel && input.match(/https?:\/\/[^\s"'<>]+/)?.[0];
+    let pageName = ''; let note = '';
+    if (url) {
+      lastUrl = url;
+      setHTML(out, html`<p class="small"><span class="loader"></span> Lecture de la page produit (${url.replace(/^https?:\/\/(www\d?\.)?/, '').split('/')[0]})…</p>`);
+      $('#parsebtn').disabled = true;
+      try {
+        const { fetchProductPage } = await import('../services/product-fetch.js');
+        const r = readerToText(await fetchProductPage(url));
+        pageName = r.name; input = `${r.text}\n${input}`;
+      } catch (e) { note = `Page non lisible (${e.message}) : seules les informations du lien sont reprises. Copiez le titre et la composition depuis la page et collez-les ici pour compléter.`; }
+      finally { $('#parsebtn').disabled = false; }
+    }
+    const p = parseProduct(input, { label: state.pasteLabel });
+    if (pageName) p.name = pageName.charAt(0).toUpperCase() + pageName.slice(1).toLowerCase().replace(/\boxford\b/, 'Oxford');
+    if (!p.found.length && !pageName) { setHTML(out, html`<p class="small callout callout-warn">${note || 'Rien de reconnu. Collez le lien de l\'article, son titre complet ou sa composition.'}</p>`); return; }
     const rows = [];
-    if (p.name) rows.push(['name', 'Nom', p.name, p.name, !$('#name').value.trim()]);
-    if (p.brand) rows.push(['brand', 'Marque', p.brand, p.brand, true]);
-    if (p.sub) rows.push(['sub', 'Type', `${CATEGORY_BY_ID[p.category].name} › ${SUB_INFO[p.sub].name}`, p.sub, true]);
-    if (p.color) rows.push(['color', 'Couleur principale', COLOR_BY_ID[p.color].name, p.color, true]);
-    if (p.color2) rows.push(['color2', 'Couleur secondaire', COLOR_BY_ID[p.color2].name, p.color2, true]);
-    if (p.material) rows.push(['material', 'Matière', p.material, p.material, true]);
-    if (p.composition) rows.push(['composition', 'Composition', p.composition, p.composition, true]);
-    if (p.pattern) rows.push(['pattern', 'Motif', p.pattern, p.pattern, true]);
-    if (p.fit) rows.push(['fit', 'Coupe', FITS.find(([id]) => id === p.fit)?.[1] || p.fit, p.fit, true]);
-    if (p.price) rows.push(['price', 'Prix', fmtEUR(p.price), p.price, true]);
-    if (p.size) rows.push(['size', 'Taille', p.size, p.size, true]);
-    if (p.ref) rows.push(['ref', 'Référence', p.ref, p.ref, true]);
-    if (p.origin) rows.push(['origin', 'Fabrication', p.origin, p.origin, true]);
-    if (p.sourceUrl) rows.push(['sourceUrl', 'Lien d\'origine', p.sourceUrl.replace(/^https?:\/\/(www\.)?/, '').slice(0, 48), p.sourceUrl, true]);
-    setHTML(out, html`<div class="card-flat" style="margin-top:10px"><p class="small"><strong>${rows.length} caractéristique(s) trouvée(s)</strong> — décochez ce qui ne correspond pas à votre pièce.</p>
-      ${rows.map(([f, l, v, , on], i) => html`<label class="check"><input type="checkbox" data-web="${i}" ${on ? raw('checked') : ''}> ${l} : <strong>${v}</strong></label>`)}
-      ${p.sourceUrl && p.found.length <= 3 ? html`<p class="hint">Le lien seul donne peu d'informations : copiez aussi le titre et la composition depuis la page pour une fiche complète.</p>` : ''}
-      <p class="hint">La taille n'est reprise que si elle figure sur l'étiquette ; sinon indiquez la vôtre. La composition fait foi sur l'étiquette.</p>
-      <button class="btn btn-sm btn-primary" type="button" id="webapply">Appliquer la sélection</button></div>`);
-    out.querySelector('#webapply').onclick = () => {
-      out.querySelectorAll('[data-web]:checked').forEach((cb) => {
-        const [f, , , val] = rows[+cb.dataset.web];
-        if (f === 'sub') { $('#category').value = p.category; setHTML($('#sub'), options(subOpts(p.category), p.sub)); syncSub(); }
-        else if (f === 'color') { $('#color').value = val; syncColor(); }
-        else { const el = $(`#${f}`); if (el) el.value = val; }
-      });
-      toast('Fiche remplie — vérifiez puis enregistrez');
-      if ($('#ref').value && $('#brand').value) $('#textsearch').click();
-      $('#name').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (p.name && (!$('#name').value.trim() || url)) rows.push(['name', 'Nom', p.name, p.name]);
+    if (p.brand) rows.push(['brand', 'Marque', p.brand, p.brand]);
+    if (p.sub) rows.push(['sub', 'Type', `${CATEGORY_BY_ID[p.category].name} › ${SUB_INFO[p.sub].name}`, p.sub]);
+    if (p.color) rows.push(['color', 'Couleur principale', COLOR_BY_ID[p.color].name, p.color]);
+    if (p.color2) rows.push(['color2', 'Couleur secondaire', COLOR_BY_ID[p.color2].name, p.color2]);
+    if (p.material) rows.push(['material', 'Matière', p.material, p.material]);
+    if (p.composition) rows.push(['composition', 'Composition', p.composition, p.composition]);
+    if (p.pattern) rows.push(['pattern', 'Motif', p.pattern, p.pattern]);
+    if (p.fit) rows.push(['fit', 'Coupe', FITS.find(([id]) => id === p.fit)?.[1] || p.fit, p.fit]);
+    if (p.price) rows.push(['price', 'Prix', fmtEUR(p.price), p.price]);
+    if (p.size) rows.push(['size', 'Taille', p.size, p.size]);
+    if (p.ref) rows.push(['ref', 'Référence', p.ref, p.ref]);
+    if (p.origin) rows.push(['origin', 'Fabrication', p.origin, p.origin]);
+    if (p.sourceUrl) rows.push(['sourceUrl', 'Lien d\'origine', p.sourceUrl.replace(/^https?:\/\/(www\d?\.)?/, '').slice(0, 48), p.sourceUrl]);
+    // Remplissage immédiat, avec retour arrière possible.
+    const before = Object.fromEntries(FIELDS.map((f) => [f, $(`#${f}`)?.value]));
+    for (const [f, , , val] of rows) {
+      if (f === 'sub') { $('#category').value = p.category; setHTML($('#sub'), options(subOpts(p.category), p.sub)); syncSub(); }
+      else if (f === 'color') { $('#color').value = val; syncColor(); }
+      else { const el = $(`#${f}`); if (el) el.value = val; }
+    }
+    setHTML(out, html`<div class="card-flat" style="margin-top:10px"><p class="small"><strong>${icon('check')} ${rows.length} champ(s) rempli(s)</strong>${url && !note ? ' depuis la page de l\'article' : ''} — vérifiez avant d'enregistrer.</p>
+      <ul class="small" style="margin:6px 0 8px;padding-left:18px">${rows.map(([, l, v]) => html`<li>${l} : <strong>${v}</strong></li>`)}</ul>
+      ${note ? html`<p class="small callout callout-warn">${note}</p>` : ''}
+      <p class="hint">La taille vient seulement de l'étiquette : indiquez la vôtre. La couleur choisie sur le site peut différer de votre pièce (vérifiez-la).</p>
+      <button class="btn btn-sm btn-ghost" type="button" id="webundo">Annuler le remplissage</button></div>`);
+    out.querySelector('#webundo').onclick = () => {
+      $('#category').value = before.category; setHTML($('#sub'), options(subOpts(before.category), before.sub));
+      for (const f of FIELDS) if (!['category', 'sub'].includes(f) && $(`#${f}`)) $(`#${f}`).value = before[f] ?? '';
+      syncColor(); setHTML(out, html`<p class="small muted">Remplissage annulé.</p>`);
     };
+    toast(`${rows.length} champ(s) rempli(s) — vérifiez puis enregistrez`);
+    if ($('#ref').value && $('#brand').value) $('#textsearch').click();
   };
+  $('#parsebtn').onclick = run;
+  // Coller un lien dans la zone ou dans « Lien d'origine » suffit : la lecture démarre seule.
+  $('#webpaste').addEventListener('paste', () => setTimeout(() => { state.pasteLabel = false; if (/^\s*https?:\/\/\S+\s*$/.test($('#webpaste').value)) run(); }, 0));
+  $('#sourceUrl').addEventListener('change', () => {
+    const v = $('#sourceUrl').value.trim();
+    if (/^https?:\/\/\S+$/.test(v) && v !== lastUrl) { state.pasteLabel = false; $('#webpaste').value = v; run(); $('#webid').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  });
 }
 
 function colorHint(hex) { const n = nearestColor(hex); return n ? `Couleur la plus proche : ${n.name} (proximité ${n.confidence}). La proximité numérique n'est pas une certitude stylistique.` : ''; }
