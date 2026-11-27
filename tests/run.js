@@ -28,7 +28,7 @@ import { alphaBounds } from '../src/services/cutout.js';
 import { careStatus, afterWear, afterWash, afterCare } from '../src/domain/care.js';
 import { periodAt, nextChange, seasonClass, seasonalPlan } from '../src/domain/seasonal.js';
 import { OCCASION_BY_ID } from '../src/data/occasions.js';
-import { parseProduct, urlWords, parseComposition, readerToText } from '../src/domain/product-parse.js';
+import { parseProduct, urlWords, parseComposition, readerToText, assistantPrompt, parseStructured } from '../src/domain/product-parse.js';
 
 const tests = [];
 const test = (name, fn) => tests.push({ name, fn });
@@ -429,6 +429,18 @@ test('Lien produit : page réelle Uniqlo et Mango lue et convertie en fiche', as
   const mg = readerToText(await (await fetch('./fixture-mg.json')).json());
   const b = parseProduct(`${mg.text}\nhttps://shop.mango.com/fr/fr/p/homme/chemises/regular-fit/chemise-100-coton-oxford/37074438/01/00`);
   eq(mg.name, 'Chemise 100% coton Oxford'); eq(b.brand, 'Mango'); eq(b.sub, 'chemise'); eq(b.color, 'white'); eq(b.price, 45.99); eq(b.composition, '100 % coton'); eq(b.fit, 'regular');
+});
+
+test('Réponse ChatGPT copiée : relue champ par champ, incertitudes ignorées', () => {
+  const answer = `Voici l'identification :\n**Nom :** Blazer en laine anthracite\n**Marque :** inconnue\n**Type :** Veste : Blazer\n**Couleur :** Anthracite\n**Couleur secondaire :** aucune\n**Motif :** Chevrons\n**Matière :** Laine\n**Composition :** inconnue\n**Coupe :** Ajustée/slim\n**Saisons :** automne, hiver\n**Formalité :** 4\n**Confiance :** moyenne\n**Remarque :** Photographiez l'étiquette pour confirmer la composition.`;
+  const p = parseProduct(answer);
+  eq(p.name, 'Blazer en laine anthracite'); eq(p.brand, undefined); eq(p.category, 'veste'); eq(p.sub, 'blazer'); eq(p.color, 'charcoal'); eq(p.color2, undefined);
+  eq(p.pattern, 'Chevrons'); eq(p.material, 'Laine'); eq(p.composition, undefined); eq(p.fit, 'slim'); eq(p.seasons.join(','), 'autumn,winter'); eq(p.formality, 4);
+  eq(p.confidence, 'moyenne'); ok(/étiquette/.test(p.remark));
+  const q = parseStructured('- Nom : Chino beige\n- Type : Bas : Chino\n- Couleur : Beige\n- Composition : 98 % coton, 2 % élasthanne\n- Saisons : toutes');
+  eq(q.sub, 'chino'); eq(q.color, 'beige'); eq(q.composition, '98 % coton, 2 % élasthanne'); eq(q.seasons.length, 0);
+  eq(parseStructured('Chemise Oxford bleu ciel 29,90 €'), null);
+  ok(/Blazer/.test(assistantPrompt()) && /Anthracite/.test(assistantPrompt()), 'consigne incomplète');
 });
 
 // ---------------- Exécution

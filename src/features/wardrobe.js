@@ -12,7 +12,7 @@ import { costPerWear, wardrobeStats } from '../domain/wardrobe-logic.js';
 import { versatility, reviewGarment, keyThresholdOf, VERDICTS } from '../domain/review.js';
 import { careStatus, afterWash, afterCare } from '../domain/care.js';
 import { PERIODS, periodAt, nextChange, seasonalPlan, storageTip } from '../domain/seasonal.js';
-import { parseProduct, identifyQuery, readerToText } from '../domain/product-parse.js';
+import { parseProduct, identifyQuery, readerToText, assistantPrompt, parseStructured } from '../domain/product-parse.js';
 import { readLabel, OCR_DOWNLOAD_MB } from '../services/ocr.js';
 import { RETAILERS, QUICK_SHOPS, priceCompareUrl } from '../data/retailers.js';
 import { shopSearchUrl } from './shopping.js';
@@ -260,6 +260,9 @@ async function renderEditor(main, existing, preset = {}) {
         <button class="btn" type="button" id="textsearch">${icon('search')} Recherche par texte</button>
       </div>
       <p class="hint" id="lenshint"></p>
+      <div class="card-flat" style="margin-top:10px"><p class="small" style="margin-top:0"><strong>Avec ChatGPT</strong> (ou Claude, Gemini…) — gratuit avec votre compte, aucune clé à configurer :</p>
+        <div class="btn-row"><button class="btn btn-sm" type="button" id="gptcopy">1. Copier la consigne</button><button class="btn btn-sm" type="button" id="gptsend">2. Envoyer la photo à ChatGPT</button></div>
+        <p class="hint">3. Dans ChatGPT : collez la consigne, joignez la photo (et celle de l'étiquette si vous l'avez), envoyez. 4. Copiez toute sa réponse, revenez ici et collez-la ci-dessous : la fiche se remplit seule.</p></div>
       <div id="textshops" class="btn-row"></div>
       <div class="field" style="margin-top:10px"><label for="webpaste">Lien ou description du produit trouvé</label>
         <textarea id="webpaste" rows="3" placeholder="Collez ici le lien de l'article : https://…"></textarea></div>
@@ -519,6 +522,34 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
     } catch (e) { if (e.name !== 'AbortError') toast(`Partage impossible : ${e.message}`); }
   };
 
+  // ChatGPT par copier-coller : consigne au format relu par SPREZZA, photo partagée vers l'app.
+  $('#gptcopy').onclick = async () => {
+    const text = assistantPrompt();
+    try { await navigator.clipboard.writeText(text); toast('Consigne copiée : collez-la dans ChatGPT'); }
+    catch { $('#webpaste').value = text; $('#webpaste').select(); toast('Copiez la consigne affichée dans la zone ci-dessous'); }
+  };
+  let prepared = null;
+  const prepare = () => (prepared ||= (async () => {
+    const files = [];
+    if (state.source || state.savedPhotoId) { const b = await croppedPhotoBlob(state); if (b) files.push(new File([b], 'vetement.jpg', { type: 'image/jpeg' })); }
+    const lbl = state.extras.find((x) => x.role === 'label');
+    if (lbl) { const { canvasToBlob } = await import('../services/image.js'); files.push(new File([await canvasToBlob(renderToCanvas(lbl.bitmap, { maxSide: 1600 }), 0.88)], 'etiquette.jpg', { type: 'image/jpeg' })); }
+    return files;
+  })());
+  $('#gptsend').addEventListener('pointerdown', () => { prepared = null; prepare(); });
+  $('#gptsend').onclick = async () => {
+    if (store.profile.kind === 'child') { toast('Désactivé pour un profil enfant'); return; }
+    const files = await prepare(); prepared = null;
+    if (!files.length) { window.open('https://chatgpt.com/', '_blank', 'noopener'); toast('Aucune photo dans la fiche : joignez-la directement dans ChatGPT'); return; }
+    if (navigator.canShare && navigator.canShare({ files })) {
+      try { await navigator.share({ files }); return; } catch (e) { if (e.name === 'AbortError') return; }
+    }
+    // Ordinateur : la photo est téléchargée, ChatGPT s'ouvre ; glissez-y la photo.
+    files.forEach((f) => { const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); });
+    window.open('https://chatgpt.com/', '_blank', 'noopener');
+    toast('Photo enregistrée dans vos téléchargements : glissez-la dans ChatGPT avec la consigne');
+  };
+
   $('#textsearch').onclick = () => {
     const sub = SUB_INFO[$('#sub').value]; const col = COLOR_BY_ID[$('#color').value];
     const q = identifyQuery({ brand: $('#brand').value.trim(), subName: sub?.name || '', colorName: col?.name || '', material: $('#material').value.trim() });
@@ -564,7 +595,7 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
     if (pageName) p.name = pageName.charAt(0).toUpperCase() + pageName.slice(1).toLowerCase().replace(/\boxford\b/, 'Oxford');
     if (!p.found.length && !pageName) { setHTML(out, html`<p class="small callout callout-warn">${note || 'Rien de reconnu. Collez le lien de l\'article, son titre complet ou sa composition.'}</p>`); return; }
     const rows = [];
-    if (p.name && (!$('#name').value.trim() || url)) rows.push(['name', 'Nom', p.name, p.name]);
+    if (p.name && (!$('#name').value.trim() || url || p.fromAssistant || $('#name').value === state.autoName)) rows.push(['name', 'Nom', p.name, p.name]);
     if (p.brand) rows.push(['brand', 'Marque', p.brand, p.brand]);
     if (p.sub) rows.push(['sub', 'Type', `${CATEGORY_BY_ID[p.category].name} › ${SUB_INFO[p.sub].name}`, p.sub]);
     if (p.color) rows.push(['color', 'Couleur principale', COLOR_BY_ID[p.color].name, p.color]);
@@ -577,22 +608,31 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
     if (p.size) rows.push(['size', 'Taille', p.size, p.size]);
     if (p.ref) rows.push(['ref', 'Référence', p.ref, p.ref]);
     if (p.origin) rows.push(['origin', 'Fabrication', p.origin, p.origin]);
+    if (p.seasons) rows.push(['seasons', 'Saisons', p.seasons.length ? p.seasons.map((x) => SEASON_OPTS.find(([id]) => id === x)?.[1]).join(', ') : 'Toutes', p.seasons]);
+    if (p.formality) rows.push(['formality', 'Formalité', `${p.formality}/5`, p.formality]);
     if (p.sourceUrl) rows.push(['sourceUrl', 'Lien d\'origine', p.sourceUrl.replace(/^https?:\/\/(www\d?\.)?/, '').slice(0, 48), p.sourceUrl]);
     // Remplissage immédiat, avec retour arrière possible.
     const before = Object.fromEntries(FIELDS.map((f) => [f, $(`#${f}`)?.value]));
+    before.formality = $('#formality').value; before.seasons = [...main.querySelectorAll('input[name=seasons]')].filter((c) => c.checked).map((c) => c.value);
+    const setSeasons = (list) => main.querySelectorAll('input[name=seasons]').forEach((c) => { c.checked = list.includes(c.value); });
     for (const [f, , , val] of rows) {
       if (f === 'sub') { $('#category').value = p.category; setHTML($('#sub'), options(subOpts(p.category), p.sub)); syncSub(); }
       else if (f === 'color') { $('#color').value = val; syncColor(); }
+      else if (f === 'seasons') setSeasons(val);
+      else if (f === 'formality') { $('#formality').value = val; $('#formality').dispatchEvent(new Event('input')); }
       else { const el = $(`#${f}`); if (el) el.value = val; }
     }
+    if (p.name && rows.some(([f]) => f === 'name')) state.autoName = p.name;
     setHTML(out, html`<div class="card-flat" style="margin-top:10px"><p class="small"><strong>${icon('check')} ${rows.length} champ(s) rempli(s)</strong>${url && !note ? ' depuis la page de l\'article' : ''} — vérifiez avant d'enregistrer.</p>
       <ul class="small" style="margin:6px 0 8px;padding-left:18px">${rows.map(([, l, v]) => html`<li>${l} : <strong>${v}</strong></li>`)}</ul>
       ${note ? html`<p class="small callout callout-warn">${note}</p>` : ''}
+      ${p.fromAssistant ? html`<p class="small ${p.confidence === 'faible' ? 'callout callout-warn' : 'muted'}">Confiance de l'assistant : <strong>${p.confidence || 'non indiquée'}</strong>${p.remark ? html` — ${p.remark}` : ''}</p>` : ''}
       <p class="hint">La taille vient seulement de l'étiquette : indiquez la vôtre. La couleur choisie sur le site peut différer de votre pièce (vérifiez-la).</p>
       <button class="btn btn-sm btn-ghost" type="button" id="webundo">Annuler le remplissage</button></div>`);
     out.querySelector('#webundo').onclick = () => {
       $('#category').value = before.category; setHTML($('#sub'), options(subOpts(before.category), before.sub));
       for (const f of FIELDS) if (!['category', 'sub'].includes(f) && $(`#${f}`)) $(`#${f}`).value = before[f] ?? '';
+      setSeasons(before.seasons); $('#formality').value = before.formality; $('#formality').dispatchEvent(new Event('input'));
       syncColor(); setHTML(out, html`<p class="small muted">Remplissage annulé.</p>`);
     };
     toast(`${rows.length} champ(s) rempli(s) — vérifiez puis enregistrez`);
@@ -600,7 +640,7 @@ function setupWebIdentify(main, state, { subOpts, syncSub, syncColor }) {
   };
   $('#parsebtn').onclick = run;
   // Coller un lien dans la zone ou dans « Lien d'origine » suffit : la lecture démarre seule.
-  $('#webpaste').addEventListener('paste', () => setTimeout(() => { state.pasteLabel = false; if (/^\s*https?:\/\/\S+\s*$/.test($('#webpaste').value)) run(); }, 0));
+  $('#webpaste').addEventListener('paste', () => setTimeout(() => { state.pasteLabel = false; if (/^\s*https?:\/\/\S+\s*$/.test($('#webpaste').value) || parseStructured($('#webpaste').value)) run(); }, 0));
   $('#sourceUrl').addEventListener('change', () => {
     const v = $('#sourceUrl').value.trim();
     if (/^https?:\/\/\S+$/.test(v) && v !== lastUrl) { state.pasteLabel = false; $('#webpaste').value = v; run(); $('#webid').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
