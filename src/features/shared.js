@@ -187,10 +187,16 @@ export function upgradeBlock(u) {
       <div class="small muted">Suggestion d'achat : vous ne l'avez pas dans votre dressing.</div></div></div></div>`;
 }
 
+/** « Style italien · Italie — polo en maille, mocassins, tons beige et marine ». */
+export function styleTag(st) {
+  if (!st) return '';
+  return html`<p class="style-tag"><span class="tag tag-gold">Style ${st.label}</span> <span class="small muted">${st.origin} · ${st.why}</span></p>`;
+}
+
 export function proposalCard(opt, idx, { actions = true, title } = {}) {
   const p = opt.pieces;
   return html`<article class="card card-accent proposal" data-idx="${idx}">
-    <div class="proposal-head"><div><div class="eyebrow">Option ${idx + 1}</div><h3>${title || opt.title || MODE_NAME[opt.mode] || 'Tenue'}</h3>${opt.idea ? html`<p class="small muted" style="margin:2px 0 6px">${opt.idea}</p>` : ''}
+    <div class="proposal-head"><div><div class="eyebrow">Option ${idx + 1}</div><h3>${title || opt.title || MODE_NAME[opt.mode] || 'Tenue'}</h3>${opt.idea ? html`<p class="small muted" style="margin:2px 0 6px">${opt.idea}</p>` : ''}${styleTag(opt.style)}
       <div class="chips">${opt.palette.map((id) => html`<span class="tag">${swatch(colorHex(id))} ${colorName(id)}</span>`)}</div></div>
       ${scoreBadge(opt.score)}</div>
     <div class="grid-2" style="align-items:start">

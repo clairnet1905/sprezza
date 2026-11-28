@@ -10,7 +10,8 @@ import { recommend, roleOf, isAvailable, comboKey } from '../domain/recommend.js
 import { allTemplateStatuses, capsuleState, packList } from '../domain/wardrobe-logic.js';
 import { manualWeather } from '../domain/weather.js';
 import { colorHex, colorName } from '../domain/colors.js';
-import { pieceRow, piecesList, criteriaView, scoreBadge, outfitMannequin, idsToPieces, saveOutfit, wearOutfit, addToCalendar, MODE_NAME } from './shared.js';
+import { pieceRow, piecesList, criteriaView, scoreBadge, outfitMannequin, idsToPieces, saveOutfit, wearOutfit, addToCalendar, MODE_NAME, styleTag } from './shared.js';
+import { identifyStyle } from '../domain/style-id.js';
 import { navigate } from '../app.js';
 
 const ROLES = ['top', 'bottom', 'layer', 'outer', 'shoes', 'belt'];
@@ -39,7 +40,7 @@ async function renderList(main, head) {
     setHTML(main.querySelector('#olist'), list.length ? list.map((o) => {
       const p = idsToPieces(o.garmentIds, all);
       return html`<a class="card card-link" href="#/outfits/${o.id}"><div class="row-between"><span class="eyebrow">${OCCASION_BY_ID[o.occasionId]?.name || 'Libre'}</span>${o.favorite ? html`<span class="tag tag-gold">Favori</span>` : ''}</div>
-        <h3>${o.name}</h3><div class="row" style="gap:4px">${piecesList(p).map(([, g]) => swatch(g.color?.hex, g.color?.name))}</div>
+        <h3>${o.name}</h3>${styleTag(identifyStyle(p, { occasion: OCCASION_BY_ID[o.occasionId] }))}<div class="row" style="gap:4px">${piecesList(p).map(([, g]) => swatch(g.color?.hex, g.color?.name))}</div>
         <p class="small muted" style="margin-top:6px">${piecesList(p).map(([, g]) => g.name).join(' · ') || 'Pièces supprimées'}</p>
         ${o.missingItems?.length ? html`<p class="small" style="color:var(--warn)">${o.missingItems.join(' · ')}</p>` : ''}</a>`;
     }) : html`<p class="muted">Aucune tenue pour ce filtre.</p>`);

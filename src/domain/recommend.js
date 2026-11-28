@@ -9,6 +9,7 @@ import { seasonFromDate, climateFeel } from './weather.js';
 import { CAPSULE } from '../data/capsule.js';
 import { WORK_KIT, WORK_PRICE_CAP } from '../data/workwear.js';
 import { looksFor, explainOutfit } from './explain.js';
+import { identifyStyle } from './style-id.js';
 
 const TOP_K = 6;
 const BELT_BOTTOMS = ['pantalon', 'pantalon-costume', 'chino', 'jean', 'flanelle', 'bermuda'];
@@ -389,7 +390,8 @@ function decorate(pick, { occasion, env, pools, list, ctxBase }) {
     if (alts.length) alternatives[role] = alts;
   }
   void ctxBase;
-  return { ...pick, mode: pick.mode, title: ex.title, idea: ex.idea, reasons, warnings, missing, alternatives, harmony: h, palette: [...new Set(colorIds)] };
+  const style = identifyStyle(p, { occasion, mode: pick.mode, month: day.getMonth() });
+  return { ...pick, mode: pick.mode, title: ex.title, idea: ex.idea, style, reasons, warnings, missing, alternatives, harmony: h, palette: [...new Set(colorIds)] };
 }
 
 function buildBackup(option, pools, env) {

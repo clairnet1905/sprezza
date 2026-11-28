@@ -5,11 +5,12 @@ import { icon, toast, todayISO, fmtDate } from '../components/ui.js';
 import { store, pid, garments as loadGarments, wearlog as loadWearlog, calendar as loadCalendar, outfits as loadOutfits, prefs as loadPrefs, hydratePhotos } from '../state.js';
 import { OCCASION_BY_ID, OUTFIT_MODES } from '../data/occasions.js';
 import { recommend, comboKey, isAvailable } from '../domain/recommend.js';
+import { identifyStyle } from '../domain/style-id.js';
 import { manualWeather, weatherSummary, isStale, climateFeel } from '../domain/weather.js';
 import { MODE_STYLES } from '../domain/scoring.js';
 import { forecast } from '../services/weather.js';
 import { PERIODS, periodAt, nextChange, daysSinceChange, seasonalPlan } from '../domain/seasonal.js';
-import { outfitMannequin, piecesList, pieceRow, scoreBadge, idsToPieces, wearOutfit, addToCalendar, MODE_NAME, upgradeBlock, workKitBlock, pickRow, openDressingPicker, realisticButton } from './shared.js';
+import { outfitMannequin, piecesList, pieceRow, scoreBadge, idsToPieces, wearOutfit, addToCalendar, MODE_NAME, upgradeBlock, workKitBlock, pickRow, openDressingPicker, realisticButton, styleTag } from './shared.js';
 
 const QUICK_OCCASIONS = ['daily', 'work-cleaning', 'client-work', 'client', 'office', 'restaurant', 'walk', 'elegant-dinner'];
 const KEY = () => `daily:${pid()}`;
@@ -124,11 +125,11 @@ export async function renderDaily(box, { onShowAll } = {}) {
       footer = html`<button class="btn btn-sm" data-d="propose">Voir quand même une proposition</button>`;
     } else if (plannedToday && outBy[plannedToday.outfitId] && !st.showProposal) {
       pieces = idsToPieces(outBy[plannedToday.outfitId].garmentIds, all);
-      head = html`<div class="eyebrow">Prévue au calendrier</div><h2 style="margin:0">${plannedToday.title}</h2>`;
+      head = html`<div class="eyebrow">Prévue au calendrier</div><h2 style="margin:0">${plannedToday.title}</h2>${styleTag(identifyStyle(pieces, { occasion: OCCASION_BY_ID[plannedToday.occasionId], month: new Date().getMonth() }))}`;
       footer = html`<button class="btn btn-primary" data-d="wear-planned">${icon('check')} Je la porte</button><button class="btn btn-sm" data-d="propose">Autre proposition</button>`;
     } else if (best) {
       pieces = best.pieces;
-      head = html`<div class="row-between" style="align-items:flex-start"><div><div class="eyebrow">Tenue du jour · ${occ.name}</div><h2 style="margin:0">${best.title || MODE_NAME[best.mode]}</h2>${best.idea ? html`<p class="small muted" style="margin:2px 0 0">${best.idea}</p>` : ''}</div>${scoreBadge(best.score)}</div>
+      head = html`<div class="row-between" style="align-items:flex-start"><div><div class="eyebrow">Tenue du jour · ${occ.name}</div><h2 style="margin:0">${best.title || MODE_NAME[best.mode]}</h2>${best.idea ? html`<p class="small muted" style="margin:2px 0 0">${best.idea}</p>` : ''}${styleTag(best.style)}</div>${scoreBadge(best.score)}</div>
         ${occ.workwear && workDay ? html`<div class="callout small" style="margin-top:8px">${icon('rotate')} Tenue de travail <strong>jour ${workDay}/${streak?.days || 3}</strong> : la même ${workDay < (streak?.days || 3) ? `jusqu'au ${fmtDate(todayISO(new Date(Date.now() + ((streak?.days || 3) - workDay) * 864e5)), { weekday: 'long', day: 'numeric' })}` : 'aujourd\'hui encore, une nouvelle demain'}.
           <span class="row" style="gap:6px;margin-top:6px">Changer tous les <button class="chip" data-wdays="2" aria-pressed="${(streak?.days || 3) === 2}">2 jours</button><button class="chip" data-wdays="3" aria-pressed="${(streak?.days || 3) === 3}">3 jours</button><button class="btn btn-sm btn-ghost" data-d="worknew">Nouvelle tenue maintenant</button></span></div>` : ''}`;
       footer = html`<button class="btn btn-primary" data-d="wear">${icon('check')} Je la porte</button><button class="btn" data-d="other">${icon('rotate')} Autre</button><button class="btn" data-d="all">Voir les 3 propositions</button>`;

@@ -18,6 +18,7 @@ import { escapeHTML, html, safeUrl } from '../src/lib/html.js';
 import { resetForBase } from '../src/features/colors.js';
 import { mannequinSVG } from '../src/components/mannequin.js';
 import { evaluateManual } from '../src/features/analysis.js';
+import { identifyStyle, styleCoverage, STYLE_KITS, STYLE_SIGNS, SCHOOL_STYLES } from '../src/domain/style-id.js';
 import { SyncService, shouldSync, remoteWins } from '../src/services/sync.js';
 import { versatility, reviewGarment, keyThresholdOf } from '../src/domain/review.js';
 import { defaultOccasion, preferredMode } from '../src/features/daily.js';
@@ -738,6 +739,23 @@ test('Zara : pantalon « taille jogging » = chino, « marron clair chiné », p
   const p = parseProduct(`${r.text}\nhttps://www.zara.com/fr/fr/pantalon-regular-fit-easy-care-p00347890.html?v1=545490301 ${own}`);
   eq(p.sub, 'chino'); eq(p.category, 'bas'); eq(p.price, 21.57); eq(p.size, 'S'); eq(p.ref, '0347/890/723'); eq(p.brand, 'Zara'); eq(p.fit, 'regular');
   eq(parseProduct(own).color, 'taupe'); eq(parseProduct('chino marron clair').color, 'camel'); eq(parseProduct('Jogging en molleton gris').sub, 'jogging');
+});
+
+
+test('Style reconnu de la tenue (italien, français, britannique…) et pièces manquantes par style', () => {
+  const G = (id, sub, color, material = '') => ({ id, name: `${sub} ${color}`, sub, color: { id: color, hex: COLOR_BY_ID[color].hex, name: color }, material });
+  eq(identifyStyle({ top: G('a', 'polo', 'navy', 'Maille coton'), bottom: G('b', 'pantalon', 'ecru'), shoes: G('c', 'mocassins', 'chocolate', 'Daim') }).id, 'italian');
+  eq(identifyStyle({ top: G('a', 'chemise', 'white'), bottom: G('b', 'jean', 'indigo'), layer: G('l', 'blazer', 'black'), shoes: G('c', 'chelsea', 'black') }).id, 'french');
+  eq(identifyStyle({ top: G('a', 'chemise', 'sky'), bottom: G('b', 'flanelle', 'mid-gray', 'Flanelle'), layer: G('l', 'blazer', 'chocolate', 'Tweed'), shoes: G('c', 'derbies', 'dark-brown'), accessories: [G('t', 'cravate', 'burgundy')] }).id, 'british');
+  eq(identifyStyle({ top: G('a', 'chemise', 'sky', 'Coton Oxford'), bottom: G('b', 'chino', 'beige'), shoes: G('c', 'bateau', 'chocolate'), belt: G('d', 'ceinture-tressee', 'navy') }).id, 'ivy');
+  eq(identifyStyle({ top: G('a', 'tee-shirt', 'white') }, { occasion: { workwear: true } }).id, 'workwear');
+  const it = identifyStyle({ top: G('a', 'polo', 'navy'), bottom: G('b', 'chino', 'beige'), shoes: G('c', 'mocassins', 'chocolate') });
+  ok(it.label && it.origin && it.why, JSON.stringify(it));
+  ok(Object.keys(STYLE_SIGNS).every((k) => STYLE_KITS[k]?.length >= 4), 'un kit par style');
+  const cov = styleCoverage([G('a', 'polo', 'navy'), G('b', 'mocassins', 'chocolate'), G('c', 'chino', 'olive')], [{ id: 'italian', pct: 50 }, { id: 'scandi', pct: 5 }]);
+  eq(cov[0].owned, 3); ok(cov[0].toBuy.some((x) => /lin/.test(x.name)));
+  eq(cov[1].owned, 0); eq(cov[1].near, 1); eq(cov[1].status, 'missing'); eq(cov[1].toBuy.length, STYLE_KITS.scandi.length - 1);
+  eq(styleCoverage([], SCHOOL_STYLES.map((id) => ({ id }))).length, 5);
 });
 
 // ---------------- Exécution

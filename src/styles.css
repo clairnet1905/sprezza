@@ -422,3 +422,10 @@ button.piece-pick:hover > .piece, button.piece-pick:focus-visible > .piece { bor
 .mannequin-wrap svg.dressed { max-width: 250px; }
 .mannequin-big { display: flex; justify-content: center; background: linear-gradient(180deg, var(--surface-2, #f3efe7), var(--surface, #fbf9f5)); border-radius: 14px; padding: 16px; }
 .mannequin-big svg { width: 100%; max-width: 420px; height: auto; }
+
+/* Style reconnu d'une tenue (italien, français…) */
+.style-tag { margin: 4px 0 6px; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; }
+.style-tag .small { line-height: 1.35; }
+.style-cov { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.style-cov .kit-row { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line, rgba(0,0,0,.08)); }
+.style-cov .kit-row:first-of-type { border-top: 0; }
