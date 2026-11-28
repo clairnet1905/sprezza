@@ -10,7 +10,7 @@ import { recommend, roleOf, isAvailable, comboKey } from '../domain/recommend.js
 import { allTemplateStatuses, capsuleState, packList } from '../domain/wardrobe-logic.js';
 import { manualWeather } from '../domain/weather.js';
 import { colorHex, colorName } from '../domain/colors.js';
-import { pieceRow, piecesList, criteriaView, scoreBadge, outfitMannequin, idsToPieces, saveOutfit, wearOutfit, addToCalendar, MODE_NAME, styleTag } from './shared.js';
+import { pieceRow, piecesList, criteriaView, scoreBadge, outfitMannequin, idsToPieces, saveOutfit, wearOutfit, addToCalendar, MODE_NAME, styleTag, dayPhotoDialog } from './shared.js';
 import { identifyStyle } from '../domain/style-id.js';
 import { navigate } from '../app.js';
 
@@ -18,12 +18,13 @@ const ROLES = ['top', 'bottom', 'layer', 'outer', 'shoes', 'belt'];
 
 export async function render(main, params, query) {
   const [a] = params;
-  const tabs = html`<nav class="tabs" aria-label="Sections tenues">${[['', 'Mes tenues'], ['new', 'Créer'], ['templates', '30 modèles'], ['travel', 'Valise'], ['history', 'Historique']].map(([id, l]) => html`<a href="#/outfits${id ? '/' + id : ''}" ${(a || '') === id ? raw('aria-current="page"') : ''}>${l}</a>`)}</nav>`;
+  const tabs = html`<nav class="tabs" aria-label="Sections tenues">${[['', 'Mes tenues'], ['new', 'Créer'], ['templates', '30 modèles'], ['lookbook', 'Mon lookbook'], ['travel', 'Valise'], ['history', 'Historique']].map(([id, l]) => html`<a href="#/outfits${id ? '/' + id : ''}" ${(a || '') === id ? raw('aria-current="page"') : ''}>${l}</a>`)}</nav>`;
   const head = html`<div class="page-head"><div class="eyebrow">Tenues</div><h1>Mes tenues</h1></div>${tabs}`;
   if (a === 'new') return renderBuilder(main, head, query);
   if (a === 'templates') return renderTemplates(main, head);
   if (a === 'travel') return renderTravel(main, head);
   if (a === 'history') return renderHistory(main, head);
+  if (a === 'lookbook') return renderLookbook(main, head);
   if (a) return renderDetail(main, a);
   return renderList(main, head);
 }
@@ -189,4 +190,25 @@ async function renderHistory(main, head) {
     : emptyState('Aucun historique', 'Utilisez « Je porte cette tenue » pour suivre vos ports.', '')}`);
   main.querySelector('#clearh')?.addEventListener('click', async () => { if (await confirmDialog({ title: 'Effacer l\'historique de port ?', message: 'Les compteurs de port des pièces sont conservés. Action irréversible.', confirmLabel: 'Effacer', danger: true })) { for (const w of wl) await store.repo.remove('wearlog', w.id); navigate('#/outfits/history'); } });
   void colorName;
+}
+
+/** Mon lookbook : les tenues réellement portées, avec photo et note ; les mieux notées d'abord. */
+async function renderLookbook(main, head) {
+  const [wl, all] = await Promise.all([loadWearlog(), loadGarments()]);
+  const since = todayISO(new Date(Date.now() - 21 * 864e5));
+  const rated = wl.filter((w) => w.photoId || w.rating?.look).sort((a, b) => (b.rating?.look || 0) - (a.rating?.look || 0) || Number(!!b.rating?.compliment) - Number(!!a.rating?.compliment) || b.date.localeCompare(a.date));
+  const toRate = wl.filter((w) => !w.rating?.look && w.date >= since).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
+  const stars = (n) => (n ? '★'.repeat(n) + '☆'.repeat(5 - n) : '');
+  const byId = Object.fromEntries(all.map((g) => [g.id, g]));
+  const names = (w) => (w.garmentIds || []).map((id) => byId[id]).filter((g) => g && ['manteau', 'veste', 'haut', 'bas', 'chaussures'].includes(g.category)).map((g) => g.name).join(' · ');
+  setHTML(main, html`${head}
+    <p class="lede">Vos tenues réellement portées, en photo, les mieux notées d'abord. L'application favorise ce qui vous va vraiment : une tenue notée 4 ou 5 revient plus souvent, une tenue notée 1 ou 2 moins souvent.</p>
+    ${toRate.length ? html`<div class="card" style="margin-bottom:14px"><h3 style="margin-top:0">À noter</h3><div class="stack">${toRate.map((w) => html`<div class="row-between"><span class="small"><strong>${fmtDate(w.date, { weekday: 'long', day: 'numeric', month: 'short' })}</strong> · ${names(w)}</span><button class="btn btn-sm" data-rate="${w.id}">Noter</button></div>`)}</div></div>` : ''}
+    ${rated.length ? html`<div class="lookbook-grid">${rated.map((w) => html`<button type="button" class="card lb-card" data-rate="${w.id}" style="text-align:left;cursor:pointer">
+      <div class="lb-ph">${w.photoId ? html`<img data-photo="${w.photoId}" alt="Tenue du ${w.date}">` : html`<span class="small muted">Sans photo</span>`}</div>
+      <div class="lb-info"><div class="small"><strong>${fmtDate(w.date, { day: 'numeric', month: 'short' })}</strong>${w.occasionId ? ` · ${OCCASION_BY_ID[w.occasionId]?.name || ''}` : ''}</div>
+        <div style="color:var(--champagne)">${stars(w.rating?.look)}${w.rating?.compliment ? ' 💬' : ''}</div><div class="small muted">${names(w)}</div></div></button>`)}</div>`
+      : emptyState('Lookbook vide', 'Quand vous touchez « Je la porte », prenez une photo dans le miroir et donnez une note : vos meilleures tenues apparaîtront ici.', '')}`);
+  hydratePhotos(main);
+  main.querySelectorAll('[data-rate]').forEach((b) => b.onclick = async () => { await dayPhotoDialog(b.dataset.rate); const obs = new MutationObserver(() => { if (!document.querySelector('.modal')) { obs.disconnect(); renderLookbook(main, head); } }); obs.observe(document.getElementById('modal-root'), { childList: true }); });
 }

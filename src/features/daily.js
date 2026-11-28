@@ -1,11 +1,13 @@
 // Tenue du jour automatique : affichée dès l'ouverture, sans clic.
 // Priorité : ce qui est déjà porté aujourd'hui → tenue planifiée au calendrier → proposition du styliste.
 import { html, raw, setHTML } from '../lib/html.js';
-import { icon, toast, todayISO, fmtDate } from '../components/ui.js';
+import { icon, toast, todayISO, fmtDate, openModal } from '../components/ui.js';
 import { store, pid, garments as loadGarments, wearlog as loadWearlog, calendar as loadCalendar, outfits as loadOutfits, prefs as loadPrefs, hydratePhotos } from '../state.js';
 import { OCCASION_BY_ID, OUTFIT_MODES } from '../data/occasions.js';
 import { recommend, comboKey, isAvailable } from '../domain/recommend.js';
 import { identifyStyle } from '../domain/style-id.js';
+import { prepChecklist } from '../domain/prep.js';
+import { decodeDressCode } from '../domain/dresscode.js';
 import { manualWeather, weatherSummary, isStale, climateFeel } from '../domain/weather.js';
 import { MODE_STYLES } from '../domain/scoring.js';
 import { forecast } from '../services/weather.js';
@@ -58,6 +60,9 @@ export async function renderDaily(box, { onShowAll } = {}) {
   if (!(saved.date === today && saved.occasionId) && plannedToday?.occasionId && OCCASION_BY_ID[plannedToday.occasionId]) st.occasionId = plannedToday.occasionId;
   const occTomorrow = (plannedTomorrow?.occasionId && OCCASION_BY_ID[plannedTomorrow.occasionId]) ? plannedTomorrow.occasionId : defaultOccasion(tomorrowD, store.profile.kind);
   const outBy = Object.fromEntries(outs.map((o) => [o.id, o]));
+  const protectHtml = await import('./protect.js').then((m) => m.protectBanner()).catch(() => '');
+  const PREP_KEY = `prep:${pid()}:${tomorrow}`;
+  const prepDone = (await store.repo.kvGet(PREP_KEY, null)) || {};
 
   // Propositions des jours précédents (rotation même sans « Je la porte »).
   // Tenue de travail : la même pendant 2 ou 3 jours (choix de l'utilisateur), puis une nouvelle.
@@ -117,7 +122,7 @@ export async function renderDaily(box, { onShowAll } = {}) {
         keep[today] = ids; Object.assign(propHist, keep); store.repo.kvSet(PROP_KEY, keep);
       }
     }
-    const occChips = () => html`<div class="chips" role="group" aria-label="Ma journée" style="margin:10px 0">${QUICK_OCCASIONS.map((id) => html`<button class="chip" data-occ="${id}" aria-pressed="${st.occasionId === id}">${OCCASION_BY_ID[id].name}</button>`)}</div>`;
+    const occChips = () => html`<div class="chips" role="group" aria-label="Ma journée" style="margin:10px 0">${QUICK_OCCASIONS.map((id) => html`<button class="chip" data-occ="${id}" aria-pressed="${st.occasionId === id}">${OCCASION_BY_ID[id].name}</button>`)}<button class="chip chip-gold" data-dresscode>🎟️ Dress code ?</button></div>`;
     const wxLine = (w) => html`${weatherSummary(w.w)} <span class="small muted">· ${w.real ? `${w.w.place}, ${w.w.source}` : 'estimation saisonnière — activez la météo pour plus de précision'}</span>`;
 
     const warmthBar = (b) => {
@@ -167,12 +172,24 @@ export async function renderDaily(box, { onShowAll } = {}) {
           <div class="btn-row" style="margin-top:12px">${footer}</div>`}
     </section>
     ${seasonBanner}
+    ${protectHtml}
     ${all.length ? html`<section class="card" style="margin-top:14px"><div class="row-between"><div><div class="eyebrow">Pour demain · ${fmtDate(tomorrow, { weekday: 'long', day: 'numeric' })}</div><p class="small" style="margin:4px 0 0">${wxLine(w1)}</p></div>
       <span class="row" style="gap:6px">${plannedTomorrow ? html`<span class="tag tag-ok">Déjà prévue</span>` : bestT ? html`<button class="btn btn-sm" data-d="plan-tomorrow">${icon('calendar')} Préparer pour demain</button>` : ''}<button class="btn btn-sm btn-primary" data-d="plan-week">📅 Préparer ma semaine</button></span></div>
       ${plannedTomorrow && outBy[plannedTomorrow.outfitId] ? html`<p class="small" style="margin-top:8px">${piecesList(idsToPieces(outBy[plannedTomorrow.outfitId].garmentIds, all)).map(([, g]) => g.name).join(' · ')}</p>`
         : bestT ? html`<p class="small" style="margin-top:8px"><strong>${OCCASION_BY_ID[defaultOccasion(tomorrowD, store.profile.kind)].name} :</strong> ${piecesList(bestT.pieces).map(([, g]) => g.name).join(' · ')}</p>`
-        : html`<p class="small muted">Pas de tenue complète disponible pour demain.</p>`}</section>` : ''}`);
+        : html`<p class="small muted">Pas de tenue complète disponible pour demain.</p>`}
+      ${(() => {
+        const tp = plannedTomorrow && outBy[plannedTomorrow.outfitId] ? idsToPieces(outBy[plannedTomorrow.outfitId].garmentIds, all) : bestT?.pieces;
+        if (!tp) return '';
+        const list = prepChecklist(tp, { occasion: OCCASION_BY_ID[plannedTomorrow?.occasionId || occTomorrow], env: resT.info.env });
+        if (!list.length) return '';
+        const n = list.filter((x) => prepDone[x.id]).length;
+        return html`<details class="prep-block" ${n < list.length ? raw('open') : ''}><summary>🧺 À préparer ce soir <span class="small muted">${n}/${list.length}</span></summary>
+          <ul class="clean">${list.map((x) => html`<li><label class="check"><input type="checkbox" data-prep="${x.id}" ${prepDone[x.id] ? raw('checked') : ''}> <span class="${x.kind === 'wash' ? 'prep-warn' : ''}">${x.text}</span></label></li>`)}</ul></details>`;
+      })()}</section>` : ''}`);
     hydratePhotos(box);
+    box.querySelectorAll('[data-prep]').forEach((c) => c.onchange = async () => { prepDone[c.dataset.prep] = c.checked; await store.repo.kvSet(PREP_KEY, prepDone); const sm = c.closest('details').querySelector('summary .small'); const all2 = c.closest('ul').querySelectorAll('[data-prep]'); sm.textContent = `${[...all2].filter((x) => x.checked).length}/${all2.length}`; });
+    box.querySelector('[data-dresscode]')?.addEventListener('click', () => dressCodeDialog((occId) => { st.occasionId = occId; st.offset = 0; st.imposed = {}; st.colder = 0; st.showProposal = true; draw(); }));
     box.querySelectorAll('[data-wdays]').forEach((b) => b.onclick = async () => { streak = { ...(streak || { ids: {}, start: today }), days: +b.dataset.wdays }; await store.repo.kvSet(WORK_KEY, streak); draw(); });
     box.querySelectorAll('[data-pick]').forEach((b) => b.onclick = () => {
       const role = b.dataset.pick;
@@ -204,4 +221,25 @@ export async function renderDaily(box, { onShowAll } = {}) {
   };
   draw();
   void raw; void OUTFIT_MODES; void toast;
+}
+
+/** Décodeur de dress code : on colle le texte de l'invitation. */
+function dressCodeDialog(onUse) {
+  openModal({ title: 'Décoder un dress code', body: html`<p class="small muted">Collez le texte de l'invitation ou le dress code (« tenue de ville », « cocktail », « smart casual », « black tie », « tenue correcte exigée »…).</p>
+    <textarea id="dctext" rows="3" style="width:100%" placeholder="Ex. : Soirée de gala — tenue de soirée exigée"></textarea>
+    <div class="btn-row" style="margin-top:8px"><button class="btn btn-primary" id="dcgo">Décoder</button></div><div id="dcout" style="margin-top:12px"></div>`,
+  onMount(body, close) {
+    const go = () => {
+      const d = decodeDressCode(body.querySelector('#dctext').value);
+      const out = body.querySelector('#dcout');
+      if (!d) { setHTML(out, html`<p class="small">Je ne reconnais pas ce dress code. Essayez avec les mots exacts de l'invitation, ou choisissez l'occasion la plus proche dans la tenue du jour.</p>`); return; }
+      setHTML(out, html`<div class="card card-accent"><div class="eyebrow">Dress code reconnu</div><h3 style="margin:2px 0">${d.label}</h3><p>${d.meaning}</p>
+        <h4 style="margin:8px 0 4px">À porter</h4><ul class="ticks small">${d.wear.map((x) => html`<li>${x}</li>`)}</ul>
+        <h4 style="margin:8px 0 4px">À éviter</h4><ul class="clean small">${d.avoid.map((x) => html`<li>✗ ${x}</li>`)}</ul>
+        ${d.fallback ? html`<p class="small callout">${d.fallback}</p>` : ''}${d.rent ? html`<p class="small callout">Ce code demande des pièces rares : la location (habit, smoking) est la solution habituelle.</p>` : ''}
+        <div class="btn-row" style="margin-top:10px"><button class="btn btn-primary" id="dcuse">Composer ma tenue avec mon dressing</button></div></div>`);
+      body.querySelector('#dcuse').onclick = () => { close(); onUse(d.occasionId); };
+    };
+    body.querySelector('#dcgo').onclick = go;
+  } });
 }

@@ -1,5 +1,5 @@
 // Composants et actions partagés entre écrans (cartes, propositions, sauvegarde, port).
-import { html, raw } from '../lib/html.js';
+import { html, raw, setHTML } from '../lib/html.js';
 import { icon, swatch, toast, todayISO, scoreLabel10, openModal, copyText } from '../components/ui.js';
 import { garmentGlyph, mannequinSVG } from '../components/mannequin.js';
 import { lookbookHTML } from '../components/lookbook.js';
@@ -327,7 +327,8 @@ export async function saveOutfit(pieces, { name, occasionId, mode, score, source
 
 export async function wearOutfit(pieces, { date = todayISO(), occasionId = null, outfitId = null, keepDays = 0 } = {}) {
   const ids = Object.values(piecesToIds(pieces)).flat().filter(Boolean);
-  await store.repo.put('wearlog', { id: uid('wear'), profileId: pid(), date, occasionId, outfitId, garmentIds: ids });
+  const wearId = uid('wear');
+  await store.repo.put('wearlog', { id: wearId, profileId: pid(), date, occasionId, outfitId, garmentIds: ids, key: comboKey(pieces) });
   const all = await store.repo.all('garments', (g) => ids.includes(g.id));
   const autoBasket = await store.repo.kvGet('pref:autobasket', true);
   const basketed = [];
@@ -341,6 +342,8 @@ export async function wearOutfit(pieces, { date = todayISO(), occasionId = null,
   const cal = await store.repo.all('calendar', (c) => c.profileId === pid() && c.date === date && c.status === 'planned');
   for (const c of cal) await store.repo.put('calendar', { ...c, status: 'worn' });
   toast('Bonne journée — tenue enregistrée dans l\'historique');
+  if (date === todayISO() && !store.repo.isMemory) setTimeout(() => dayPhotoDialog(wearId), 400);
+  return wearId;
 }
 
 export async function addToCalendar(pieces, { date, occasionId, title, outfitId = null, silent = false } = {}) {
@@ -409,6 +412,49 @@ export function dislikeDialog(pieces, onDone) {
       }
       p.history = [...(p.history || []), { at, kind: 'dislike', label }].slice(-50);
       await savePrefsS(p); close(); toast('C\'est noté : autre proposition'); onDone?.();
+    };
+  } });
+}
+
+const STARS = (name, v) => html`<span class="stars" role="radiogroup" aria-label="${name}">${[1, 2, 3, 4, 5].map((n) => html`<button type="button" class="star ${v >= n ? 'on' : ''}" data-star="${name}" data-v="${n}" aria-label="${n} sur 5">★</button>`)}</span>`;
+/**
+ * Photo du jour et note : votre lookbook réel. Une tenue notée 4–5 est favorisée, 1–2 est moins proposée.
+ */
+export async function dayPhotoDialog(wearId) {
+  const w = await store.repo.get('wearlog', wearId); if (!w) return;
+  const r = { look: w.rating?.look || 0, comfort: w.rating?.comfort || 0, compliment: !!w.rating?.compliment };
+  let file = null;
+  openModal({ title: w.date === todayISO() ? 'Photo du jour' : `Tenue du ${new Date(w.date + 'T12:00:00').toLocaleDateString('fr-FR')}`, body: html`<p class="small muted">Facultatif. Une photo dans le miroir et une note : l'application apprend ce qui vous va vraiment, et vous gardez votre lookbook.</p>
+    <div class="row" style="gap:12px;align-items:center;flex-wrap:nowrap"><div class="self-ph" id="dpprev">${w.photoId ? html`<img data-photo="${w.photoId}" alt="Tenue portée">` : html`<span class="small muted">Pas de photo</span>`}</div>
+      <div class="stack" style="gap:6px"><label class="btn btn-sm" for="dpfile">${icon('camera')} ${w.photoId ? 'Changer la photo' : 'Prendre une photo'}</label><input id="dpfile" type="file" accept="image/*" capture="user" hidden></div></div>
+    <div class="field" style="margin-top:12px"><label>Allure (comment je me trouve)</label>${STARS('look', r.look)}</div>
+    <div class="field"><label>Confort</label>${STARS('comfort', r.comfort)}</div>
+    <label class="check"><input type="checkbox" id="dpcomp" ${r.compliment ? raw('checked') : ''}> On m'a fait un compliment</label>
+    <div class="btn-row" style="margin-top:12px"><button class="btn btn-primary" id="dpsave">Enregistrer</button><button class="btn btn-ghost" data-close>Plus tard</button></div>`,
+  onMount(body, close) {
+    hydratePhotos(body);
+    body.querySelectorAll('[data-star]').forEach((b) => b.onclick = () => { r[b.dataset.star] = +b.dataset.v; body.querySelectorAll(`[data-star="${b.dataset.star}"]`).forEach((x) => x.classList.toggle('on', +x.dataset.v <= r[b.dataset.star])); });
+    body.querySelector('#dpfile').onchange = (e) => { file = e.target.files?.[0] || null; if (file) setHTML(body.querySelector('#dpprev'), html`<img src="${URL.createObjectURL(file)}" alt="Aperçu">`); };
+    body.querySelector('#dpsave').onclick = async () => {
+      const next = { ...w, rating: { look: r.look || null, comfort: r.comfort || null, compliment: body.querySelector('#dpcomp').checked } };
+      if (file) {
+        try {
+          const { checkImageFile, loadBitmap, processImage } = await import('../services/image.js');
+          await checkImageFile(file); const out = await processImage(await loadBitmap(file));
+          const id = w.photoId || uid('photo');
+          await store.repo.put('photos', { id, ownerId: w.id, profileId: w.profileId, kind: 'worn', blob: out.blob, thumb: out.thumbBlob, mime: out.blob.type, width: out.width, height: out.height, private: true, alt: `Tenue portée le ${w.date}` });
+          next.photoId = id;
+        } catch (err) { toast(err.message || 'Photo illisible'); return; }
+      }
+      await store.repo.put('wearlog', next);
+      if (next.rating.look && w.key) {
+        const p = await loadPrefsS();
+        if (next.rating.look >= 4 || next.rating.compliment) p.likedCombos = [...new Set([...(p.likedCombos || []), w.key])];
+        if (next.rating.look <= 2) p.lowCombos = [...new Set([...(p.lowCombos || []), w.key])].slice(-100);
+        else p.lowCombos = (p.lowCombos || []).filter((k) => k !== w.key);
+        await savePrefsS(p);
+      }
+      close(); toast(next.rating.look >= 4 ? 'Noté : cette tenue sera proposée plus souvent' : next.rating.look && next.rating.look <= 2 ? 'Noté : elle sera moins proposée' : 'Enregistré dans votre lookbook');
     };
   } });
 }

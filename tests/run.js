@@ -35,6 +35,10 @@ import { mirror } from '../src/components/dressed.js';
 import { lookbookHTML } from '../src/components/lookbook.js';
 import { howToWear } from '../src/domain/how-to-wear.js';
 import { planWeek } from '../src/domain/week-plan.js';
+import { prepChecklist, laundryLoads, loadOf } from '../src/domain/prep.js';
+import { decodeDressCode } from '../src/domain/dresscode.js';
+import { duplicates, orphanFixes } from '../src/domain/audit.js';
+import { protectionAdvice } from '../src/features/protect.js';
 import { comboKey } from '../src/domain/recommend.js';
 import { wearPrompt } from '../src/features/shared.js';
 import { looksFor } from '../src/domain/explain.js';
@@ -817,6 +821,50 @@ test('Semaine : 7 tenues sans répétition, même tenue de travail 3 jours, « j
   const r2 = recommend({ garments: w, occasionId: 'client', weather: manualWeather({ temp: 10 }), prefs: { snoozed: { [top.id]: '2099-01-01' } } });
   ok(r2.options.every((o) => o.pieces.top.id !== top.id));
   ok(r0.options[0].howTo.length >= 3);
+});
+
+
+test('Veille au soir : repasser, cirer, laver, ceinture, parapluie', () => {
+  const C = (sub, color = 'navy', extra = {}) => G(sub, 'x', color, extra);
+  const l = prepChecklist({ top: C('chemise', 'white', { availability: 'to-wash' }), bottom: C('pantalon', 'mid-gray'), layer: C('blazer'), belt: C('ceinture-cuir', 'chocolate'), shoes: C('derbies', 'chocolate', { material: 'Cuir' }) }, { occasion: { id: 'client', formality: [4, 5] }, env: { rain: true, cold: true } });
+  const t = l.map((x) => x.text).join(' | ');
+  ok(/Laver ce soir/.test(t) && /Repasser/.test(t) && /pli/.test(t) && /Cirer/.test(t) && /ceinture/.test(t) && /parapluie/.test(t) && /écharpe/.test(t), t);
+  ok(prepChecklist({ top: C('tee-shirt-travail'), bottom: C('pantalon-travail'), shoes: C('chaussures-travail', 'black') }, { occasion: { id: 'work-cleaning', workwear: true, formality: [1, 2] } }).some((x) => /gants/.test(x.text)));
+});
+
+test('Machines : travail à part, laine, foncés, urgence si la pièce est prévue', () => {
+  const C = (sub, color, material = '') => G(sub, 'x', color, { availability: 'to-wash', material });
+  const w = [C('tee-shirt-travail', 'navy'), C('pull', 'ecru', 'Mérinos'), C('jean', 'navy', 'Denim'), C('chemise', 'white', 'Coton'), C('chino', 'olive', 'Coton'), C('manteau', 'navy', 'Laine')];
+  eq(loadOf(w[0]), 'work'); eq(loadOf(w[1]), 'wool'); eq(loadOf(w[2]), 'dark'); eq(loadOf(w[3]), 'light'); eq(loadOf(w[5]), 'dry');
+  const loads = laundryLoads(w, { needed: [w[3].id] });
+  eq(loads[0].id, 'light'); eq(loads[0].urgent.length, 1); ok(loads.find((x) => x.id === 'work').how.includes('séparés'));
+});
+
+test('Dress code : black tie, tenue de ville, cocktail, smart casual, tenue correcte', () => {
+  eq(decodeDressCode('Gala — Black tie').id, 'black-tie'); eq(decodeDressCode('Tenue de soirée exigée').id, 'black-tie');
+  eq(decodeDressCode('tenue de ville').occasionId, 'important-meeting'); eq(decodeDressCode('Cocktail dînatoire').id, 'cocktail');
+  eq(decodeDressCode('Smart casual').occasionId, 'restaurant'); eq(decodeDressCode('Tenue correcte exigée').id, 'correcte');
+  eq(decodeDressCode('blabla'), null); eq(decodeDressCode(''), null);
+});
+
+test('Doublons et pièces qui ne vont avec rien', () => {
+  const w = [G('chino', 'bas', 'beige'), G('chino', 'bas', 'beige'), G('chino', 'bas', 'navy'), G('chemise', 'haut', 'white'), G('chemise', 'haut', 'white'), G('mocassins', 'chaussures', 'chocolate'), G('pantalon', 'bas', 'burgundy')];
+  const d = duplicates(w);
+  ok(d.some((x) => x.sub === 'chino' && x.items.length === 2 && !x.rotationOk), JSON.stringify(d.map((x) => x.sub)));
+  ok(d.some((x) => x.sub === 'chemise' && x.rotationOk));
+  const o = orphanFixes(w);
+  ok(o.every((x) => x.g.sub !== 'chino'));
+});
+
+test('Protection : installer sur iPhone, sauvegarde chaque semaine, rien si synchronisé', () => {
+  const now = Date.parse('2026-11-28T10:00:00Z');
+  eq(protectionAdvice({ garments: 0, now }), null);
+  eq(protectionAdvice({ garments: 20, synced: true, ios: true, installed: false, now }), null);
+  const a = protectionAdvice({ garments: 20, synced: false, lastBackup: null, ios: true, installed: false, now });
+  ok(a.needInstall && a.needBackup && a.days === null);
+  eq(protectionAdvice({ garments: 20, lastBackup: '2026-11-25T10:00:00Z', ios: true, installed: true, now }), null);
+  eq(protectionAdvice({ garments: 20, lastBackup: '2026-11-10T10:00:00Z', ios: false, installed: false, now }).days, 18);
+  eq(protectionAdvice({ garments: 20, snoozeUntil: '2026-11-30T00:00:00Z', ios: true, now }), null);
 });
 
 // ---------------- Exécution

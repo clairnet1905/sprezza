@@ -333,6 +333,7 @@ export function recommend(input) {
       if (env.cold && outer) { const w = (warmthOf(outer) - 3) * (env.veryCold ? 2 : 1.2); rank += w; if (w > 0) bonus.push(`+${w.toFixed(1)} manteau chaud pour le froid`); }
       rank += styleRank(pieces, { mode, occasion, env, prefs }, sc) - base;
       if (prefs.likedCombos?.includes(comboKey(pieces))) { rank += 3; bonus.push('+3 tenue aimée'); }
+      if (prefs.lowCombos?.includes(comboKey(pieces))) { rank -= 4; bonus.push('−4 tenue mal notée après l\'avoir portée'); }
       if (prefs.dislikedCombos?.includes(comboKey(pieces))) { rank -= 40; bonus.push('−40 tenue que vous n\'aimez pas'); }
       if (top && bottom && prefs.dislikedPairs?.includes(`${top.id}|${bottom.id}`)) { rank -= 8; bonus.push('−8 association haut + bas que vous n\'aimez pas'); }
       if (needsOuter(env) && !outer) { rank -= 4; bonus.push('−4 couche extérieure manquante'); }

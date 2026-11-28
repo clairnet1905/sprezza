@@ -94,6 +94,8 @@ async function boot() {
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => import('./state.js').then((m) => m.applyTheme()));
   route();
   setupSync();
+  // Demande au navigateur de ne jamais effacer les données (accordé surtout quand l'app est installée)
+  try { if (navigator.storage?.persist && !(await navigator.storage.persisted())) navigator.storage.persist().catch(() => {}); } catch { /* navigateur ancien */ }
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     setupUpdates();
   }

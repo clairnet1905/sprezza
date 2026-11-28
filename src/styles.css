@@ -475,3 +475,20 @@ button.piece-pick:hover > .piece, button.piece-pick:focus-visible > .piece { bor
 .week-pieces { display: flex; flex-wrap: wrap; gap: 4px; }
 .self-ph { width: 84px; height: 112px; border-radius: 10px; background: var(--surface-2, #f3efe7); display: flex; align-items: center; justify-content: center; overflow: hidden; flex: none; text-align: center; }
 .self-ph img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Préparer la veille */
+.prep-block { margin-top: 10px; border-top: 1px solid var(--line, rgba(0,0,0,.08)); padding-top: 8px; }
+.prep-block summary { cursor: pointer; font-weight: 600; }
+.prep-block li .check { min-height: 30px; align-items: flex-start; font-size: 14px; }
+.prep-warn { color: var(--warn, #9a5b00); font-weight: 600; }
+.chip-gold { border-color: var(--champagne, #c9a96e); }
+
+/* Photo du jour : étoiles et lookbook */
+.stars { display: inline-flex; gap: 2px; }
+.star { background: none; border: 0; font-size: 26px; line-height: 1; color: var(--line-strong, #d6cfc2); cursor: pointer; padding: 2px; }
+.star.on { color: var(--champagne, #c9a96e); }
+.lookbook-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+.lb-card { padding: 0; overflow: hidden; }
+.lb-card .lb-ph { aspect-ratio: 3 / 4; background: var(--surface-2, #f3efe7); display: flex; align-items: center; justify-content: center; }
+.lb-card .lb-ph img { width: 100%; height: 100%; object-fit: cover; }
+.lb-card .lb-info { padding: 8px 10px; }

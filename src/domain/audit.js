@@ -201,3 +201,46 @@ export function wardrobeAudit(garments, { date = new Date(), weather = null } = 
     buys: bestBuys(garments, { gaps, coverage: coverage.rows, date, weather }),
   };
 }
+
+/** Types où plusieurs exemplaires proches sont normaux (rotation de lavage, travail). */
+const ROTATION_OK = ['tee-shirt-travail', 'pantalon-travail', 'polo-sport', 'tee-shirt', 'chemise'];
+/**
+ * Doublons : même type et couleur très proche. Utile avant d'acheter, et pour libérer de la place.
+ * @returns {Array<{items, sub, rotationOk, text}>}
+ */
+export function duplicates(garments) {
+  const gs = garments.filter((g) => ['top', 'bottom', 'layer', 'outer', 'shoes'].includes(roleOf(g)) && g.color?.id);
+  const groups = []; const used = new Set();
+  for (const g of gs) {
+    if (used.has(g.id)) continue;
+    const same = gs.filter((x) => !used.has(x.id) && x.sub === g.sub && (x.color.id === g.color.id || hexDist(x.color.id, g.color.id) < 34));
+    if (same.length < 2) continue;
+    same.forEach((x) => used.add(x.id));
+    const rot = ROTATION_OK.includes(g.sub);
+    const kind = (SUB_INFO[g.sub]?.name || g.sub).toLowerCase();
+    groups.push({ items: same, sub: g.sub, rotationOk: rot,
+      text: rot ? `${same.length} ${kind}s presque identiques : pratique pour alterner entre deux lavages. N'en rachetez pas un de plus.`
+        : `${same.length} ${kind}s presque identiques : ils font les mêmes tenues. N'en rachetez pas ; gardez le mieux coupé et le plus en état, le reste peut être donné ou vendu.` });
+  }
+  return groups.sort((a, b) => Number(a.rotationOk) - Number(b.rotationOk) || b.items.length - a.items.length);
+}
+
+/**
+ * Pièces qui ne vont avec rien : la pièce de la capsule qui la rendrait portable le plus souvent.
+ * @returns {Array<{g, fix: object|null, gain: number}>}
+ */
+export function orphanFixes(garments) {
+  const gs = owned(garments);
+  const v = versatility(gs);
+  const orphans = gs.filter((g) => ['top', 'bottom', 'shoes'].includes(roleOf(g)) && (v[g.id] ?? 0) === 0);
+  return orphans.map((g) => {
+    let best = null; let gain = 0;
+    for (const c of CAPSULE) {
+      if (!['top', 'bottom', 'shoes'].includes(c.role) || c.role === roleOf(g)) continue;
+      const hyp = { id: `__cap${c.id}`, name: c.name, category: c.category, sub: CAPSULE_SUB[c.sub] || c.sub, color: { id: c.color, hex: colorHex(c.color), name: c.name }, material: c.material, availability: 'clean', seasons: [] };
+      const n = versatility([...gs, hyp])[g.id] || 0;
+      if (n > gain) { gain = n; best = c; }
+    }
+    return { g, fix: best, gain };
+  }).sort((a, b) => b.gain - a.gain);
+}

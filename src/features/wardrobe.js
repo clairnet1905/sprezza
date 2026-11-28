@@ -1,6 +1,6 @@
 // Dressing numérique : liste filtrable, fiche, ajout/édition avec photo, import multiple, statistiques.
 import { html, raw, setHTML } from '../lib/html.js';
-import { icon, toast, confirmDialog, swatch, emptyState, readForm, options, fmtDate, fmtEUR, openModal } from '../components/ui.js';
+import { icon, toast, confirmDialog, swatch, emptyState, readForm, options, fmtDate, fmtEUR, openModal, todayISO } from '../components/ui.js';
 import { store, pid, garments as loadGarments, hydratePhotos, forgetPhotoURL, wearlog as loadWearlog, outfits as loadOutfits } from '../state.js';
 import { uid } from '../repositories/db.js';
 import { isEveryday, CATEGORIES, CATEGORY_BY_ID, SUB_INFO, PATTERNS, FITS, SEASON_OPTS, CONDITIONS, AVAILABILITY, PHOTO_KINDS, MATERIALS, STYLE_OPTS, MEASURE_FIELDS } from '../data/taxonomy.js';
@@ -946,8 +946,9 @@ async function renderBilan(main) {
   const all = await loadGarments();
   if (!all.length) { setHTML(main, emptyState('Dressing vide', 'Ajoutez quelques pièces pour obtenir un bilan.', html`<a class="btn btn-primary" href="#/wardrobe/quick">Ajout rapide</a>`)); return; }
   await new Promise((r) => setTimeout(r, 30)); // laisse s'afficher le chargement
-  const { wardrobeAudit } = await import('../domain/audit.js');
+  const { wardrobeAudit, duplicates, orphanFixes } = await import('../domain/audit.js');
   const a = wardrobeAudit(all, { date: new Date() });
+  const dups = duplicates(all); const orphans = orphanFixes(all);
   const okOcc = a.coverage.filter((r) => r.good >= 2).length;
   const names = (p) => ['top', 'layer', 'bottom', 'shoes', 'outer'].map((k) => p?.[k]?.name).filter(Boolean).join(' · ');
   const q = (c) => `${c.name.toLowerCase()} homme ${c.material.toLowerCase()}`;
@@ -989,6 +990,13 @@ async function renderBilan(main) {
       <div><h2>Vos pièces clés</h2><div class="card">${a.keys.length ? html`<ul class="clean">${a.keys.map(({ g, count }) => html`<li class="row-between" style="padding:6px 0;border-bottom:1px solid var(--line)"><a href="#/wardrobe/${g.id}">${g.name}</a><span class="tag tag-gold">${count} tenues</span></li>`)}</ul><p class="small muted" style="margin-top:8px">À entretenir en priorité : ce sont elles qui portent votre dressing.</p>` : html`<p class="muted small">Pas encore assez de pièces pour former des tenues.</p>`}</div></div>
       <div><h2>Jamais proposées en ce moment</h2><div class="card">${a.underused.length ? html`<ul class="clean">${a.underused.slice(0, 10).map((u) => html`<li style="padding:6px 0;border-bottom:1px solid var(--line)"><a href="#/wardrobe/${u.g.id}">${u.g.name}</a><div class="small muted">${u.why}</div></li>`)}</ul>${a.underused.length > 10 ? html`<p class="small muted">… et ${a.underused.length - 10} autre(s).</p>` : ''}` : html`<p class="small">${icon('check')} Toutes vos pièces sont proposées au moins une fois.</p>`}
         <a class="small" href="#/wardrobe/review">Revue pièce par pièce (garder, retoucher, donner) →</a></div></div>
+    </div>
+    <div class="grid-2" style="margin-top:8px">
+      <div><h2>Pièces qui ne vont avec rien</h2><div class="card">${orphans.length ? html`<ul class="clean">${orphans.map(({ g, fix, gain }) => html`<li style="padding:8px 0;border-bottom:1px solid var(--line)"><a href="#/wardrobe/${g.id}"><strong>${g.name}</strong></a>
+          <div class="small">${fix ? html`Achetez <strong>${fix.name.toLowerCase()}</strong> (${fix.budget[0]}–${fix.budget[1]} €) : elle devient portable dans <strong>${gain} tenue${gain > 1 ? 's' : ''}</strong>. <a href="#/shopping?q=${encodeURIComponent(q(fix))}">Chercher</a>` : html`<span class="muted">Aucune pièce de la capsule ne l'accorde : couleur ou niveau d'habillage trop à part. À garder pour une occasion précise, ou à donner.</span>`}</div></li>`)}</ul>`
+        : html`<p class="small">${icon('check')} Chacune de vos pièces forme au moins une tenue.</p>`}</div></div>
+      <div><h2>Doublons</h2><div class="card">${dups.length ? html`<ul class="clean">${dups.map((d) => html`<li style="padding:8px 0;border-bottom:1px solid var(--line)"><div class="row" style="gap:4px;flex-wrap:wrap">${d.items.map((g) => html`<a class="tag" href="#/wardrobe/${g.id}">${swatch(g.color?.hex, g.color?.name)} ${g.name}</a>`)}</div><div class="small ${d.rotationOk ? 'muted' : ''}" style="margin-top:4px">${d.text}</div></li>`)}</ul>`
+        : html`<p class="small">${icon('check')} Aucun doublon : chaque pièce apporte quelque chose.</p>`}<p class="small muted" style="margin-top:8px">« Avant d'acheter » vous prévient aussi si un article ressemble à une pièce que vous avez déjà.</p></div></div>
     </div>`);
 }
 
@@ -1137,7 +1145,11 @@ async function renderQuick(main) {
 
 // ---------------------------------------------------------------- Lessive & entretien
 async function renderCare(main) {
-  const all = await loadGarments();
+  const [all, cal, outs] = await Promise.all([loadGarments(), store.repo.all('calendar', (c) => c.profileId === pid() && c.status === 'planned'), store.repo.all('outfits')]);
+  const { laundryLoads } = await import('../domain/prep.js');
+  const soonDate = todayISO(new Date(Date.now() + 3 * 864e5));
+  const needed = cal.filter((c) => c.date >= todayISO() && c.date <= soonDate).flatMap((c) => outs.find((o) => o.id === c.outfitId)?.garmentIds || []);
+  const loads = laundryLoads(all, { needed });
   const autoBasket = await store.repo.kvGet('pref:autobasket', true);
   const rows = all.map((g) => ({ g, c: careStatus(g) }));
   const basket = rows.filter((r) => r.g.availability === 'to-wash');
@@ -1153,6 +1165,10 @@ async function renderCare(main) {
       <div class="card"><div class="stat">${soon.length}</div><div class="stat-label">à laver après le prochain port</div></div>
       <div class="card"><div class="stat">${tasks.length}</div><div class="stat-label">soins à faire (cirage, défeutrage…)</div></div>
     </div>
+    ${loads.length ? html`<h2>Machines à lancer</h2><div class="stack">${loads.map((l) => html`<div class="card ${l.urgent.length ? 'card-accent' : ''}"><div class="row-between"><strong>${l.name} · ${l.items.length} pièce${l.items.length > 1 ? 's' : ''}</strong>${l.urgent.length ? html`<span class="tag tag-warn">Urgent</span>` : l.ready ? html`<span class="tag tag-ok">Machine pleine</span>` : html`<span class="tag">Attendre d'en avoir plus</span>`}</div>
+      <p class="small" style="margin:4px 0">${l.how}.</p>${l.urgent.length ? html`<p class="small" style="color:var(--warn);margin:2px 0">Prévu dans les 3 prochains jours : ${l.urgent.join(', ')}.</p>` : ''}
+      <div class="chips">${l.items.map((g) => html`<span class="tag">${swatch(g.color?.hex, g.color?.name)} ${g.name}</span>`)}</div>
+      ${l.id !== 'dry' ? html`<button class="btn btn-sm" style="margin-top:8px" data-load="${l.id}">${icon('check')} Machine faite : tout est propre</button>` : ''}</div>`)}</div>` : ''}
     <h2>Panier à linge</h2>
     ${basket.length ? html`<div class="btn-row" style="margin-bottom:10px"><button class="btn btn-primary" id="allwashed">${icon('check')} Tout est lavé</button></div>
       <div class="stack">${basket.map(({ g, c }) => html`<div class="card row" style="flex-wrap:nowrap">${thumb(g)}<div style="flex:1;min-width:0"><strong>${g.name}</strong><p class="small muted" style="margin:2px 0">${c.tips}</p></div><button class="btn btn-sm" data-wash="${g.id}">Lavé</button></div>`)}</div>`
@@ -1168,6 +1184,7 @@ async function renderCare(main) {
   hydratePhotos(main);
   main.querySelector('#autob').onchange = async (e) => { await store.repo.kvSet('pref:autobasket', e.target.checked); toast(e.target.checked ? 'Panier automatique activé' : 'Panier automatique désactivé'); };
   main.querySelector('#allwashed')?.addEventListener('click', async () => { for (const { g } of basket) await store.repo.put('garments', afterWash(g), { silent: true }); store.repo.emit('garments', 'bulk', null); toast(`${basket.length} pièce(s) remise(s) au propre`); renderCare(main); });
+  main.querySelectorAll('[data-load]').forEach((b) => b.onclick = async () => { const l = loads.find((x) => x.id === b.dataset.load); for (const g of l.items) await store.repo.put('garments', afterWash(g), { silent: true }); store.repo.emit('garments', 'bulk', null); toast(`${l.name} : ${l.items.length} pièce(s) propres`); renderCare(main); });
   main.querySelectorAll('[data-wash]').forEach((b) => b.onclick = async () => { const g = all.find((x) => x.id === b.dataset.wash); await store.repo.put('garments', afterWash(g)); toast(`${g.name} : propre`); renderCare(main); });
   main.querySelectorAll('[data-care]').forEach((b) => b.onclick = async () => { const g = all.find((x) => x.id === b.dataset.care); await store.repo.put('garments', afterCare(g, b.dataset.task)); toast('Soin noté'); renderCare(main); });
 }

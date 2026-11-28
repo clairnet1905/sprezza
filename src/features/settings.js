@@ -81,7 +81,7 @@ export async function render(main) {
     onMount(body, close) { body.querySelector('[data-ok]').onclick = async () => { if (body.querySelector('#wconf').value.trim() !== 'SUPPRIMER') { toast('Confirmation incorrecte'); return; } for (const s of Object.keys(STORES)) await store.repo.clear(s); close(); location.hash = '#/today'; location.reload(); }; } });
 }
 
-async function exportData(withPhotos) {
+export async function exportData(withPhotos) {
   const stores = {};
   for (const s of Object.keys(STORES)) {
     if (s === 'photos') continue;
@@ -96,6 +96,7 @@ async function exportData(withPhotos) {
     for (const p of await store.repo.all('photos')) photos.push({ ...p, blob: p.blob ? await blobToDataURL(p.blob) : null, thumb: p.thumb ? await blobToDataURL(p.thumb) : null });
     downloadFile(`sprezza-photos-${stamp}.json`, JSON.stringify({ app: 'sprezza', schemaVersion: SCHEMA_VERSION, kind: 'photos', exportedAt: new Date().toISOString(), stores: { photos } }));
   }
+  await store.repo.kvSet('backup:last', new Date().toISOString());
   toast(withPhotos ? 'Deux fichiers exportés (données + photos privées)' : 'Sauvegarde exportée (sans photos)');
 }
 

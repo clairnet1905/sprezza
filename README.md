@@ -27,7 +27,7 @@ src/
   repositories/ IndexedDB (+ repli mémoire)
   services/     image (EXIF supprimé, compression, recadrage), weather (Open-Meteo), ai (client → /api)
 server/         server.py (statique + /api/health, /api/analyze, /api/recognize), requirements.txt
-tests/          index.html + run.js (90 tests)
+tests/          index.html + run.js (95 tests)
 supabase/       setup.sql (table + stockage photo + règles RLS)
 ```
 
