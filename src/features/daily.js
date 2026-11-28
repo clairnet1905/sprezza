@@ -143,7 +143,7 @@ export async function renderDaily(box, { onShowAll } = {}) {
           ${occChips()}
           <div class="grid-2" style="align-items:start">
             <div class="piece-list">${piecesList(pieces).map(([r, g]) => (best && pieces === best.pieces && ['top', 'bottom', 'layer', 'outer', 'shoes'].includes(r) ? pickRow(r, g) : pieceRow(r, g)))}</div>${best && pieces === best.pieces ? html`<p class="small muted" style="margin:6px 0 0">Touchez une pièce pour en choisir une autre dans votre dressing.</p>` : ''}
-            <div><div class="mannequin-wrap">${outfitMannequin(pieces)}</div><div class="schema-label">Aperçu avec vos pièces · touchez pour agrandir</div><div style="text-align:center;margin-top:4px">${realisticButton(pieces)}</div></div>
+            <div><div class="mannequin-wrap">${outfitMannequin(pieces)}</div><div class="schema-label">Vos pièces, posées comme portées · touchez pour agrandir</div><div style="text-align:center;margin-top:4px">${realisticButton(pieces)}</div></div>
           </div>
           ${best && !wornToday && !plannedToday || (best && st.showProposal) ? html`<p class="small" style="margin-top:10px">${best.reasons.slice(0, 2).join(' ')}</p>${best.warnings.length ? html`<div class="callout callout-warn small">${best.warnings[0]}</div>` : ''}${res.backup?.changes?.length ? html`<p class="small"><strong>Plan B :</strong> ${res.backup.changes.join(' ; ')}.</p>` : ''}${OCCASION_BY_ID[st.occasionId]?.workwear === true ? workKitBlock(all, { tips: false }) : upgradeBlock(best.upgrade)}` : ''}
           <div class="btn-row" style="margin-top:12px">${footer}</div>`}

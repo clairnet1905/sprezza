@@ -32,6 +32,7 @@ import { evaluatePurchase } from '../src/domain/purchase.js';
 import { parseICS, parseAgendaText, occasionForEvent, dayPlan } from '../src/domain/calendar-import.js';
 import { mapGoogleEvents } from '../src/services/google-calendar.js';
 import { mirror } from '../src/components/dressed.js';
+import { lookbookHTML } from '../src/components/lookbook.js';
 import { looksFor } from '../src/domain/explain.js';
 import { afterWear as afterWear2 } from '../src/domain/care.js';
 import { climateFeel } from '../src/domain/weather.js';
@@ -756,6 +757,18 @@ test('Style reconnu de la tenue (italien, français, britannique…) et pièces 
   eq(cov[0].owned, 3); ok(cov[0].toBuy.some((x) => /lin/.test(x.name)));
   eq(cov[1].owned, 0); eq(cov[1].near, 1); eq(cov[1].status, 'missing'); eq(cov[1].toBuy.length, STYLE_KITS.scandi.length - 1);
   eq(styleCoverage([], SCHOOL_STYLES.map((id) => ({ id }))).length, 5);
+});
+
+
+test('Tenue à plat : vraies photos des pièces, veste à gauche, haut et pantalon à droite', () => {
+  const G = (id, sub, photos = []) => ({ id, name: sub, sub, color: { id: 'navy', hex: '#22344E' }, photoIds: photos });
+  const h = String(lookbookHTML({ layer: G('l', 'blazer', ['p1', 'p2']), top: G('t', 'chemise', ['p3']), bottom: G('b', 'chino'), shoes: G('s', 'mocassins', ['p4']) }));
+  ok(h.includes('lb-layered') && h.includes('data-photo-list="p1,p2"') && h.includes('data-photo="p3"'), h);
+  ok(h.indexOf('lb-layer') < h.indexOf('lb-shoes') && h.indexOf('lb-top') < h.indexOf('lb-bottom'));
+  const h2 = String(lookbookHTML({ outer: G('o', 'manteau', ['m']), layer: G('l', 'blazer', ['n']), top: G('t', 'pull', ['k']) }));
+  ok(h2.indexOf('lb-outer') < h2.indexOf('lb-small lb-layer') || h2.includes('lb-layer lb-small'), h2);
+  ok(h.includes('g-placeholder'), 'pièce sans photo : silhouette dans sa couleur');
+  ok(String(lookbookHTML({ top: G('t', 'polo', ['x']), bottom: G('b', 'chino', ['y']) })).includes('lb-simple'));
 });
 
 // ---------------- Exécution

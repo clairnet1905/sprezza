@@ -110,7 +110,10 @@ export async function hydratePhotos(root) {
   }));
   const imgs = root.querySelectorAll('img[data-photo]');
   await Promise.all([...imgs].map(async (img) => {
-    const url = await photoURL(img.dataset.photo, { thumb: img.dataset.full === undefined });
+    let id = img.dataset.photo; const list = (img.dataset.photoList || '').split(',').filter(Boolean);
+    if (list.length > 1) { for (const pid2 of list) { const rec = await store.repo.get('photos', pid2); if (rec?.cutout) { id = pid2; break; } } }
+    if (list.length) { const rec = await store.repo.get('photos', id); if (rec?.cutout) img.classList.add('is-cutout'); }
+    const url = await photoURL(id, { thumb: img.dataset.full === undefined });
     if (url) img.src = url; else img.replaceWith(Object.assign(document.createElement('span'), { className: 'small muted', textContent: 'Photo indisponible' }));
   }));
 }

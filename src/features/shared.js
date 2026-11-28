@@ -2,7 +2,7 @@
 import { html, raw } from '../lib/html.js';
 import { icon, swatch, toast, todayISO, scoreLabel10, openModal, copyText } from '../components/ui.js';
 import { garmentGlyph, mannequinSVG } from '../components/mannequin.js';
-import { dressedMannequinSVG } from '../components/dressed.js';
+import { lookbookHTML } from '../components/lookbook.js';
 import { ROLE_LABELS, ROLE_ORDER, AVAILABILITY, CATEGORY_BY_ID, SUB_INFO } from '../data/taxonomy.js';
 import { OUTFIT_MODES, OCCASION_BY_ID } from '../data/occasions.js';
 import { store, pid, hydratePhotos } from '../state.js';
@@ -72,23 +72,21 @@ export function piecesList(pieces) {
 }
 
 export function outfitMannequin(pieces, label) {
-  const tie = (pieces.accessories || []).find((a) => a.sub === 'cravate');
-  const P = (g) => (g ? { sub: g.sub, hex: g.color?.hex || colorHex(g.color?.id), photos: g.photoIds || [] } : null);
-  return dressedMannequinSVG({ top: P(pieces.top), bottom: P(pieces.bottom), layer: P(pieces.layer), outer: P(pieces.outer), shoes: P(pieces.shoes), belt: P(pieces.belt), tie: P(tie) }, { label: label || 'Mannequin habillé avec les pièces de la tenue' });
+  return lookbookHTML(pieces, { label: label || 'Tenue composée avec les photos de vos pièces' });
 }
 // Toucher le mannequin l'agrandit (une seule écoute pour toute l'application).
 if (typeof document !== 'undefined' && !window.__mannequinZoom) {
   window.__mannequinZoom = true;
   document.addEventListener('click', (e) => {
     const w = e.target.closest?.('.mannequin-wrap');
-    if (!w || !w.querySelector('svg.dressed') || w.closest('.modal')) return;
-    openModal({ title: 'Aperçu de la tenue', body: html`<div class="mannequin-big">${raw(w.innerHTML)}</div><p class="small muted" style="text-align:center">Chaque vêtement est découpé dans la photo de votre pièce (ou rempli de sa couleur sans photo) : un aperçu, pas une photo portée.</p>` });
+    if (!w || !w.querySelector('.lookbook') || w.closest('.modal')) return;
+    openModal({ title: 'Aperçu de la tenue', body: html`<div class="mannequin-big">${raw(w.innerHTML)}</div><p class="small muted" style="text-align:center">Les photos de vos pièces, posées comme la tenue se porte. Pour la voir portée par une personne : « Voir la tenue portée ».</p>` });
   });
 }
 /** Bouton « Photo réaliste » : envoie les photos des pièces et une consigne à ChatGPT (ou une autre app d'images). */
 export function realisticButton(pieces) {
   const ids = ['outer', 'layer', 'top', 'bottom', 'belt', 'shoes'].map((r) => pieces[r]?.id).filter(Boolean);
-  return ids.length ? html`<button type="button" class="btn btn-sm btn-ghost realistic-btn" data-realistic="${ids.join(',')}">${icon('camera')} Photo réaliste avec ChatGPT</button>` : '';
+  return ids.length ? html`<button type="button" class="btn btn-sm btn-ghost realistic-btn" data-realistic="${ids.join(',')}">${icon('camera')} Voir la tenue portée (photo réaliste)</button>` : '';
 }
 const ROLE_FR = { outer: 'Manteau', layer: 'Veste', top: 'Haut', bottom: 'Bas', belt: 'Ceinture', shoes: 'Chaussures' };
 export function realisticPrompt(list) {
@@ -122,7 +120,7 @@ if (typeof document !== 'undefined' && !window.__realisticBtn) {
   });
 }
 /** Légende sous le mannequin. */
-export const MANNEQUIN_NOTE = 'Aperçu avec vos pièces · touchez pour agrandir';
+export const MANNEQUIN_NOTE = 'Vos pièces, posées comme portées · touchez pour agrandir';
 
 /** Carte de proposition (Aujourd'hui, Tenues, Avec quoi le porter). */
 /** Ligne de pièce cliquable : ouvre le dressing pour choisir une autre pièce de ce rôle. */
