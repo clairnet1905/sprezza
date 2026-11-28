@@ -1,7 +1,8 @@
 // Profil : mesures facultatives, coupes, tailles par marque, identité de style, budgets, ville, profils familiaux, préférences apprises.
 import { html, raw, setHTML } from '../lib/html.js';
 import { icon, toast, options, confirmDialog, readForm } from '../components/ui.js';
-import { store, saveProfile, switchProfile, defaultProfile, prefs as loadPrefs, savePrefs } from '../state.js';
+import { store, saveProfile, switchProfile, defaultProfile, prefs as loadPrefs, savePrefs, hydratePhotos, forgetPhotoURL } from '../state.js';
+import { checkImageFile, loadBitmap, processImage } from '../services/image.js';
 import { FITS, CATEGORIES } from '../data/taxonomy.js';
 import { IDENTITY_MIX } from '../data/styles.js';
 import { MEASURES_TO_CHECK } from '../data/guide.js';
@@ -26,6 +27,10 @@ export async function render(main) {
       <div class="field span-2"><label for="pgoals">Objectifs</label><textarea id="pgoals" name="goals">${p.goals || ''}</textarea></div>
     </div>
     <div class="callout small">La taille de ${p.height || '—'} cm ne fixe automatiquement aucune taille (S, M…). Mesures à vérifier avant tout achat : ${MEASURES_TO_CHECK.join(' ; ')}.</div></fieldset>
+    <fieldset><legend>Ma photo (pour me voir porter mes tenues)</legend>
+      <div class="row" style="gap:14px;align-items:center;flex-wrap:nowrap"><div class="self-ph">${p.selfPhotoId ? html`<img data-photo="${p.selfPhotoId}" alt="Ma photo en pied">` : html`<span class="small muted">Aucune photo</span>`}</div>
+        <div class="stack" style="gap:6px"><label class="btn btn-sm" for="selfph">${icon('camera')} ${p.selfPhotoId ? 'Changer ma photo' : 'Ajouter une photo en pied'}</label><input id="selfph" type="file" accept="image/*" hidden>${p.selfPhotoId ? html`<button type="button" class="btn btn-sm btn-ghost" id="selfdel">Supprimer ma photo</button>` : ''}</div></div>
+      <p class="hint">Jointe automatiquement en premier quand vous touchez « Voir la tenue portée » : ChatGPT vous habille vous, avec vos vêtements. Gardée uniquement sur cet appareil, jamais synchronisée. Conseil : debout, de face, de la tête aux pieds, bonne lumière, vêtements près du corps.</p></fieldset>
     <fieldset><legend>Mesures facultatives (cm)</legend><div class="form-grid">${BODY_MEASURES.map(([k, l]) => html`<div class="field"><label for="bm-${k}">${l}</label><input id="bm-${k}" name="bm_${k}" type="number" min="0" step="0.5" inputmode="decimal" value="${p.measures?.[k] ?? ''}"></div>`)}</div></fieldset>
     <fieldset><legend>Coupes préférées</legend><div class="chips">${FITS.map(([id, l]) => html`<label class="chip"><input type="checkbox" name="preferredFits" data-multi value="${id}" ${p.preferredFits?.includes(id) ? raw('checked') : ''}> ${l}</label>`)}</div></fieldset>
     <fieldset><legend>Tailles selon les marques</legend><div id="bsizes">${(p.brandSizes || []).map((b, i) => sizeRow(b, i))}</div><button type="button" class="btn btn-sm" id="addsize">${icon('plus')} Ajouter une taille</button></fieldset>
@@ -46,6 +51,9 @@ export async function render(main) {
       <li class="row-between" style="padding:6px 0">Ajustement de formalité : ${fmtBias(prefs.formalityBias)} <button class="btn btn-sm btn-ghost" data-reset="formalityBias">Réinitialiser</button></li>
       <li class="row-between" style="padding:6px 0">Ajustement de chaleur : ${fmtBias(prefs.warmthBias)} <button class="btn btn-sm btn-ghost" data-reset="warmthBias">Réinitialiser</button></li>
       <li class="row-between" style="padding:6px 0">Tenues aimées : ${prefs.likedCombos?.length || 0} <button class="btn btn-sm btn-ghost" data-reset="likedCombos">Oublier</button></li>
+      <li class="row-between" style="padding:6px 0">Tenues refusées : ${prefs.dislikedCombos?.length || 0} <button class="btn btn-sm btn-ghost" data-reset="dislikedCombos">Oublier</button></li>
+      ${(prefs.dislikedPairs || []).map((k) => html`<li class="row-between" style="padding:6px 0">Association refusée : ${prefs.pairNames?.[k] || k} <button class="btn btn-sm btn-ghost" data-unpair="${k}">Retirer</button></li>`)}
+      ${Object.entries(prefs.snoozed || {}).filter(([, d]) => d >= new Date().toISOString().slice(0, 10)).map(([id, d]) => html`<li class="row-between" style="padding:6px 0">Mise de côté jusqu'au ${new Date(d).toLocaleDateString('fr-FR')} : ${prefs.snoozedNames?.[id] || id} <button class="btn btn-sm btn-ghost" data-unsnooze="${id}">Reprendre</button></li>`)}
       ${Object.entries(prefs.dislikedFit || {}).map(([id, name]) => html`<li class="row-between" style="padding:6px 0">Coupe à revoir : ${name} <button class="btn btn-sm btn-ghost" data-unfit="${id}">Retirer</button></li>`)}
     </ul>${prefs.history?.length ? html`<details class="disclosure"><summary>Historique des retours (${prefs.history.length})</summary><ul class="ticks small">${prefs.history.slice().reverse().map((h) => html`<li>${new Date(h.at).toLocaleDateString('fr-FR')} — ${h.label}</li>`)}</ul></details>` : ''}</div>
     <h2>Profils familiaux (facultatifs)</h2>
@@ -71,7 +79,23 @@ export async function render(main) {
     toast(v.cityName && v.cityName !== p.city?.name ? 'Profil enregistré — validez la ville depuis « Aujourd\'hui » pour la météo' : 'Profil enregistré');
     navigate('#/profile');
   };
-  main.querySelectorAll('[data-reset]').forEach((b) => b.onclick = async () => { const pr = await loadPrefs(); pr[b.dataset.reset] = b.dataset.reset === 'likedCombos' ? [] : 0; pr.history = [...(pr.history || []), { at: new Date().toISOString(), label: `Réinitialisation : ${b.dataset.reset}` }]; await savePrefs(pr); navigate('#/profile'); });
+  main.querySelectorAll('[data-reset]').forEach((b) => b.onclick = async () => { const pr = await loadPrefs(); pr[b.dataset.reset] = ['likedCombos', 'dislikedCombos'].includes(b.dataset.reset) ? [] : 0; pr.history = [...(pr.history || []), { at: new Date().toISOString(), label: `Réinitialisation : ${b.dataset.reset}` }]; await savePrefs(pr); navigate('#/profile'); });
+  hydratePhotos(main);
+  main.querySelector('#selfph').onchange = async (e) => {
+    const f = e.target.files?.[0]; if (!f) return;
+    try {
+      const mime = await checkImageFile(f); const bmp = await loadBitmap(f); const out = await processImage(bmp);
+      const id = `self_${store.profile.id}`;
+      await store.repo.put('photos', { id, profileId: store.profile.id, ownerId: store.profile.id, kind: 'self', blob: out.blob, thumb: out.thumbBlob, mime: out.blob.type || mime, width: out.width, height: out.height, private: true, alt: 'Ma photo en pied' });
+      forgetPhotoURL(id); await saveProfile({ ...store.profile, selfPhotoId: id }); toast('Photo enregistrée sur cet appareil'); navigate('#/profile');
+    } catch (err) { toast(err.message || 'Photo illisible'); }
+  };
+  main.querySelector('#selfdel')?.addEventListener('click', async () => {
+    const id = store.profile.selfPhotoId; await store.repo.remove('photos', id); forgetPhotoURL(id);
+    const { selfPhotoId, ...rest } = store.profile; void selfPhotoId; await saveProfile(rest); toast('Photo supprimée'); navigate('#/profile');
+  });
+  main.querySelectorAll('[data-unpair]').forEach((b) => b.onclick = async () => { const pr = await loadPrefs(); pr.dislikedPairs = (pr.dislikedPairs || []).filter((k) => k !== b.dataset.unpair); await savePrefs(pr); navigate('#/profile'); });
+  main.querySelectorAll('[data-unsnooze]').forEach((b) => b.onclick = async () => { const pr = await loadPrefs(); delete pr.snoozed[b.dataset.unsnooze]; await savePrefs(pr); navigate('#/profile'); });
   main.querySelectorAll('[data-unfit]').forEach((b) => b.onclick = async () => { const pr = await loadPrefs(); delete pr.dislikedFit[b.dataset.unfit]; await savePrefs(pr); navigate('#/profile'); });
   main.querySelectorAll('[data-switch]').forEach((b) => b.onclick = async () => { await switchProfile(b.dataset.switch); toast(`Profil actif : ${store.profile.name}`); navigate('#/profile'); });
   main.querySelectorAll('[data-newprof]').forEach((b) => b.onclick = async () => { const np = defaultProfile(b.dataset.newprof); await saveProfile(np); toast(`${np.name} créé`); navigate('#/profile'); });

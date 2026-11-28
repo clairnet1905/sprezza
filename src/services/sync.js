@@ -16,6 +16,7 @@ export function shouldSync(store, rec, { childProfileIds = [], photos = true } =
   if (store === 'photos') {
     if (!photos) return false;
     if (rec.profileId && childProfileIds.includes(rec.profileId)) return false; // profil enfant : photos jamais envoyées
+    if (rec.kind === 'self') return false; // votre photo personnelle reste sur l'appareil
   }
   return true;
 }

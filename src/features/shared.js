@@ -5,8 +5,9 @@ import { garmentGlyph, mannequinSVG } from '../components/mannequin.js';
 import { lookbookHTML } from '../components/lookbook.js';
 import { ROLE_LABELS, ROLE_ORDER, AVAILABILITY, CATEGORY_BY_ID, SUB_INFO, FITS } from '../data/taxonomy.js';
 import { GROUP } from '../domain/explain.js';
+import { howToWear, wearRole } from '../domain/how-to-wear.js';
 import { OUTFIT_MODES, OCCASION_BY_ID } from '../data/occasions.js';
-import { store, pid, hydratePhotos } from '../state.js';
+import { store, pid, hydratePhotos, prefs as loadPrefsS, savePrefs as savePrefsS } from '../state.js';
 import { scoreOutfit } from '../domain/scoring.js';
 import { buildEnv } from '../domain/recommend.js';
 import { uid } from '../repositories/db.js';
@@ -110,19 +111,8 @@ function pieceLine(role, g) {
   const bits = [g.color?.name?.toLowerCase(), g.pattern && g.pattern !== 'Uni' ? g.pattern.toLowerCase() : '', g.material?.toLowerCase(), fit ? `coupe ${fit.toLowerCase()}` : '', g.brand].filter(Boolean);
   return `${ROLE_FR[role]} : ${g.name.replace(/\s*\(démo\)/, '')}${bits.length ? ` (${bits.join(', ')})` : ''}`;
 }
-/** Manière de porter chaque pièce, pour que l'image ressemble à une vraie tenue bien portée. */
-function wearRules(p, occ) {
-  const r = [];
-  const tuck = ['chemise', 'chemise-lin', 'polo', 'polo-sport'].includes(p.top?.sub);
-  if (p.top) r.push(tuck && p.belt ? 'haut rentré dans le pantalon, ceinture visible' : tuck ? 'chemise rentrée proprement' : 'haut porté par-dessus le pantalon, ourlet net');
-  if (p.layer) r.push(['blazer', 'veste-costume'].includes(p.layer.sub) && GROUP[occ?.id] === 'business' ? 'veste fermée par le bouton du haut' : 'veste portée ouverte');
-  if (p.outer) r.push('manteau porté ouvert sur la tenue');
-  if (p.bottom) r.push('pantalon à la bonne longueur, tombant juste sur les chaussures');
-  r.push('vêtements bien repassés, à la bonne taille, ni trop serrés ni trop amples');
-  return r.join(' ; ');
-}
 /** Consigne complète pour ChatGPT (ou une autre app d'images) : pièces, façon de les porter, décor, cadrage. */
-export function wearPrompt(p, { occasion = null, style = null, date = new Date() } = {}) {
+export function wearPrompt(p, { occasion = null, style = null, date = new Date(), env = null } = {}) {
   const prof = store.profile || {};
   const who = prof.kind === 'woman' ? 'une femme' : prof.kind === 'child' ? 'un enfant' : 'un homme';
   const h = prof.height ? `, mesurant environ ${(prof.height / 100).toFixed(2).replace('.', ',')} m` : '';
@@ -131,25 +121,39 @@ export function wearPrompt(p, { occasion = null, style = null, date = new Date()
   const lines = [...roles.map((r) => pieceLine(r, p[r])), ...acc.map((a) => pieceLine('accessory', a))];
   const where = SETTING[GROUP[occasion?.id]] || SETTING.casual;
   return [
-    `Crée une photo réaliste, en pied, d'${who}${h}, élégant et naturel, qui porte exactement la tenue ci-dessous.`,
-    `Je joins les photos de mes vêtements : reproduis fidèlement leurs couleurs, matières, motifs et coupes, sans rien inventer.`,
+    ...(prof.selfPhotoId ? [
+      `Crée une photo réaliste, en pied, de la personne de la première photo jointe (moi) : garde exactement mon visage, ma coiffure, ma silhouette et ma morphologie, et habille-moi avec la tenue ci-dessous.`,
+      `Les autres photos sont mes vêtements : reproduis fidèlement leurs couleurs, matières, motifs et coupes, sans rien inventer.`,
+    ] : [
+      `Crée une photo réaliste, en pied, d'${who}${h}, élégant et naturel, qui porte exactement la tenue ci-dessous.`,
+      `Je joins les photos de mes vêtements : reproduis fidèlement leurs couleurs, matières, motifs et coupes, sans rien inventer.`,
+    ]),
     '',
     'La tenue :',
     ...lines.map((l, i) => `${i + 1}. ${l}`),
     '',
-    `Comment la porter : ${wearRules(p, occasion)}.`,
+    'Comment la porter :',
+    ...howToWear(p, { occasion, env: env || {} }).map((w) => `- ${wearRole(w.role, p[w.role])} : ${w.short.charAt(0).toLowerCase()}${w.short.slice(1)}`),
+    '- vêtements bien repassés, à la bonne taille, ni trop serrés ni trop amples',
     `${style ? `Style : ${style.label} (${style.why}). ` : ''}${occasion ? `Occasion : ${occasion.name.toLowerCase()}. ` : ''}`.trim(),
     `Décor : ${where}, ${SEASON_FR(date.getMonth())}.`,
     'Photo : format portrait vertical, cadrage de la tête aux pieds, lumière naturelle douce, rendu de photographie de mode, pose détendue.',
     'Interdit : logos ajoutés, accessoires en plus, vêtements différents de mes photos.',
   ].filter((l, i, a) => l !== '' || a[i - 1] !== '').join('\n');
 }
+/** « Comment la porter » : une ligne par pièce (rentré ou non, bas de pantalon, col, chaussettes…). */
+export function wearBlock(pieces, { occasion = null, env = null, howTo = null, open = true } = {}) {
+  const list = howTo || howToWear(pieces, { occasion, env: env || {} });
+  if (!list.length) return '';
+  return html`<details class="wear-block" ${open ? raw('open') : ''}><summary>👔 Comment la porter</summary>
+    <ul class="clean wear-list">${list.map((w) => html`<li><span class="wear-role">${wearRole(w.role, pieces[w.role])}</span><span><strong>${w.tip.split(' ; ')[0]}</strong>${w.tip.includes(' ; ') ? html`<span class="small muted"> — ${w.tip.split(' ; ').slice(1).join(' ; ')}</span>` : ''}</span></li>`)}</ul></details>`;
+}
 /** Bloc sous la tenue du jour : la consigne à copier pour ChatGPT. */
-export function promptBlock(pieces, { occasion = null, style = null } = {}) {
-  const text = wearPrompt(pieces, { occasion, style });
+export function promptBlock(pieces, { occasion = null, style = null, env = null } = {}) {
+  const text = wearPrompt(pieces, { occasion, style, env });
   const withPhoto = ['outer', 'layer', 'top', 'bottom', 'belt', 'shoes'].map((r) => pieces[r]).filter((g) => g?.photoIds?.length);
   return html`<details class="prompt-block"><summary>${icon('camera')} Consigne pour ChatGPT : voir cette tenue portée</summary>
-    <ol class="small prompt-steps"><li>Touchez <strong>Copier la consigne</strong>.</li><li>Dans ChatGPT, joignez les photos de vos pièces${withPhoto.length ? ` (${withPhoto.length} ont une photo dans le dressing)` : ''}, puis collez la consigne.</li><li>Pour vous voir vous-même, joignez aussi une photo de vous en pied et ajoutez « sur la personne de ma photo ».</li></ol>
+    <ol class="small prompt-steps"><li>Touchez <strong>Copier la consigne</strong>.</li><li>Dans ChatGPT, joignez les photos de vos pièces${withPhoto.length ? ` (${withPhoto.length} ont une photo dans le dressing)` : ''}, puis collez la consigne.</li>${store.profile?.selfPhotoId ? html`<li>Votre photo (Profil) est jointe en premier avec « Voir la tenue portée » : ChatGPT vous habille vous.</li>` : html`<li>Pour vous voir vous-même : ajoutez une fois votre photo en pied dans <a href="#/profile">Profil › Ma photo</a>, elle sera jointe automatiquement.</li>`}</ol>
     <textarea class="prompt-text" readonly rows="12" aria-label="Consigne pour ChatGPT">${text}</textarea>
     <div class="btn-row"><button type="button" class="btn btn-sm btn-primary" data-copyprompt>${icon('copy')} Copier la consigne</button>${realisticButton(pieces, { occasionId: occasion?.id || '' })}<a class="btn btn-sm btn-ghost" href="https://chatgpt.com/" target="_blank" rel="noopener">Ouvrir ChatGPT</a></div>
   </details>`;
@@ -173,6 +177,8 @@ if (typeof document !== 'undefined' && !window.__realisticBtn) {
     const prompt = realisticPrompt(list, { occasion: OCCASION_BY_ID[b.dataset.occ] || null });
     // Photos : version boutique si elle existe, sinon la photo principale
     const files = [];
+    const me = store.profile?.selfPhotoId ? await store.repo.get('photos', store.profile.selfPhotoId) : null;
+    if (me?.blob) files.push(new File([me.blob], `1-moi.${(me.blob.type || 'image/jpeg').split('/')[1].replace('jpeg', 'jpg')}`, { type: me.blob.type || 'image/jpeg' }));
     for (const g of gs) {
       let rec = null;
       for (const pid2 of g.photoIds || []) { const r = await store.repo.get('photos', pid2); if (r?.cutout) { rec = r; break; } if (!rec) rec = r; }
@@ -272,6 +278,7 @@ export function proposalCard(opt, idx, { actions = true, title } = {}) {
       </div>
       <div><div class="mannequin-wrap">${outfitMannequin(p)}</div><div class="schema-label">${MANNEQUIN_NOTE}</div><div style="text-align:center;margin-top:4px">${realisticButton(p)}</div></div>
     </div>
+    ${wearBlock(p, { howTo: opt.howTo, open: idx === 0 })}
     <ul class="ticks">${opt.reasons.map((r) => html`<li>${r}</li>`)}</ul>
     ${upgradeBlock(opt.upgrade)}
     ${opt.warnings.length ? html`<div class="callout callout-warn">${opt.warnings.map((w) => html`<div>${w}</div>`)}</div>` : ''}
@@ -287,7 +294,7 @@ export function proposalCard(opt, idx, { actions = true, title } = {}) {
       <button class="btn" data-act="similar">${icon('search')} Chercher une pièce similaire</button>
     </div>
     <div class="row small" style="gap:6px"><span class="muted">Votre avis :</span>
-      <button class="chip" data-fb="like">J'aime</button><button class="chip" data-fb="too-formal">Trop formel</button><button class="chip" data-fb="too-casual">Pas assez habillé</button><button class="chip" data-fb="too-warm">Trop chaud</button><button class="chip" data-fb="too-cold">Pas assez chaud</button><button class="chip" data-fb="no-fit">Ne me va pas</button></div>` : ''}
+      <button class="chip" data-fb="like">J'aime</button><button class="chip" data-fb="too-formal">Trop formel</button><button class="chip" data-fb="too-casual">Pas assez habillé</button><button class="chip" data-fb="too-warm">Trop chaud</button><button class="chip" data-fb="too-cold">Pas assez chaud</button><button class="chip" data-fb="no-fit">Ne me va pas</button><button class="chip" data-fb="dislike">👎 Je n'aime pas</button></div>` : ''}
   </article>`;
 }
 
@@ -372,4 +379,36 @@ export async function deleteGarment(g) {
   const wish = await store.repo.all('wishlist', (w) => w.linkedGarmentId === g.id);
   for (const w of wish) await store.repo.put('wishlist', { ...w, linkedGarmentId: null }, { silent: true });
   await store.repo.remove('garments', g.id);
+}
+
+/** « Je n'aime pas » : la tenue entière, l'association haut + bas, ou une pièce mise de côté 2 semaines. Réversible dans Profil. */
+export function dislikeDialog(pieces, onDone) {
+  const list = piecesList(pieces).filter(([r]) => ['top', 'bottom', 'layer', 'outer', 'shoes'].includes(r));
+  openModal({ title: 'Qu\'est-ce qui ne vous plaît pas ?', body: html`<p class="small muted">L'application s'en souviendra pour les prochaines tenues. Tout est réversible dans Profil.</p>
+    <div class="kbd-list">
+      <label class="check"><input type="radio" name="dk" value="combo" checked> Cette tenue entière : ne plus me la proposer</label>
+      ${pieces.top && pieces.bottom ? html`<label class="check"><input type="radio" name="dk" value="pair"> Ce haut avec ce pantalon (${pieces.top.name} + ${pieces.bottom.name})</label>` : ''}
+      <label class="check"><input type="radio" name="dk" value="snooze"> Une ou plusieurs pièces : ne plus me les proposer pendant 2 semaines</label>
+    </div>
+    <div class="kbd-list" data-snz style="margin:8px 0 0 22px;display:none">${list.map(([r, g], i) => html`<label class="check"><input type="checkbox" data-i="${i}"> ${ROLE_LABELS[r]} — ${g.name}</label>`)}</div>
+    <button class="btn btn-primary" data-ok style="margin-top:12px">Enregistrer et proposer autre chose</button>`,
+  onMount(body, close) {
+    body.querySelectorAll('[name="dk"]').forEach((r) => r.onchange = () => { body.querySelector('[data-snz]').style.display = body.querySelector('[name="dk"]:checked').value === 'snooze' ? 'flex' : 'none'; });
+    body.querySelector('[data-ok]').onclick = async () => {
+      const kind = body.querySelector('[name="dk"]:checked').value;
+      const p = await loadPrefsS(); const at = new Date().toISOString(); let label = '';
+      if (kind === 'combo') { p.dislikedCombos = [...new Set([...(p.dislikedCombos || []), comboKey(pieces)])].slice(-100); label = 'Tenue refusée : ' + piecesList(pieces).filter(([r]) => ['top', 'bottom', 'shoes'].includes(r)).map(([, g]) => g.name).join(' + '); }
+      if (kind === 'pair') { p.dislikedPairs = [...new Set([...(p.dislikedPairs || []), `${pieces.top.id}|${pieces.bottom.id}`])].slice(-100); p.pairNames = { ...(p.pairNames || {}), [`${pieces.top.id}|${pieces.bottom.id}`]: `${pieces.top.name} + ${pieces.bottom.name}` }; label = `Association refusée : ${pieces.top.name} + ${pieces.bottom.name}`; }
+      if (kind === 'snooze') {
+        const gs = [...body.querySelectorAll('[data-i]:checked')].map((c) => list[+c.dataset.i][1]);
+        if (!gs.length) { toast('Cochez au moins une pièce'); return; }
+        const until = todayISO(new Date(Date.now() + 14 * 864e5));
+        p.snoozed = { ...(p.snoozed || {}) }; p.snoozedNames = { ...(p.snoozedNames || {}) };
+        gs.forEach((g) => { p.snoozed[g.id] = until; p.snoozedNames[g.id] = g.name; });
+        label = `Mise de côté 2 semaines : ${gs.map((g) => g.name).join(', ')}`;
+      }
+      p.history = [...(p.history || []), { at, kind: 'dislike', label }].slice(-50);
+      await savePrefsS(p); close(); toast('C\'est noté : autre proposition'); onDone?.();
+    };
+  } });
 }

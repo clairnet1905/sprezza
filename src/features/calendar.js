@@ -22,7 +22,7 @@ export async function render(main) {
   const outBy = Object.fromEntries(outs.map((o) => [o.id, o]));
   setHTML(main, html`
     <div class="page-head row-between"><div><div class="eyebrow">Calendrier</div><h1>Mes tenues planifiées</h1><p class="lede">Planifier par date et occasion, consulter l'historique de port, préparer plusieurs jours.</p></div>
-      <div class="btn-row"><button class="btn btn-primary" id="multi">${icon('calendar')} Préparer plusieurs jours</button><button class="btn" id="ics">${icon('download')} Exporter (.ics)</button></div></div>
+      <div class="btn-row"><button class="btn btn-primary" id="week">📅 Préparer ma semaine</button><button class="btn" id="multi">${icon('calendar')} Plusieurs jours (choix libre)</button><button class="btn" id="ics">${icon('download')} Exporter (.ics)</button></div></div>
     <section class="card card-accent" style="margin-bottom:16px"><div class="row-between" style="align-items:flex-start;gap:12px"><div><div class="eyebrow">Mon agenda</div><h2 style="margin:0">Synchroniser mes rendez-vous</h2>
       <p class="small" style="margin:6px 0 0">Importez vos événements : SPREZZA reconnaît le type de rendez-vous (client, ménage, dîner, mariage…) et prépare la tenue de chaque jour, pour le plus exigeant de la journée.</p></div></div>
       <div class="btn-row" style="margin-top:10px"><label class="btn btn-primary" for="icsfile">${icon('upload')} Importer un fichier agenda (.ics)</label><input id="icsfile" type="file" accept=".ics,text/calendar" hidden><button class="btn btn-gold" id="gcal">${icon('calendar')} Google Agenda (Gmail)</button><button class="btn" id="agpaste">${icon('edit')} Coller mes rendez-vous</button></div>
@@ -77,6 +77,7 @@ export async function render(main) {
     toast('Fichier .ics généré — importez-le dans votre agenda');
   };
   main.querySelector('#multi').onclick = () => multiDay(main, all);
+  main.querySelector('#week').onclick = async () => { const { openWeekPlanner } = await import('./week.js'); openWeekPlanner({ onDone: () => render(main) }); };
 }
 
 function dayModal(iso, { cal, wl, outs, all, main }) {

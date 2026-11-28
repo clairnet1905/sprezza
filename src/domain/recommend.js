@@ -10,6 +10,7 @@ import { CAPSULE } from '../data/capsule.js';
 import { WORK_KIT, WORK_PRICE_CAP } from '../data/workwear.js';
 import { looksFor, explainOutfit } from './explain.js';
 import { identifyStyle } from './style-id.js';
+import { howToWear } from './how-to-wear.js';
 
 const TOP_K = 6;
 const BELT_BOTTOMS = ['pantalon', 'pantalon-costume', 'chino', 'jean', 'flanelle', 'bermuda'];
@@ -136,7 +137,7 @@ export function buildEnv({ weather, season, date = new Date(), prefs = {} }) {
 }
 
 /** Filtre dur par rôle, avec raisons d'exclusion pour l'explicabilité. */
-export function hardFilter(garments, { occasion, env, profileId }) {
+export function hardFilter(garments, { occasion, env, profileId, snoozed = null }) {
   const excluded = [];
   const pools = { top: [], bottom: [], layer: [], outer: [], shoes: [], belt: [], accessory: [] };
   for (const g of garments) {
@@ -144,6 +145,7 @@ export function hardFilter(garments, { occasion, env, profileId }) {
     const role = roleOf(g);
     if (!role) continue;
     if (!isAvailable(g)) { excluded.push([g, 'indisponible (à laver, retouche ou indisponible)']); continue; }
+    if (snoozed?.[g.id] && snoozed[g.id] >= (env.today || '')) { excluded.push([g, 'mise de côté (« je n\'aime pas »)']); continue; }
     if (!inSeason(g, env.season) && !(env.cold && warmthOf(g) >= 3) && !(env.hot && warmthOf(g) <= 2)) { excluded.push([g, 'hors saison']); continue; }
     const f = garmentFormality(g);
     if (occasion && ['top', 'bottom', 'shoes'].includes(role)) {
@@ -272,11 +274,13 @@ function needsOuter(env) { return env.cold || env.rain || env.windy; }
  * @param {object} input { garments, occasionId, weather, season, date, imposed: {role:garmentId}, prefs, profileId, offsets: {mode:n}, now }
  */
 export function recommend(input) {
-  const { garments = [], occasionId = 'daily', weather = null, prefs = {}, imposed = {}, offsets = {}, profileId } = input;
+  const { garments = [], occasionId = 'daily', weather = null, imposed = {}, offsets = {}, profileId } = input;
+  const prefs = input.prefs || {};
   const now = input.now ?? Date.now();
   const occasion = OCCASION_BY_ID[occasionId] || OCCASION_BY_ID.daily;
   const env = buildEnv({ weather, season: input.season, date: input.date || new Date(now), prefs });
-  const { pools, excluded } = hardFilter(garments, { occasion, env, profileId });
+  env.today = new Date(now).toISOString().slice(0, 10);
+  const { pools, excluded } = hardFilter(garments, { occasion, env, profileId, snoozed: prefs.snoozed });
   // Pièces imposées / gardées
   const forced = {};
   const forcedNone = new Set(Object.entries(imposed).filter(([r, v]) => v === null && ['layer', 'outer'].includes(r)).map(([r]) => r)); // « sans veste » choisi
@@ -324,9 +328,13 @@ export function recommend(input) {
       const prop = pieceList.filter((g) => ['top', 'bottom', 'shoes'].includes(roleOf(g))).reduce((a, g) => a + proposedPenalty(g, input.proposed, now), 0);
       if (prop) { rank -= prop; bonus.push(`−${prop.toFixed(1)} déjà proposées ces derniers jours`); }
       rank += pieceList.reduce((a, g) => a + dayJitter(g.id, now), 0) * 1.2;
-      if (env.cold) rank += [top, layer].filter(Boolean).reduce((a, g) => a + (warmthOf(g) - 2), 0) * 0.8;
+      if (env.cold) rank += [top, layer].filter(Boolean).reduce((a, g) => a + (warmthOf(g) - 2), 0) * (env.veryCold ? 1.6 : 0.8);
+      if (env.cold && layer && !forcedNone.has('layer')) { const w = env.veryCold ? 2.5 : 1.2; rank += w; bonus.push(`+${w} couche en plus pour le froid`); }
+      if (env.cold && outer) { const w = (warmthOf(outer) - 3) * (env.veryCold ? 2 : 1.2); rank += w; if (w > 0) bonus.push(`+${w.toFixed(1)} manteau chaud pour le froid`); }
       rank += styleRank(pieces, { mode, occasion, env, prefs }, sc) - base;
       if (prefs.likedCombos?.includes(comboKey(pieces))) { rank += 3; bonus.push('+3 tenue aimée'); }
+      if (prefs.dislikedCombos?.includes(comboKey(pieces))) { rank -= 40; bonus.push('−40 tenue que vous n\'aimez pas'); }
+      if (top && bottom && prefs.dislikedPairs?.includes(`${top.id}|${bottom.id}`)) { rank -= 8; bonus.push('−8 association haut + bas que vous n\'aimez pas'); }
       if (needsOuter(env) && !outer) { rank -= 4; bonus.push('−4 couche extérieure manquante'); }
       if (!needsOuter(env) && env.mild && outer) { const fit = env.feel < 14 && warmthOf(outer) <= 4 ? 1.5 : -2; rank += fit; if (fit > 0) bonus.push('+1.5 couche légère pour la fraîcheur'); }
       scored.push({ pieces, score: sc, rank: Math.round(rank * 100) / 100, bonus, mode });
@@ -391,7 +399,8 @@ function decorate(pick, { occasion, env, pools, list, ctxBase }) {
   }
   void ctxBase;
   const style = identifyStyle(p, { occasion, mode: pick.mode, month: day.getMonth() });
-  return { ...pick, mode: pick.mode, title: ex.title, idea: ex.idea, style, reasons, warnings, missing, alternatives, harmony: h, palette: [...new Set(colorIds)] };
+  const howTo = howToWear(p, { occasion, env });
+  return { ...pick, mode: pick.mode, title: ex.title, idea: ex.idea, style, howTo, env, reasons, warnings, missing, alternatives, harmony: h, palette: [...new Set(colorIds)] };
 }
 
 function buildBackup(option, pools, env) {

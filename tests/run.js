@@ -33,6 +33,9 @@ import { parseICS, parseAgendaText, occasionForEvent, dayPlan } from '../src/dom
 import { mapGoogleEvents } from '../src/services/google-calendar.js';
 import { mirror } from '../src/components/dressed.js';
 import { lookbookHTML } from '../src/components/lookbook.js';
+import { howToWear } from '../src/domain/how-to-wear.js';
+import { planWeek } from '../src/domain/week-plan.js';
+import { comboKey } from '../src/domain/recommend.js';
 import { wearPrompt } from '../src/features/shared.js';
 import { looksFor } from '../src/domain/explain.js';
 import { afterWear as afterWear2 } from '../src/domain/care.js';
@@ -777,8 +780,43 @@ test('Consigne ChatGPT : toutes les pièces, façon de porter, décor selon l\'o
   const G = (sub, name, color, extra = {}) => ({ id: sub, name, sub, color: { id: color, name: color === 'navy' ? 'Marine' : 'Blanc' }, ...extra });
   const t = wearPrompt({ layer: G('blazer', 'Blazer marine (démo)', 'navy', { material: 'Laine' }), top: G('chemise', 'Chemise blanche', 'white'), bottom: G('chino', 'Chino', 'navy'), belt: G('ceinture-cuir', 'Ceinture', 'navy'), shoes: G('derbies', 'Derbies', 'navy') }, { occasion: { id: 'client', name: 'Rencontre client' }, style: { label: 'business casual', why: 'blazer, chemise' }, date: new Date(2026, 10, 28) });
   ok(/1\. Veste : Blazer marine \(marine, laine\)/.test(t), t);
-  ok(!/démo/.test(t)); ok(/rentré dans le pantalon, ceinture visible/.test(t)); ok(/veste fermée/.test(t));
+  ok(!/démo/.test(t)); ok(/- Haut : rentrée dans le pantalon/.test(t), t); ok(/- Veste : bouton du haut fermé/.test(t)); ok(/- Pantalon : sans cassure/.test(t));
   ok(/bureaux/.test(t) && /en automne/.test(t) && /Style : business casual/.test(t));
+});
+
+
+test('Comment porter : chemise rentrée avec ceinture, polo piqué dehors, ourlet du jean, chaussettes', () => {
+  const C = (sub, color = 'navy') => G(sub, 'x', color);
+  const a = howToWear({ top: C('chemise', 'white'), bottom: C('pantalon', 'mid-gray'), layer: C('blazer'), belt: C('ceinture-cuir', 'chocolate'), shoes: C('derbies', 'chocolate') }, { occasion: { formality: [4, 5] }, env: { cold: true } });
+  const by = Object.fromEntries(a.map((x) => [x.role, x]));
+  ok(/^Rentrée/.test(by.top.short) && /dépassent d'environ 1 cm/.test(by.top.tip), by.top.tip);
+  ok(/Bouton du haut fermé/.test(by.layer.short)); ok(/Légère cassure/.test(by.bottom.short)); ok(/mi-mollet/.test(by.shoes.short)); ok(/Assortie/.test(by.belt.short));
+  const b = Object.fromEntries(howToWear({ top: C('polo-sport'), bottom: C('jean'), shoes: C('baskets', 'white') }, { env: { hot: true } }).map((x) => [x.role, x]));
+  ok(/dehors/.test(b.top.short)); ok(/Revers|ourlet/i.test(b.bottom.short)); ok(/invisibles/.test(b.shoes.short));
+  const c = Object.fromEntries(howToWear({ top: C('pull', 'ecru'), bottom: C('chino', 'beige'), shoes: C('mocassins', 'chocolate') }, { env: { hot: true } }).map((x) => [x.role, x]));
+  ok(/jamais rentré/.test(c.top.short)); ok(/roulé 2 fois/.test(c.bottom.short));
+  const bad = howToWear({ top: C('chemise', 'white'), bottom: C('chino', 'beige'), belt: C('ceinture-cuir', 'black'), shoes: C('mocassins', 'chocolate') }, {});
+  ok(bad.find((x) => x.role === 'belt').short.startsWith('Attention'));
+});
+
+test('Semaine : 7 tenues sans répétition, même tenue de travail 3 jours, « je n\'aime pas » respecté', () => {
+  const w = [G('chemise', 'haut', 'white'), G('chemise', 'haut', 'sky'), G('polo', 'haut', 'navy'), G('pull', 'haut', 'ecru'), G('chino', 'bas', 'beige'), G('pantalon', 'bas', 'mid-gray'), G('chino', 'bas', 'navy'), G('derbies', 'chaussures', 'chocolate'), G('mocassins', 'chaussures', 'chocolate'), G('blazer', 'veste', 'navy'),
+    G('tee-shirt-travail', 'haut', 'navy'), G('pantalon-travail', 'bas', 'charcoal'), G('chaussures-travail', 'chaussures', 'black')];
+  const days = ['2026-11-30', '2026-12-01', '2026-12-02', '2026-12-03', '2026-12-04'].map((date) => ({ date, occasionId: 'client', weather: manualWeather({ temp: 10 }) }));
+  const plan = planWeek({ garments: w, days });
+  eq(plan.length, 5); ok(plan.every((p) => p.option));
+  eq(new Set(plan.map((p) => comboKey(p.option.pieces))).size, 5);
+  const work = planWeek({ garments: w, days: days.map((d) => ({ ...d, occasionId: 'work-cleaning' })), workDays: 3 });
+  const k = work.map((p) => comboKey(p.option.pieces));
+  eq(k[0], k[1]); eq(k[1], k[2]); eq(work[2].workDay, 3); ok(k[3] !== k[2] || work[3].workDay === 1);
+  const r0 = recommend({ garments: w, occasionId: 'client', weather: manualWeather({ temp: 10 }) });
+  const key = comboKey(r0.options[0].pieces);
+  const r1 = recommend({ garments: w, occasionId: 'client', weather: manualWeather({ temp: 10 }), prefs: { dislikedCombos: [key] } });
+  ok(comboKey(r1.options[0].pieces) !== key);
+  const top = r0.options[0].pieces.top;
+  const r2 = recommend({ garments: w, occasionId: 'client', weather: manualWeather({ temp: 10 }), prefs: { snoozed: { [top.id]: '2099-01-01' } } });
+  ok(r2.options.every((o) => o.pieces.top.id !== top.id));
+  ok(r0.options[0].howTo.length >= 3);
 });
 
 // ---------------- Exécution

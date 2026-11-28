@@ -76,7 +76,7 @@ export const calendar = () => store.repo.all('calendar', (o) => o.profileId === 
 export const wishlist = () => store.repo.all('wishlist', (o) => o.profileId === pid());
 export const palettes = () => store.repo.all('palettes', (o) => o.profileId === pid());
 export const analyses = () => store.repo.all('analyses', (o) => o.profileId === pid());
-export const prefs = async () => store.repo.kvGet(`prefs:${pid()}`, { formalityBias: 0, warmthBias: 0, dislikedFit: {}, likedCombos: [], history: [] });
+export const prefs = async () => (await store.repo.kvGet(`prefs:${pid()}`, null)) || { formalityBias: 0, warmthBias: 0, dislikedFit: {}, likedCombos: [], history: [] };
 export const savePrefs = (p) => store.repo.kvSet(`prefs:${pid()}`, p);
 
 // ---------- Photos : URLs d'objets mises en cache ----------

@@ -9,7 +9,7 @@ import { manualWeather, weatherSummary, isStale, seasonFromDate, SEASON_NAMES, c
 import { forecast, geocode, currentPosition } from '../services/weather.js';
 import { buildQuery } from '../domain/wardrobe-logic.js';
 import { MODE_STYLES } from '../domain/scoring.js';
-import { proposalCard, saveOutfit, wearOutfit, addToCalendar, piecesList, pieceRow, MODE_NAME, workKitBlock, openDressingPicker } from './shared.js';
+import { proposalCard, saveOutfit, wearOutfit, addToCalendar, piecesList, pieceRow, MODE_NAME, workKitBlock, openDressingPicker, dislikeDialog } from './shared.js';
 import { navigate } from '../app.js';
 import { renderDaily } from './daily.js';
 
@@ -187,6 +187,7 @@ export async function render(main) {
     if (kind === 'too-casual') { p.formalityBias = Math.min(2, (p.formalityBias || 0) + 0.5); entry.label = 'Formalité cible relevée de 0,5'; }
     if (kind === 'too-warm') { p.warmthBias = Math.max(-3, (p.warmthBias || 0) - 0.5); entry.label = 'Préférence pour des tenues plus légères (≈ +1 °C ressenti)'; }
     if (kind === 'too-cold') { p.warmthBias = Math.min(3, (p.warmthBias || 0) + 0.5); entry.label = 'Préférence pour des tenues plus chaudes (≈ −1 °C ressenti)'; }
+    if (kind === 'dislike') { dislikeDialog(opt.pieces, () => run()); return; }
     if (kind === 'no-fit') {
       const list = piecesList(opt.pieces).filter(([r]) => ['top', 'bottom', 'layer', 'outer'].includes(r));
       openModal({ title: 'Quelle pièce ne vous va pas ?', body: html`<p class="small muted">La coupe de cette pièce sera notée « à revoir ». Réversible dans Profil.</p><div class="kbd-list">${list.map(([r, g], i) => html`<label class="check"><input type="checkbox" data-i="${i}"> ${ROLE_LABELS[r]} — ${g.name}</label>`)}</div><button class="btn btn-primary" data-ok style="margin-top:10px">Enregistrer</button>`,
