@@ -1,5 +1,5 @@
 // Dressing numérique : liste filtrable, fiche, ajout/édition avec photo, import multiple, statistiques.
-import { html, raw, setHTML } from '../lib/html.js';
+import { html, raw, setHTML, safeUrl } from '../lib/html.js';
 import { icon, toast, confirmDialog, swatch, emptyState, readForm, options, fmtDate, fmtEUR, openModal, todayISO } from '../components/ui.js';
 import { store, pid, garments as loadGarments, hydratePhotos, forgetPhotoURL, wearlog as loadWearlog, outfits as loadOutfits } from '../state.js';
 import { uid } from '../repositories/db.js';
@@ -37,6 +37,7 @@ export async function render(main, params, query) {
   if (a === 'care') return renderCare(main);
   if (a === 'season') return renderSeason(main);
   if (b === 'edit') { const g = await store.repo.get('garments', a); return g ? renderEditor(main, g) : notFound(main); }
+  if (b === 'upgrade') { const g = await store.repo.get('garments', a); return g && g.profileId === pid() ? renderUpgrade(main, g) : notFound(main); }
   const g = await store.repo.get('garments', a);
   return g && g.profileId === pid() ? renderDetail(main, g) : notFound(main);
 }
@@ -59,6 +60,7 @@ function presetFromQuery(query) {
   if (query.get('category') && CATEGORY_BY_ID[query.get('category')]) { out.category = query.get('category'); out.sub = CATEGORY_BY_ID[out.category].subs[0][0]; }
   if (query.get('price')) out.price = Number(query.get('price')) || null;
   if (query.get('wish')) out.wishId = query.get('wish');
+  if (query.get('replaces')) out.replacesId = query.get('replaces');
   // Depuis « Avant d'acheter » : type, couleur, matière, marque et lien déjà analysés
   if (query.get('sub') && SUB_INFO[query.get('sub')]) { out.sub = query.get('sub'); out.category = SUB_INFO[out.sub].category; }
   if (query.get('color') && COLOR_BY_ID[query.get('color')]) { const col = COLOR_BY_ID[query.get('color')]; out.color = { id: col.id, name: col.name, hex: col.hex }; }
@@ -206,6 +208,9 @@ async function renderDetail(main, g) {
           <p class="small muted" id="cutmsg" aria-live="polite">Traitement sur votre appareil, aucune photo envoyée. ${shop ? '' : `Premier usage : téléchargement unique d'environ ${CUTOUT_DOWNLOAD_MB} Mo.`}</p></div>` : ''}
         ${g.setId ? html`<div class="card"><h3>Ensemble</h3>${mates.length ? html`<p class="small">Se porte avec : ${mates.map((m, i) => html`${i ? ', ' : ''}<a href="#/wardrobe/${m.id}">${m.name}</a>`)}.</p>` : html`<p class="small">La pièce assortie n'a pas encore de fiche. <a href="#/wardrobe/${g.id}/edit">Modifier</a> puis enregistrer pour la créer.</p>`}
           <p class="small muted">Ensemble complet pour les occasions habillées ; séparément le reste du temps (la veste en blazer avec un chino ou un jean, le pantalon avec un pull fin). Lavez et pressez les deux pièces ensemble pour garder la même teinte.</p></div>` : ''}
+        <div class="card"><h3>${g.replace && !g.replace.done ? html`À remplacer <span class="tag tag-warn">${(g.replace.reasons || []).map((r) => REPLACE_LABEL[r]).filter(Boolean).join(', ') || 'à améliorer'}</span>` : 'Pas satisfait de cette pièce ?'}</h3>
+          <p class="small muted">${g.replace && !g.replace.done ? 'Vous cherchez la même en mieux. Elle reste dans le dressing en attendant.' : 'Dites ce qui ne va pas : l\'application cherche la même pièce en mieux (matière, coupe, finitions) et vous dit quoi vérifier avant d\'acheter.'}</p>
+          <div class="btn-row">${g.replace && !g.replace.done ? html`<a class="btn btn-primary btn-sm" href="#/wardrobe/${g.id}/upgrade">${icon('search')} Voir les alternatives</a><button class="btn btn-ghost btn-sm" id="unreplace">Finalement je la garde</button>` : html`<button class="btn btn-sm" id="toreplace">😕 À remplacer : trouver mieux</button>`}</div></div>
         <div class="card"><h3>Disponibilité</h3><div class="chips">${AVAILABILITY.map(([id, label]) => html`<button class="chip" data-avail="${id}" aria-pressed="${(g.availability || 'clean') === id}">${label}</button>`)}</div>
           <p class="small muted" style="margin-top:8px">Une pièce « à laver », « indisponible » ou « en retouche » n'est jamais proposée comme immédiatement portable.</p></div>
       </div>
@@ -264,6 +269,8 @@ async function renderDetail(main, g) {
   });
   main.querySelector('#goweb')?.addEventListener('click', () => { focusWeb = true; navigate(`#/wardrobe/${g.id}/edit`); });
   main.querySelector('#fav').onclick = async () => { await store.repo.put('garments', { ...g, favorite: !g.favorite }); navigate(`#/wardrobe/${g.id}`); };
+  main.querySelector('#toreplace')?.addEventListener('click', () => replaceDialog(g));
+  main.querySelector('#unreplace')?.addEventListener('click', async () => { const { replace, ...rest } = g; void replace; await store.repo.put('garments', rest); toast('Pièce gardée'); navigate(`#/wardrobe/${g.id}`); });
   main.querySelectorAll('[data-avail]').forEach((b) => b.onclick = async () => { await store.repo.put('garments', b.dataset.avail === 'clean' && g.availability === 'to-wash' ? afterWash(g) : { ...g, availability: b.dataset.avail }); toast(`Disponibilité : ${AVAIL_LABEL[b.dataset.avail]}`); navigate(`#/wardrobe/${g.id}`); });
   main.querySelector('#del').onclick = async () => {
     if (await confirmDialog({ title: 'Supprimer cette pièce ?', message: `« ${g.name} » et ses photos seront supprimées de cet appareil. Les tenues qui l'utilisent la signaleront comme pièce supprimée. Cette action est irréversible.`, confirmLabel: 'Supprimer', danger: true })) {
@@ -533,10 +540,12 @@ async function renderEditor(main, existing, preset = {}) {
         sourceUrl: v.sourceUrl || null, tags: v.tags ? v.tags.split(',').map((t) => t.trim()).filter((t) => t && t !== 'à compléter') : [], // fiche complétée notes: v.notes, favorite: !!v.favorite,
         photoIds, photoKind: v.photoKind, ref: v.ref || null, origin: v.origin || null, setId, everyday: v.category === 'accessoire' ? !!v.everyday : undefined,
       };
-      delete rec.capsuleId; delete rec.wishId;
+      const replacesId = !existing ? g.replacesId : null;
+      delete rec.capsuleId; delete rec.wishId; delete rec.replacesId;
       await store.repo.put('garments', rec);
       if (!existing && g.capsuleId) { const key = `capsule:${pid()}`; const cap = await store.repo.kvGet(key, { level: 1, items: {} }); cap.items[g.capsuleId] = { owned: true, garmentId: id }; await store.repo.kvSet(key, cap); }
       if (!existing && g.wishId) { const w = await store.repo.get('wishlist', g.wishId); if (w) await store.repo.put('wishlist', { ...w, linkedGarmentId: id }); }
+      if (replacesId) { const oldG = await store.repo.get('garments', replacesId); if (oldG && await confirmDialog({ title: 'Mettre l\'ancienne pièce de côté ?', message: `« ${rec.name} » remplace « ${oldG.name} ». L'ancienne ne sera plus proposée (statut « Indisponible ») ; vous pourrez la donner, la vendre ou la garder pour le travail.`, confirmLabel: 'Oui, la mettre de côté' })) await store.repo.put('garments', { ...oldG, availability: 'unavailable', replacedBy: id, replace: { ...(oldG.replace || {}), done: new Date().toISOString() } }); }
       if (state.lensUsed) store.sync.clearLens();
       toast(existing ? 'Fiche mise à jour' : 'Pièce ajoutée au dressing');
       const comp = newSet ? setComplement(v.sub, v.category) : null;
@@ -991,6 +1000,7 @@ async function renderBilan(main) {
       <div><h2>Jamais proposées en ce moment</h2><div class="card">${a.underused.length ? html`<ul class="clean">${a.underused.slice(0, 10).map((u) => html`<li style="padding:6px 0;border-bottom:1px solid var(--line)"><a href="#/wardrobe/${u.g.id}">${u.g.name}</a><div class="small muted">${u.why}</div></li>`)}</ul>${a.underused.length > 10 ? html`<p class="small muted">… et ${a.underused.length - 10} autre(s).</p>` : ''}` : html`<p class="small">${icon('check')} Toutes vos pièces sont proposées au moins une fois.</p>`}
         <a class="small" href="#/wardrobe/review">Revue pièce par pièce (garder, retoucher, donner) →</a></div></div>
     </div>
+    ${(() => { const reps = all.filter((g) => g.replace && !g.replace.done); return reps.length ? html`<h2>À remplacer (${reps.length})</h2><div class="card" style="margin-bottom:12px"><ul class="clean">${reps.map((g) => html`<li class="row-between" style="padding:6px 0;border-bottom:1px solid var(--line)"><span><a href="#/wardrobe/${g.id}">${g.name}</a> <span class="small muted">${(g.replace.reasons || []).map((r) => REPLACE_LABEL[r]).join(', ')}</span></span><a class="btn btn-sm" href="#/wardrobe/${g.id}/upgrade">Trouver mieux</a></li>`)}</ul></div>` : ''; })()}
     <div class="grid-2" style="margin-top:8px">
       <div><h2>Pièces qui ne vont avec rien</h2><div class="card">${orphans.length ? html`<ul class="clean">${orphans.map(({ g, fix, gain }) => html`<li style="padding:8px 0;border-bottom:1px solid var(--line)"><a href="#/wardrobe/${g.id}"><strong>${g.name}</strong></a>
           <div class="small">${fix ? html`Achetez <strong>${fix.name.toLowerCase()}</strong> (${fix.budget[0]}–${fix.budget[1]} €) : elle devient portable dans <strong>${gain} tenue${gain > 1 ? 's' : ''}</strong>. <a href="#/shopping?q=${encodeURIComponent(q(fix))}">Chercher</a>` : html`<span class="muted">Aucune pièce de la capsule ne l'accorde : couleur ou niveau d'habillage trop à part. À garder pour une occasion précise, ou à donner.</span>`}</div></li>`)}</ul>`
@@ -1229,5 +1239,54 @@ async function renderSeason(main, forced) {
     store.repo.emit('garments', 'bulk', null);
     await store.repo.kvSet(`season:done:${target}:${new Date().getFullYear()}`, true);
     toast(`${ids.length} pièce${ids.length > 1 ? 's' : ''} ressortie${ids.length > 1 ? 's' : ''} : pensez à les aérer`); renderSeason(main, target);
+  });
+}
+
+// ---------------------------------------------------------------- À remplacer : trouver la même pièce en mieux
+const REPLACE_LABEL = { quality: 'qualité', worn: 'usée', fit: 'coupe', size: 'taille', color: 'couleur', style: 'élégance' };
+async function replaceDialog(g) {
+  const { REPLACE_REASONS } = await import('../domain/upgrade.js');
+  openModal({ title: `Qu'est-ce qui ne va pas avec « ${g.name} » ?`, body: html`<p class="small muted">Plusieurs choix possibles. La pièce reste dans votre dressing jusqu'à ce que vous ayez trouvé mieux.</p>
+    <div class="kbd-list">${REPLACE_REASONS.map(([id, label]) => html`<label class="check"><input type="checkbox" data-r="${id}" ${g.replace?.reasons?.includes(id) ? raw('checked') : ''}> ${label}</label>`)}</div>
+    <div class="field" style="margin-top:8px"><label for="rnote">Précision (facultatif)</label><input id="rnote" placeholder="Ex. : le col se roule, trop court aux manches…" value="${g.replace?.note || ''}"></div>
+    <button class="btn btn-primary" data-ok style="margin-top:10px">${icon('search')} Trouver mieux</button>`,
+  onMount(body, close) {
+    body.querySelector('[data-ok]').onclick = async () => {
+      const reasons = [...body.querySelectorAll('[data-r]:checked')].map((c) => c.dataset.r);
+      if (!reasons.length) { toast('Choisissez au moins une raison'); return; }
+      await store.repo.put('garments', { ...g, replace: { reasons, note: body.querySelector('#rnote').value.trim(), at: new Date().toISOString() } });
+      close(); navigate(`#/wardrobe/${g.id}/upgrade`);
+    };
+  } });
+}
+
+async function renderUpgrade(main, g) {
+  const { upgradePlan } = await import('../domain/upgrade.js');
+  if (!g.replace) { replaceDialog(g); return renderDetail(main, g); }
+  const plan = upgradePlan(g, g.replace.reasons, { profile: store.profile, budgets: store.profile.budgets });
+  const wished = (await store.repo.all('wishlist')).some((w) => w.replacesId === g.id && w.status === 'wanted');
+  setHTML(main, html`<a href="#/wardrobe/${g.id}" class="small">← ${g.name}</a>
+    <div class="page-head" style="margin-top:8px"><div class="eyebrow">À remplacer</div><h1>Trouver mieux que « ${g.name} »</h1>
+      <p class="lede">Raisons : ${(g.replace.reasons || []).map((r) => REPLACE_LABEL[r]).join(', ')}${g.replace.note ? ` — ${g.replace.note}` : ''}. <a href="#" id="editr">Modifier</a></p></div>
+    <div class="grid-2" style="align-items:start">
+      <div class="card"><div class="row" style="gap:12px;flex-wrap:nowrap">${g.photoIds?.length ? html`<img data-photo="${g.photoIds[0]}" data-photo-list="${g.photoIds.join(',')}" alt="${g.name}" style="width:90px;border-radius:10px">` : ''}
+        <div><div class="eyebrow">Votre pièce actuelle</div><strong>${g.name}</strong><div class="small muted">${[g.brand, g.material, g.size ? `taille ${g.size}` : '', g.price ? `${g.price} €` : ''].filter(Boolean).join(' · ')}</div></div></div>
+        <h3 style="margin-top:14px">Ce qu'il faut chercher</h3>
+        <p><strong>${plan.better}</strong>${plan.priceRange ? html` · <span class="tag tag-gold">${plan.priceRange[0]}–${plan.priceRange[1]} €</span>` : ''}</p>
+        <ul class="ticks small">${plan.why.map((w) => html`<li>${w}</li>`)}</ul>
+        <p class="small muted">Recherche dans les boutiques : « ${plan.shortQuery} »</p></div>
+      <div class="card"><h3 style="margin-top:0">À vérifier avant d'acheter</h3><ul class="clean">${plan.checks.map((c) => html`<li><label class="check"><input type="checkbox"> ${c}</label></li>`)}</ul>
+        <p class="small muted">Sur le site, ouvrez « Composition » ou « Détails » : la matière exacte y est toujours indiquée.</p></div>
+    </div>
+    <h2>Où chercher</h2>
+    <div class="stack">${plan.shops.map((s) => html`<a class="card card-link row-between" href="${safeUrl(s.url)}" target="_blank" rel="noopener"><span><strong>${s.name}</strong>${s.secondHand ? html` <span class="tag">Occasion</span>` : ''}<div class="small muted">${s.why}</div></span><span class="btn btn-sm">${icon('search')} Chercher</span></a>`)}
+      <a class="card card-link row-between" href="${safeUrl(plan.googleShopping)}" target="_blank" rel="noopener"><span><strong>Comparer les prix (Google Shopping)</strong><div class="small muted">Toutes les boutiques d'un coup, triables par prix</div></span><span class="btn btn-sm">${icon('search')} Comparer</span></a></div>
+    <div class="callout" style="margin-top:16px"><strong>Vous avez trouvé un article ?</strong> Collez son lien : je vérifie s'il est vraiment mieux que votre pièce actuelle (matière, prix, couleur) et s'il va avec votre dressing.
+      <div class="btn-row" style="margin-top:8px"><a class="btn btn-primary" href="#/shopping/check?replace=${g.id}">Vérifier un article</a>${wished ? html`<a class="btn" href="#/shopping/wishlist">Dans mes envies ✓</a>` : html`<button class="btn" id="upwish">${icon('heart')} Ajouter à mes envies</button>`}</div></div>`);
+  hydratePhotos(main);
+  main.querySelector('#editr').onclick = (e) => { e.preventDefault(); replaceDialog(g); };
+  main.querySelector('#upwish')?.addEventListener('click', async () => {
+    await store.repo.put('wishlist', { id: uid('wish'), profileId: pid(), name: `${SUB_INFO[g.sub]?.name || g.name} (remplace ${g.name})`, query: plan.query, color: g.replace.reasons.includes('color') ? null : g.color?.id || null, budgetMax: plan.priceRange?.[1] || null, material: plan.better, priority: 1, status: 'wanted', candidates: [], replacesId: g.id, notes: plan.checks.join(' ; ') });
+    toast('Ajouté à vos envies'); renderUpgrade(main, g);
   });
 }

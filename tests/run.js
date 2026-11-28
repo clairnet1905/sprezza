@@ -37,6 +37,7 @@ import { howToWear } from '../src/domain/how-to-wear.js';
 import { planWeek } from '../src/domain/week-plan.js';
 import { prepChecklist, laundryLoads, loadOf } from '../src/domain/prep.js';
 import { decodeDressCode } from '../src/domain/dresscode.js';
+import { upgradePlan, compareUpgrade, materialScore } from '../src/domain/upgrade.js';
 import { duplicates, orphanFixes } from '../src/domain/audit.js';
 import { protectionAdvice } from '../src/features/protect.js';
 import { comboKey } from '../src/domain/recommend.js';
@@ -865,6 +866,25 @@ test('Protection : installer sur iPhone, sauvegarde chaque semaine, rien si sync
   eq(protectionAdvice({ garments: 20, lastBackup: '2026-11-25T10:00:00Z', ios: true, installed: true, now }), null);
   eq(protectionAdvice({ garments: 20, lastBackup: '2026-11-10T10:00:00Z', ios: false, installed: false, now }).days, 18);
   eq(protectionAdvice({ garments: 20, snoozeUntil: '2026-11-30T00:00:00Z', ios: true, now }), null);
+});
+
+
+test('À remplacer : la même pièce en mieux (recherche, prix, boutiques, vérifications, comparaison)', () => {
+  const old = G('polo', 'haut', 'navy', { name: 'Polo marine H&M', material: '60 % coton 40 % polyester', price: 20, brand: 'H&M', replace: { reasons: ['quality', 'worn'] } });
+  const p = upgradePlan(old, old.replace.reasons, { profile: { kind: 'main' } });
+  ok(/polo en maille homme maille coton fil d'Écosse ou mérinos marine/.test(p.query), p.query);
+  eq(p.priceRange[0], 26); eq(p.priceRange[1], 50);
+  ok(p.shops.length >= 3 && p.shops.every((x) => x.url.startsWith('https://')) && p.shops.some((x) => x.secondHand));
+  ok(p.checks.some((c) => /acrylique/.test(c)) && p.why.some((w) => /rendez-vous/.test(w)));
+  ok(!upgradePlan({ ...old, replace: { reasons: ['color'] } }, ['color']).query.includes('marine'));
+  eq(materialScore('100 % mérinos'), 4); eq(materialScore('60 % coton 40 % polyester'), 2); eq(materialScore('simili cuir'), 1); eq(materialScore(''), null);
+  const better = compareUpgrade(old, { sub: 'polo', color: 'navy', material: 'mérinos', price: 45 });
+  ok(better[0].tone === 'ok', JSON.stringify(better));
+  const worse = compareUpgrade({ ...old, material: 'laine' }, { sub: 'polo', color: 'navy', material: '100 % polyester', price: 15 });
+  ok(worse.some((x) => x.tone === 'bad'));
+  const w = [old, G('polo', 'haut', 'ecru'), G('pantalon', 'bas', 'mid-gray'), G('derbies', 'chaussures', 'chocolate'), G('blazer', 'veste', 'navy')];
+  const r = recommend({ garments: w, occasionId: 'client', weather: manualWeather({ temp: 15 }) });
+  ok(r.options.every((o) => o.pieces.top.id !== old.id) && r.info.excluded.some(([g, why]) => g.id === old.id && /usée/.test(why)));
 });
 
 // ---------------- Exécution

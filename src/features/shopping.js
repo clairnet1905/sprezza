@@ -232,7 +232,7 @@ function purchase(w, box) {
     const price = Number(body.querySelector('#pp').value) || null;
     await store.repo.put('wishlist', { ...w, status: 'purchased', purchasedAt: body.querySelector('#pd').value, purchasePrice: price });
     close();
-    if (body.querySelector('#padd').checked) { const cat = guessCategory(w.name); navigate(`#/wardrobe/new?name=${encodeURIComponent(w.name)}${cat ? `&category=${cat.category}` : ''}${price ? `&price=${price}` : ''}&wish=${w.id}`); }
+    if (body.querySelector('#padd').checked) { const cat = guessCategory(w.name); navigate(`#/wardrobe/new?name=${encodeURIComponent(w.name.replace(/\s*\(remplace .*\)$/, ''))}${cat ? `&category=${cat.category}` : ''}${price ? `&price=${price}` : ''}&wish=${w.id}${w.replacesId ? `&replaces=${w.replacesId}` : ''}`); }
     else renderWishlist(box);
   }; } });
 }
@@ -266,10 +266,13 @@ async function renderHistory(box) {
 // ---------------------------------------------------------------- Avant d'acheter
 const VERDICT_STYLE = { buy: ['tag-ok', 'check'], think: ['tag-warn', 'rotate'], skip: ['tag-danger', 'close'] };
 async function renderCheck(box, query) {
-  const all = await loadGarments();
+  const all0 = await loadGarments();
+  const replaced = query?.get('replace') ? all0.find((g) => g.id === query.get('replace')) : null;
+  const all = replaced ? all0.filter((g) => g.id !== replaced.id) : all0; // l'ancienne pièce ne compte pas comme « doublon »
   const st = { cand: { sub: '', color: '', material: '', price: '', name: '', brand: '', url: '', ref: '' }, note: '', photo: null };
   setHTML(box, html`<section class="card card-accent">
     <h2 style="margin-top:0">Faut-il l'acheter ?</h2>
+    ${replaced ? html`<div class="callout small" style="margin-bottom:10px">Pour remplacer <strong>${replaced.name}</strong>${replaced.material ? ` (${replaced.material})` : ''}${replaced.price ? `, ${replaced.price} €` : ''} : je vérifie aussi que l'article est vraiment mieux.</div>` : ''}
     <p class="small">Collez le <strong>lien</strong> de l'article, ou écrivez la <strong>marque, la référence et une description</strong> (ex. « Uniqlo pull col rond mérinos marine 39,90 € »). Une <strong>photo</strong> aide pour la couleur. SPREZZA compare avec votre dressing et vous dit si l'achat est utile.</p>
     <div class="field"><label for="pcin">Lien, marque, référence ou description</label><textarea id="pcin" rows="3" placeholder="https://… ou « Zara chino marron clair 0347/890 29,95 € »">${query?.get('q') || ''}</textarea></div>
     <div class="form-grid">
@@ -338,9 +341,15 @@ async function renderCheck(box, query) {
     const c = st.cand;
     const r = evaluatePurchase({ sub: c.sub, color: c.color, material: c.material, price: c.price || null, name: c.name }, all, { date: new Date() });
     if (!r) return;
+    if (replaced) {
+      const { compareUpgrade } = await import('../domain/upgrade.js');
+      const cmp = compareUpgrade(replaced, { sub: c.sub, color: c.color, material: c.material, price: c.price || null });
+      r.reasons = [...cmp, ...r.reasons];
+      if (cmp.some((x) => x.tone === 'bad') && r.verdict === 'buy') { r.verdict = 'think'; r.label = 'Pas vraiment mieux que votre pièce actuelle'; }
+    }
     const [tone, ic] = VERDICT_STYLE[r.verdict];
     const nm = c.name || [c.brand, SUB_INFO[c.sub].name, COLOR_BY_ID[c.color]?.name.toLowerCase()].filter(Boolean).join(' ');
-    const newUrl = `#/wardrobe/new?name=${encodeURIComponent(nm)}&sub=${c.sub}&color=${c.color}${c.price ? `&price=${c.price}` : ''}${c.material ? `&material=${encodeURIComponent(c.material)}` : ''}${c.brand ? `&brand=${encodeURIComponent(c.brand)}` : ''}${c.ref ? `&ref=${encodeURIComponent(c.ref)}` : ''}${c.url ? `&sourceUrl=${encodeURIComponent(c.url)}` : ''}`;
+    const newUrl = `#/wardrobe/new?name=${encodeURIComponent(nm)}&sub=${c.sub}&color=${c.color}${c.price ? `&price=${c.price}` : ''}${c.material ? `&material=${encodeURIComponent(c.material)}` : ''}${c.brand ? `&brand=${encodeURIComponent(c.brand)}` : ''}${c.ref ? `&ref=${encodeURIComponent(c.ref)}` : ''}${c.url ? `&sourceUrl=${encodeURIComponent(c.url)}` : ''}${replaced ? `&replaces=${replaced.id}` : ''}`;
     setHTML($('#pcres'), html`<section class="card" style="margin-top:16px;border-left:4px solid var(${r.verdict === 'buy' ? '--ok' : r.verdict === 'think' ? '--warn' : '--danger'}, #999)">
       <div class="row" style="gap:10px;align-items:center">${swatch(colorHex(c.color))}<div><div class="eyebrow">Mon avis</div><h2 style="margin:0">${r.label}</h2></div><span class="tag ${tone}" style="margin-left:auto">${icon(ic)} ${r.verdict === 'buy' ? 'Oui' : r.verdict === 'think' ? 'Peut-être' : 'Non'}</span></div>
       <p class="small muted" style="margin:6px 0 0">${nm}${c.price ? ` · ${fmtEUR(c.price)}` : ''}</p>

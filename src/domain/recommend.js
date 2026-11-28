@@ -145,6 +145,7 @@ export function hardFilter(garments, { occasion, env, profileId, snoozed = null 
     const role = roleOf(g);
     if (!role) continue;
     if (!isAvailable(g)) { excluded.push([g, 'indisponible (à laver, retouche ou indisponible)']); continue; }
+    if (g.replace && !g.replace.done && g.replace.reasons?.includes('worn') && occasion && occasion.formality[0] >= 3 && !occasion.workwear) { excluded.push([g, 'usée (à remplacer) : gardée pour le quotidien et le travail']); continue; }
     if (snoozed?.[g.id] && snoozed[g.id] >= (env.today || '')) { excluded.push([g, 'mise de côté (« je n\'aime pas »)']); continue; }
     if (!inSeason(g, env.season) && !(env.cold && warmthOf(g) >= 3) && !(env.hot && warmthOf(g) <= 2)) { excluded.push([g, 'hors saison']); continue; }
     const f = garmentFormality(g);
@@ -333,6 +334,8 @@ export function recommend(input) {
       if (env.cold && outer) { const w = (warmthOf(outer) - 3) * (env.veryCold ? 2 : 1.2); rank += w; if (w > 0) bonus.push(`+${w.toFixed(1)} manteau chaud pour le froid`); }
       rank += styleRank(pieces, { mode, occasion, env, prefs }, sc) - base;
       if (prefs.likedCombos?.includes(comboKey(pieces))) { rank += 3; bonus.push('+3 tenue aimée'); }
+      const repl = pieceList.filter((g) => g.replace && !g.replace.done).length;
+      if (repl) { rank -= repl * 1.5; bonus.push(`−${repl * 1.5} pièce à remplacer`); }
       if (prefs.lowCombos?.includes(comboKey(pieces))) { rank -= 4; bonus.push('−4 tenue mal notée après l\'avoir portée'); }
       if (prefs.dislikedCombos?.includes(comboKey(pieces))) { rank -= 40; bonus.push('−40 tenue que vous n\'aimez pas'); }
       if (top && bottom && prefs.dislikedPairs?.includes(`${top.id}|${bottom.id}`)) { rank -= 8; bonus.push('−8 association haut + bas que vous n\'aimez pas'); }
