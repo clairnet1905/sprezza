@@ -454,3 +454,9 @@ button.piece-pick:hover > .piece, button.piece-pick:focus-visible > .piece { bor
 .lb-small img, .lb-small .lb-glyph { aspect-ratio: 1 / 1; }
 .mannequin-big .lookbook { max-width: 560px; }
 .mannequin-big .lb-tile figcaption { font-size: 12px; white-space: normal; }
+
+/* Consigne ChatGPT sous la tenue du jour */
+.prompt-block { margin-top: 12px; border: 1px solid var(--line, rgba(0,0,0,.1)); border-radius: 12px; padding: 10px 12px; background: var(--surface-2, #f6f2ea); }
+.prompt-block summary { cursor: pointer; font-weight: 600; display: flex; gap: 6px; align-items: center; }
+.prompt-steps { margin: 8px 0; padding-left: 18px; }
+.prompt-text { width: 100%; font: 12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; border-radius: 8px; padding: 8px; border: 1px solid var(--line, rgba(0,0,0,.12)); background: var(--surface, #fff); resize: vertical; }

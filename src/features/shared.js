@@ -3,7 +3,8 @@ import { html, raw } from '../lib/html.js';
 import { icon, swatch, toast, todayISO, scoreLabel10, openModal, copyText } from '../components/ui.js';
 import { garmentGlyph, mannequinSVG } from '../components/mannequin.js';
 import { lookbookHTML } from '../components/lookbook.js';
-import { ROLE_LABELS, ROLE_ORDER, AVAILABILITY, CATEGORY_BY_ID, SUB_INFO } from '../data/taxonomy.js';
+import { ROLE_LABELS, ROLE_ORDER, AVAILABILITY, CATEGORY_BY_ID, SUB_INFO, FITS } from '../data/taxonomy.js';
+import { GROUP } from '../domain/explain.js';
 import { OUTFIT_MODES, OCCASION_BY_ID } from '../data/occasions.js';
 import { store, pid, hydratePhotos } from '../state.js';
 import { scoreOutfit } from '../domain/scoring.js';
@@ -84,14 +85,82 @@ if (typeof document !== 'undefined' && !window.__mannequinZoom) {
   });
 }
 /** Bouton « Photo réaliste » : envoie les photos des pièces et une consigne à ChatGPT (ou une autre app d'images). */
-export function realisticButton(pieces) {
+export function realisticButton(pieces, { occasionId = '' } = {}) {
   const ids = ['outer', 'layer', 'top', 'bottom', 'belt', 'shoes'].map((r) => pieces[r]?.id).filter(Boolean);
-  return ids.length ? html`<button type="button" class="btn btn-sm btn-ghost realistic-btn" data-realistic="${ids.join(',')}">${icon('camera')} Voir la tenue portée (photo réaliste)</button>` : '';
+  return ids.length ? html`<button type="button" class="btn btn-sm btn-ghost realistic-btn" data-realistic="${ids.join(',')}" data-occ="${occasionId}">${icon('camera')} Voir la tenue portée (photo réaliste)</button>` : '';
 }
-const ROLE_FR = { outer: 'Manteau', layer: 'Veste', top: 'Haut', bottom: 'Bas', belt: 'Ceinture', shoes: 'Chaussures' };
-export function realisticPrompt(list) {
-  const who = store.profile?.kind === 'woman' ? 'une femme' : store.profile?.kind === 'child' ? 'un enfant' : 'un homme';
-  return `Crée une photo réaliste, en pied, d'${who} (style catalogue de mode, fond clair uni, lumière douce, pose naturelle) portant exactement ces vêtements, d'après les photos jointes :\n${list.map(([r, g], i) => `${i + 1}. ${ROLE_FR[r]} : ${g.name}${g.color?.name ? ` (${g.color.name.toLowerCase()}${g.material ? `, ${g.material.toLowerCase()}` : ''})` : ''}`).join('\n')}\nRespecte fidèlement les couleurs, les motifs, les matières et les coupes de chaque pièce. Pas de logo ajouté, pas d'accessoire en plus.`;
+const ROLE_FR = { outer: 'Manteau', layer: 'Veste', top: 'Haut', bottom: 'Bas', belt: 'Ceinture', shoes: 'Chaussures', accessory: 'Accessoire' };
+export function realisticPrompt(list, opts = {}) {
+  const p = {}; for (const [r, g] of list) if (!p[r]) p[r] = g;
+  return wearPrompt(p, opts);
+}
+const SETTING = {
+  business: 'devant un immeuble de bureaux élégant, en journée',
+  evening: 'en terrasse d\'un beau restaurant en début de soirée, lumière chaude',
+  ceremony: 'devant une belle salle de réception, en journée',
+  casual: 'dans une rue piétonne d\'un centre-ville français',
+  summer: 'au bord de la mer, lumière d\'été',
+  outdoor: 'sur un sentier, paysage naturel',
+  work: 'dans un local professionnel propre et lumineux',
+  clientwork: 'devant l\'entrée d\'un immeuble de bureaux, en journée',
+};
+const SEASON_FR = (m) => (m <= 1 || m === 11 ? 'en hiver' : m <= 4 ? 'au printemps' : m <= 7 ? 'en été' : 'en automne');
+function pieceLine(role, g) {
+  const fit = ['outer', 'layer', 'top', 'bottom'].includes(role) ? FITS.find((f) => f[0] === g.fit)?.[1] : null;
+  const bits = [g.color?.name?.toLowerCase(), g.pattern && g.pattern !== 'Uni' ? g.pattern.toLowerCase() : '', g.material?.toLowerCase(), fit ? `coupe ${fit.toLowerCase()}` : '', g.brand].filter(Boolean);
+  return `${ROLE_FR[role]} : ${g.name.replace(/\s*\(démo\)/, '')}${bits.length ? ` (${bits.join(', ')})` : ''}`;
+}
+/** Manière de porter chaque pièce, pour que l'image ressemble à une vraie tenue bien portée. */
+function wearRules(p, occ) {
+  const r = [];
+  const tuck = ['chemise', 'chemise-lin', 'polo', 'polo-sport'].includes(p.top?.sub);
+  if (p.top) r.push(tuck && p.belt ? 'haut rentré dans le pantalon, ceinture visible' : tuck ? 'chemise rentrée proprement' : 'haut porté par-dessus le pantalon, ourlet net');
+  if (p.layer) r.push(['blazer', 'veste-costume'].includes(p.layer.sub) && GROUP[occ?.id] === 'business' ? 'veste fermée par le bouton du haut' : 'veste portée ouverte');
+  if (p.outer) r.push('manteau porté ouvert sur la tenue');
+  if (p.bottom) r.push('pantalon à la bonne longueur, tombant juste sur les chaussures');
+  r.push('vêtements bien repassés, à la bonne taille, ni trop serrés ni trop amples');
+  return r.join(' ; ');
+}
+/** Consigne complète pour ChatGPT (ou une autre app d'images) : pièces, façon de les porter, décor, cadrage. */
+export function wearPrompt(p, { occasion = null, style = null, date = new Date() } = {}) {
+  const prof = store.profile || {};
+  const who = prof.kind === 'woman' ? 'une femme' : prof.kind === 'child' ? 'un enfant' : 'un homme';
+  const h = prof.height ? `, mesurant environ ${(prof.height / 100).toFixed(2).replace('.', ',')} m` : '';
+  const roles = ['outer', 'layer', 'top', 'bottom', 'belt', 'shoes'].filter((r) => p[r]);
+  const acc = (p.accessories || []).filter((a) => !['lunettes-vue', 'montre-connectee'].includes(a.sub));
+  const lines = [...roles.map((r) => pieceLine(r, p[r])), ...acc.map((a) => pieceLine('accessory', a))];
+  const where = SETTING[GROUP[occasion?.id]] || SETTING.casual;
+  return [
+    `Crée une photo réaliste, en pied, d'${who}${h}, élégant et naturel, qui porte exactement la tenue ci-dessous.`,
+    `Je joins les photos de mes vêtements : reproduis fidèlement leurs couleurs, matières, motifs et coupes, sans rien inventer.`,
+    '',
+    'La tenue :',
+    ...lines.map((l, i) => `${i + 1}. ${l}`),
+    '',
+    `Comment la porter : ${wearRules(p, occasion)}.`,
+    `${style ? `Style : ${style.label} (${style.why}). ` : ''}${occasion ? `Occasion : ${occasion.name.toLowerCase()}. ` : ''}`.trim(),
+    `Décor : ${where}, ${SEASON_FR(date.getMonth())}.`,
+    'Photo : format portrait vertical, cadrage de la tête aux pieds, lumière naturelle douce, rendu de photographie de mode, pose détendue.',
+    'Interdit : logos ajoutés, accessoires en plus, vêtements différents de mes photos.',
+  ].filter((l, i, a) => l !== '' || a[i - 1] !== '').join('\n');
+}
+/** Bloc sous la tenue du jour : la consigne à copier pour ChatGPT. */
+export function promptBlock(pieces, { occasion = null, style = null } = {}) {
+  const text = wearPrompt(pieces, { occasion, style });
+  const withPhoto = ['outer', 'layer', 'top', 'bottom', 'belt', 'shoes'].map((r) => pieces[r]).filter((g) => g?.photoIds?.length);
+  return html`<details class="prompt-block"><summary>${icon('camera')} Consigne pour ChatGPT : voir cette tenue portée</summary>
+    <ol class="small prompt-steps"><li>Touchez <strong>Copier la consigne</strong>.</li><li>Dans ChatGPT, joignez les photos de vos pièces${withPhoto.length ? ` (${withPhoto.length} ont une photo dans le dressing)` : ''}, puis collez la consigne.</li><li>Pour vous voir vous-même, joignez aussi une photo de vous en pied et ajoutez « sur la personne de ma photo ».</li></ol>
+    <textarea class="prompt-text" readonly rows="12" aria-label="Consigne pour ChatGPT">${text}</textarea>
+    <div class="btn-row"><button type="button" class="btn btn-sm btn-primary" data-copyprompt>${icon('copy')} Copier la consigne</button>${realisticButton(pieces, { occasionId: occasion?.id || '' })}<a class="btn btn-sm btn-ghost" href="https://chatgpt.com/" target="_blank" rel="noopener">Ouvrir ChatGPT</a></div>
+  </details>`;
+}
+if (typeof document !== 'undefined' && !window.__copyPrompt) {
+  window.__copyPrompt = true;
+  document.addEventListener('click', async (e) => {
+    const b = e.target.closest?.('[data-copyprompt]'); if (!b) return;
+    const t = b.closest('.prompt-block')?.querySelector('.prompt-text'); if (!t) return;
+    await copyText(t.value); toast('Consigne copiée : collez-la dans ChatGPT avec vos photos');
+  });
 }
 if (typeof document !== 'undefined' && !window.__realisticBtn) {
   window.__realisticBtn = true;
@@ -101,7 +170,7 @@ if (typeof document !== 'undefined' && !window.__realisticBtn) {
     const ids = b.dataset.realistic.split(',');
     const gs = (await Promise.all(ids.map((id) => store.repo.get('garments', id)))).filter(Boolean);
     const list = gs.map((g) => [['outer', 'layer', 'top', 'bottom', 'belt', 'shoes'].find((r) => roleOf(g) === r) || 'top', g]);
-    const prompt = realisticPrompt(list);
+    const prompt = realisticPrompt(list, { occasion: OCCASION_BY_ID[b.dataset.occ] || null });
     // Photos : version boutique si elle existe, sinon la photo principale
     const files = [];
     for (const g of gs) {
@@ -113,7 +182,7 @@ if (typeof document !== 'undefined' && !window.__realisticBtn) {
     if (files.length && navigator.canShare?.({ files })) {
       try { await navigator.share({ files, text: prompt, title: 'Ma tenue' }); return; } catch (err) { if (err?.name === 'AbortError') return; }
     }
-    openModal({ title: 'Photo réaliste de la tenue', body: html`<p>La consigne est <strong>copiée</strong>. ${files.length ? `Ce navigateur ne peut pas partager les ${files.length} photo(s) directement :` : 'Aucune de ces pièces n\'a de photo :'} ouvrez ChatGPT, joignez les photos de vos pièces (depuis votre galerie ou le dressing), puis collez la consigne.</p>
+    openModal({ title: 'Voir la tenue portée', body: html`<p>La consigne est <strong>copiée</strong>. ${files.length ? `Ce navigateur ne peut pas partager les ${files.length} photo(s) directement :` : 'Aucune de ces pièces n\'a de photo :'} ouvrez ChatGPT, joignez les photos de vos pièces (depuis votre galerie ou le dressing), puis collez la consigne.</p>
       <pre class="small" style="white-space:pre-wrap;background:var(--surface-2);padding:10px;border-radius:8px">${prompt}</pre>
       <div class="btn-row"><a class="btn btn-primary" href="https://chatgpt.com/" target="_blank" rel="noopener">Ouvrir ChatGPT</a></div>
       <p class="small muted">ChatGPT génère une image à partir de vos photos : le rendu est une illustration réaliste, pas une vraie photo de vous. Vos photos sont envoyées à ChatGPT seulement si vous les joignez.</p>` });

@@ -33,6 +33,7 @@ import { parseICS, parseAgendaText, occasionForEvent, dayPlan } from '../src/dom
 import { mapGoogleEvents } from '../src/services/google-calendar.js';
 import { mirror } from '../src/components/dressed.js';
 import { lookbookHTML } from '../src/components/lookbook.js';
+import { wearPrompt } from '../src/features/shared.js';
 import { looksFor } from '../src/domain/explain.js';
 import { afterWear as afterWear2 } from '../src/domain/care.js';
 import { climateFeel } from '../src/domain/weather.js';
@@ -769,6 +770,15 @@ test('Tenue à plat : vraies photos des pièces, veste à gauche, haut et pantal
   ok(h2.indexOf('lb-outer') < h2.indexOf('lb-small lb-layer') || h2.includes('lb-layer lb-small'), h2);
   ok(h.includes('g-placeholder'), 'pièce sans photo : silhouette dans sa couleur');
   ok(String(lookbookHTML({ top: G('t', 'polo', ['x']), bottom: G('b', 'chino', ['y']) })).includes('lb-simple'));
+});
+
+
+test('Consigne ChatGPT : toutes les pièces, façon de porter, décor selon l\'occasion', () => {
+  const G = (sub, name, color, extra = {}) => ({ id: sub, name, sub, color: { id: color, name: color === 'navy' ? 'Marine' : 'Blanc' }, ...extra });
+  const t = wearPrompt({ layer: G('blazer', 'Blazer marine (démo)', 'navy', { material: 'Laine' }), top: G('chemise', 'Chemise blanche', 'white'), bottom: G('chino', 'Chino', 'navy'), belt: G('ceinture-cuir', 'Ceinture', 'navy'), shoes: G('derbies', 'Derbies', 'navy') }, { occasion: { id: 'client', name: 'Rencontre client' }, style: { label: 'business casual', why: 'blazer, chemise' }, date: new Date(2026, 10, 28) });
+  ok(/1\. Veste : Blazer marine \(marine, laine\)/.test(t), t);
+  ok(!/démo/.test(t)); ok(/rentré dans le pantalon, ceinture visible/.test(t)); ok(/veste fermée/.test(t));
+  ok(/bureaux/.test(t) && /en automne/.test(t) && /Style : business casual/.test(t));
 });
 
 // ---------------- Exécution
